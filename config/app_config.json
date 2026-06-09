@@ -1,0 +1,297 @@
+{
+  "button_font_size": 16,
+  "symbol_mapping": {
+    "operators": {
+      "+": {
+        "label": "加",
+        "aliases": [
+          "＋"
+        ],
+        "voice_key": "+"
+      },
+      "-": {
+        "label": "减",
+        "aliases": [
+          "－"
+        ],
+        "voice_key": "-"
+      },
+      "*": {
+        "label": "乘",
+        "aliases": [
+          "×",
+          "X",
+          "x",
+          "·"
+        ],
+        "voice_key": "×"
+      },
+      "/": {
+        "label": "除",
+        "aliases": [
+          "÷",
+          "／"
+        ],
+        "voice_key": "÷"
+      }
+    },
+    "bracket_pairs": [
+      {
+        "left": "(",
+        "right": ")",
+        "left_label": "左括号",
+        "right_label": "右括号",
+        "voice_left_key": "(",
+        "voice_right_key": ")"
+      },
+      {
+        "left": "[",
+        "right": "]",
+        "left_label": "左中括号",
+        "right_label": "右中括号",
+        "voice_left_key": "(",
+        "voice_right_key": ")"
+      },
+      {
+        "left": "{",
+        "right": "}",
+        "left_label": "左大括号",
+        "right_label": "右大括号",
+        "voice_left_key": "(",
+        "voice_right_key": ")"
+      },
+      {
+        "left": "（",
+        "right": "）",
+        "left_label": "左括号",
+        "right_label": "右括号",
+        "voice_left_key": "(",
+        "voice_right_key": ")"
+      },
+      {
+        "left": "【",
+        "right": "】",
+        "left_label": "左中括号",
+        "right_label": "右中括号",
+        "voice_left_key": "(",
+        "voice_right_key": ")"
+      },
+      {
+        "left": "｛",
+        "right": "｝",
+        "left_label": "左大括号",
+        "right_label": "右大括号",
+        "voice_left_key": "(",
+        "voice_right_key": ")"
+      }
+    ]
+  },
+  "window_sizes": {
+    "main": [
+      2560,
+      1369
+    ],
+    "bills": [
+      1707,
+      889
+    ],
+    "edit_bill": [
+      720,
+      900
+    ],
+    "edit_trade_item": [
+      440,
+      340
+    ],
+    "export_settings": [
+      560,
+      420
+    ],
+    "add_category": [
+      360,
+      130
+    ],
+    "new_project": [
+      640,
+      420
+    ],
+    "rollback": [
+      1200,
+      650
+    ],
+    "settings": [
+      900,
+      700
+    ]
+  },
+  "voice": {
+    "enabled": true,
+    "volume": 100,
+    "tts_rate": 110,
+    "preview_text": "砌墙，公式，12.5 乘以 3 加 8 除以 2 减去括号 1.5 加 0.5 括号，等于 41.5"
+  },
+  "backup_count": 20,
+  "export_defaults": {
+    "price_list_settings": {
+      "visible": true,
+      "show_no_unit_items": false,
+      "show_empty_categories": false,
+      "align_columns": true,
+      "name_width": 18,
+      "price_width": 18
+    },
+    "text_colors": {
+      "normal": "#000000",
+      "muted": "#888888",
+      "formula": "#2b6cb0",
+      "amount": "#c0392b"
+    },
+    "export_bg_color": "#ffffff",
+    "export_strip_category": true,
+    "export_show_project_date": false,
+    "export_show_record_time": false,
+    "export_show_export_time": false,
+    "export_append_note_to_item_title": true
+  },
+  "default_bill_column_widths": {
+    "#": 0.0526315789,
+    "审核": 0.05,
+    "工作内容": 0.1394736842,
+    "公式": 0.1263157895,
+    "单价": 0.1263157895,
+    "金额": 0.1263157895,
+    "备注": 0.1684210526,
+    "日期": 0.1263157895,
+    "操作": 0.0842105263
+  },
+  "default_worker_column_widths": {
+    "名称": 0.3571428571,
+    "单价": 0.2142857143,
+    "单位": 0.2142857143,
+    "计费类型": 0.2142857143,
+    "操作": 0.12
+  },
+  "selection_highlight_color": "#ff8000",
+  "bill_reviewed_row_color": "#00ff00",
+  "rollback_column_widths": {
+    "序号": 0.0404774261,
+    "上次修改时间": 0.125583809,
+    "项目状态": 0.0736896731,
+    "有效性": 0.1271406331,
+    "工作数量情况": 0.4369486248,
+    "账单数": 0.1188375714,
+    "操作": 0.0773222626
+  },
+  "default_categories": [
+    {
+      "id": "cat_masonry",
+      "seq": 1,
+      "name": "泥瓦工程"
+    }
+  ],
+  "default_trade_items": [
+    {
+      "id": "ti_wall",
+      "seq": 1,
+      "category_id": "cat_masonry",
+      "name": "砌墙",
+      "has_unit": true,
+      "unit_price": 45,
+      "unit": "¥/m²"
+    },
+    {
+      "id": "ti_tile",
+      "seq": 2,
+      "category_id": "cat_masonry",
+      "name": "贴砖",
+      "has_unit": true,
+      "unit_price": 40,
+      "unit": "¥/m²"
+    },
+    {
+      "id": "ti_waterproof_single",
+      "seq": 3,
+      "category_id": "cat_masonry",
+      "name": "单遍防水",
+      "has_unit": true,
+      "unit_price": 15,
+      "unit": "¥/m²"
+    },
+    {
+      "id": "ti_waterproof_double",
+      "seq": 4,
+      "category_id": "cat_masonry",
+      "name": "双遍防水",
+      "has_unit": true,
+      "unit_price": 30,
+      "unit": "¥/m²"
+    },
+    {
+      "id": "ti_pipe_wrap",
+      "seq": 5,
+      "category_id": "cat_masonry",
+      "name": "包管子",
+      "has_unit": true,
+      "unit_price": 200,
+      "unit": "¥/个"
+    },
+    {
+      "id": "ti_marble",
+      "seq": 6,
+      "category_id": "cat_masonry",
+      "name": "贴大理石",
+      "has_unit": true,
+      "unit_price": 60,
+      "unit": "¥/m²"
+    },
+    {
+      "id": "ti_structural_column",
+      "seq": 7,
+      "category_id": "cat_masonry",
+      "name": "构造柱",
+      "has_unit": true,
+      "unit_price": 100.0,
+      "unit": "¥/个"
+    },
+    {
+      "id": "ti_rent",
+      "seq": 8,
+      "category_id": "cat_masonry",
+      "name": "房租",
+      "has_unit": false,
+      "unit_price": 0,
+      "unit": ""
+    },
+    {
+      "id": "ti_fuel",
+      "seq": 9,
+      "category_id": "cat_masonry",
+      "name": "加油",
+      "has_unit": false,
+      "unit_price": 0,
+      "unit": ""
+    },
+    {
+      "id": "ti_misc_worker",
+      "seq": 10,
+      "category_id": "cat_masonry",
+      "name": "杂工",
+      "has_unit": false,
+      "unit_price": 0,
+      "unit": ""
+    }
+  ],
+  "app_version": "1.0.0",
+  "schema_version": 1,
+  "release_notes": [
+    {
+      "version": "1.0.0",
+      "date": "2026-06-08",
+      "notes": [
+        "新增统一符号映射设置",
+        "新增关于页面",
+        "优化列宽与拖拽体验"
+      ]
+    }
+  ]
+}
