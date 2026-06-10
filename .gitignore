@@ -132,3 +132,6 @@ logs/
 migration_backups/
 *.bak
 *.spec
+
+# Opencode config (do not commit)
+AGENTS.md
