@@ -11,8 +11,7 @@ from .theme import (
     FONT_TITLE, FONT_HEADING, FONT_SUBHEADING, FONT_BODY, FONT_BODY_BOLD,
     FONT_SMALL,
 )
-from .widgets import _make_btn, _set_btn_state, _input_entry
-from .widgets.canvas_scroll import scroll_canvas_units_clamped
+from .widgets import _make_btn, _set_btn_state, _input_entry, ScrollableFrame, TooltipCarousel
 from .widgets.reorder import move_item, reorder_subset_by_ids
 from .dialogs.edit_bill import EditBillDialog
 from .dialogs.edit_trade import EditTradeItemDialog
@@ -22,7 +21,7 @@ from ..project_manager import (
     get_project, update_project, _load_default_items, _load_default_categories,
 )
 from ..project_status import ProjectStatus
-from ..config_loader import load_user, load_app
+from ..config_loader import load_user, save_user, load_app
 from ..export_config import ExportDefaults
 from ..image_output import save_styled_image
 from ..calculator import to_canonical, to_display, MathParseError
@@ -352,6 +351,7 @@ def resolve_bill_column_weights(project_data: dict) -> dict:
             result[col] = w
             continue
         result[col] = BILLS_DEFAULT_WEIGHTS[col]
+    logger.debug("resolve_bill_column_weights: saved=%s result=%s", saved, result)
     return result
 
 
@@ -378,6 +378,7 @@ def resolve_worker_column_weights(project_data: dict) -> dict:
             result[col] = w
             continue
         result[col] = WORKER_DEFAULT_WEIGHTS[col]
+    logger.debug("resolve_worker_column_weights: saved=%s result=%s", saved, result)
     return result
 
 
@@ -617,7 +618,7 @@ class ContentArea(tk.Frame):
         # 项目名：羽毛笔图标 + 可编辑输入框
         name_container = tk.Frame(top, bg=APP_BG)
         name_container.pack(side=tk.LEFT)
-        tk.Label(name_container, text="\U0001fab6", font=FONT_HEADING,
+        tk.Label(name_container, text="\U0001f589\ufe0f", font=FONT_HEADING,
                  bg=APP_BG, fg=TEXT_SECONDARY).pack(side=tk.LEFT, padx=(0, 6))
         name_var = tk.StringVar(value=p.get("name", ""))
         self._name_entry = ttk.Entry(name_container, textvariable=name_var, font=FONT_HEADING, width=30)
@@ -691,8 +692,12 @@ class ContentArea(tk.Frame):
             else:
                 btn.config(fg=TEXT_SECONDARY, bg=APP_BG, relief="flat", bd=0)
         if self.tab_var.get() == "bills":
+            cw = self.content_frame.winfo_width()
+            logger.debug("_switch_tab: bills, content_frame width=%s", cw)
             self._render_bills()
         else:
+            cw = self.content_frame.winfo_width()
+            logger.debug("_switch_tab: workers, content_frame width=%s", cw)
             self._render_workers()
 
     def _save_name(self, name):
@@ -791,6 +796,7 @@ class ContentArea(tk.Frame):
             w.destroy()
         p = self.project_data
         bills = p.get("bills", [])
+        logger.debug("_render_bills: content_frame width=%s", parent.winfo_width())
         op_map = load_app().get("symbol_mapping", {})
         trade_items = p.get("trade_items", [])
 
@@ -852,8 +858,14 @@ class ContentArea(tk.Frame):
         self._bill_list.pack(fill=tk.BOTH, expand=True)
         self._restore_bills_scroll()
 
-        hint = tk.Label(parent, text="\U0001f4a1 双击行可编辑；拖表头竖条可调列宽；拖动左侧手柄可排序；右键可复制/粘贴",
-                        font=FONT_SMALL, bg=APP_BG, fg=TEXT_SECONDARY)
+        _tc_cfg = load_app().get("tooltips", {})
+        hint = TooltipCarousel(
+            parent,
+            messages=_tc_cfg.get("messages", ["双击行可编辑；拖表头竖条可调列宽"]),
+            dwell_per_char_ms=_tc_cfg.get("dwell_per_char_ms", 80),
+            font_size=_tc_cfg.get("font_size", 13),
+            anchor="e",
+        )
         hint.pack(side=tk.BOTTOM, anchor="e", pady=(8, 0))
 
     def _on_bill_column_resize(self, weights: dict) -> None:
@@ -863,12 +875,16 @@ class ContentArea(tk.Frame):
         防抖反而会让用户在 300ms 内切换 tab / 重新渲染时被旧值覆盖。
         """
         self._bill_weights = dict(weights)
+        logger.debug("_on_bill_column_resize: weights=%s uuid=%s",
+                     weights, self.current_uuid)
         if not self.current_uuid:
             return
         try:
             if self.project_data is not None:
                 self.project_data["bill_column_widths"] = dict(weights)
                 update_project(self.current_uuid, self.project_data)
+                logger.debug("_on_bill_column_resize: saved to project uuid=%s",
+                             self.current_uuid)
         except Exception as e:
             logger.warning("保存列宽失败: %s", e)
 
@@ -900,12 +916,16 @@ class ContentArea(tk.Frame):
         与 _on_bill_column_resize 同模式：松手时一次回调，写到 worker_column_widths。
         """
         self._worker_weights = dict(weights)
+        logger.debug("_on_worker_column_resize: weights=%s uuid=%s",
+                     weights, self.current_uuid)
         if not self.current_uuid:
             return
         try:
             if self.project_data is not None:
                 self.project_data["worker_column_widths"] = dict(weights)
                 update_project(self.current_uuid, self.project_data)
+                logger.debug("_on_worker_column_resize: saved to project uuid=%s",
+                             self.current_uuid)
         except Exception as e:
             logger.warning("保存 worker 列宽失败: %s", e)
 
@@ -1076,13 +1096,50 @@ class ContentArea(tk.Frame):
             self._selected_category = cats[0] if cats else None
 
         # ── 主容器：左侧分类 + 右侧表格 ──
-        main_pane = tk.PanedWindow(parent, orient=tk.HORIZONTAL, bg=APP_BG,
-                                   sashwidth=4, sashrelief="flat", bd=0)
+        main_pane = ttk.PanedWindow(parent, orient=tk.HORIZONTAL)
         main_pane.pack(fill=tk.BOTH, expand=True)
 
         # ── 左侧分类面板 ──
-        left_frame = tk.Frame(main_pane, bg=APP_BG, width=220)
-        main_pane.add(left_frame, minsize=180, stretch="never")
+        left_frame = tk.Frame(main_pane, bg=APP_BG)
+        main_pane.add(left_frame, weight=0)
+
+        # Restore saved category width (ratio of content frame width)
+        _cat_ratio = load_user().get("category_list_width_ratio",
+                                     load_app().get("category_list_width_ratio", 0.25))
+        _cat_w = int(max(self.content_frame.winfo_width(), 300) * _cat_ratio)
+        _cat_w = max(180, min(500, _cat_w))
+
+        # Track category width changes via Configure event on left_frame
+        _cat_save_after_id = [None]
+
+        def _on_cat_configure(e):
+            if e.widget is not left_frame:
+                return
+            logger.debug("_on_cat_configure: left_frame width=%s", e.width)
+            if _cat_save_after_id[0]:
+                try:
+                    left_frame.after_cancel(_cat_save_after_id[0])
+                except tk.TclError:
+                    pass
+            _cat_save_after_id[0] = left_frame.after(
+                500, lambda: self._save_category_width(left_frame.winfo_width())
+            )
+
+        left_frame.bind("<Configure>", _on_cat_configure)
+
+        def _set_initial_sash():
+            try:
+                main_pane.sashpos(0, _cat_w)
+            except tk.TclError:
+                pass
+            self.after_idle(lambda: logger.debug(
+                "_render_workers: sash=%s left=%s right=%s pwidth=%s",
+                main_pane.sashpos(0),
+                left_frame.winfo_width(),
+                right_frame.winfo_width(),
+                parent.winfo_width(),
+            ))
+        parent.after_idle(_set_initial_sash)
 
         left_header = tk.Frame(left_frame, bg=APP_BG, pady=4)
         left_header.pack(fill=tk.X, padx=8)
@@ -1093,22 +1150,9 @@ class ContentArea(tk.Frame):
         cat_list_frame = tk.Frame(left_frame, bg=APP_BG)
         cat_list_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=(4, 8))
 
-        cat_canvas = tk.Canvas(cat_list_frame, borderwidth=0, highlightthickness=0, bg=APP_BG)
-        cat_scrollbar = ttk.Scrollbar(cat_list_frame, orient=tk.VERTICAL, command=cat_canvas.yview)
-        cat_canvas.configure(yscrollcommand=cat_scrollbar.set)
-        self._cat_items_frame = tk.Frame(cat_canvas, bg=APP_BG)
-        self._cat_items_frame.bind("<Configure>",
-                                    lambda e: cat_canvas.configure(scrollregion=cat_canvas.bbox("all")))
-        cat_canvas_win = cat_canvas.create_window((0, 0), window=self._cat_items_frame, anchor="nw")
-        cat_canvas.bind("<Configure>", lambda e: cat_canvas.itemconfig(cat_canvas_win, width=e.width))
-        cat_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        cat_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        def _on_cat_wheel(e):
-            scroll_canvas_units_clamped(cat_canvas, int(-1 * (e.delta / 120)))
-
-        self._cat_items_frame.bind("<MouseWheel>", _on_cat_wheel)
-        cat_canvas.bind("<MouseWheel>", _on_cat_wheel)
+        self._cat_scrollable = ScrollableFrame(cat_list_frame, auto_hide_ms=None, bg=APP_BG)
+        self._cat_scrollable.pack(fill=tk.BOTH, expand=True)
+        self._cat_items_frame = self._cat_scrollable.inner
 
         for cat in cats:
             self._add_category_item(cat)
@@ -1128,13 +1172,13 @@ class ContentArea(tk.Frame):
 
         # ── 右侧工种表格 ──
         right_frame = tk.Frame(main_pane, bg=APP_BG)
-        main_pane.add(right_frame, minsize=300, stretch="always")
+        main_pane.add(right_frame, weight=1)
 
         right_header = tk.Frame(right_frame, bg=APP_BG, pady=4)
         right_header.pack(fill=tk.X)
         cat_name_container = tk.Frame(right_header, bg=APP_BG)
         cat_name_container.pack(side=tk.LEFT)
-        tk.Label(cat_name_container, text="\U0001fab6", font=FONT_SUBHEADING,
+        tk.Label(cat_name_container, text="\U0001f589\ufe0f", font=FONT_SUBHEADING,
                  bg=APP_BG, fg=TEXT_SECONDARY).pack(side=tk.LEFT, padx=(0, 6))
         # 绑定当前选中分类的 UUID，区分用户主动输入 vs 切换分类时的程序性 set()
         self._edit_cat_id = ""
@@ -1183,12 +1227,31 @@ class ContentArea(tk.Frame):
         right_btn_frame.pack(fill=tk.X)
         add_trade_btn = _make_btn(right_btn_frame, "\u2795 添加工作", self._add_trade_item_for_selected, "primary")
         add_trade_btn.pack(side=tk.LEFT, padx=4)
-        tk.Label(right_btn_frame, text="\U0001f4a1 双击行可编辑；拖表头竖条可调列宽；拖动左侧手柄可排序；右键可复制/粘贴",
-                 font=FONT_SMALL, bg=APP_BG, fg=TEXT_SECONDARY).pack(side=tk.RIGHT, padx=8)
         if self._editability is not None:
             self._editability.manage(add_trade_btn, normally_enabled=True)
         elif not self._editable:
             _set_btn_state(add_trade_btn, True)
+        _tc_cfg = load_app().get("tooltips", {})
+        self._worker_hint = TooltipCarousel(
+            parent,
+            messages=_tc_cfg.get("messages", ["双击行可编辑；拖表头竖条可调列宽"]),
+            dwell_per_char_ms=_tc_cfg.get("dwell_per_char_ms", 80),
+            font_size=_tc_cfg.get("font_size", 13),
+            anchor="e",
+        )
+        self._worker_hint.pack(side=tk.BOTTOM, anchor="e", pady=(8, 0))
+
+    def _save_category_width(self, width):
+        try:
+            cfg = load_user()
+            content_width = self.content_frame.winfo_width()
+            ratio = round(width / max(content_width, 1), 6)
+            cfg["category_list_width_ratio"] = ratio
+            save_user(cfg)
+            logger.debug("_save_category_width: width=%s ratio=%s content_width=%s to user_config",
+                         width, ratio, content_width)
+        except Exception:
+            pass
 
     def _add_category_item(self, cat_name):
         """左侧分类列表添加一个分类项"""
@@ -1222,7 +1285,6 @@ class ContentArea(tk.Frame):
         for w in [item] + item.winfo_children():
             w.bind("<Button-1>", on_click)
             w.bind("<Button-3>", on_right_click)
-            w.bind("<MouseWheel>", lambda e: scroll_canvas_units_clamped(self._cat_items_frame.master, int(-1 * (e.delta / 120))))
             if not is_selected:
                 w.bind("<Enter>", lambda e, i=item: i.config(bg="#edf2f7"))
                 w.bind("<Leave>", lambda e, i=item: i.config(bg=APP_BG))

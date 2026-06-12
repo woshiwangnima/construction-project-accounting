@@ -250,6 +250,7 @@ class ListViewBase(tk.Frame):
         outer.pack(fill=tk.BOTH, expand=True)
         self._canvas = tk.Canvas(outer, borderwidth=0, highlightthickness=0, bg="white")
         scrollbar = ttk.Scrollbar(outer, orient=tk.VERTICAL, command=self._canvas.yview)
+        logger.debug("ListViewBase._build_body: outer created, self width=%s", self.winfo_width())
         scrollbar.config(command=self._on_scrollbar)
         self._canvas.configure(yscrollcommand=scrollbar.set)
         self._body = tk.Frame(self._canvas, bg="white")
