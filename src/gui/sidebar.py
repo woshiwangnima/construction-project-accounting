@@ -9,26 +9,33 @@ from typing import Optional
 
 from .theme import (
     SIDEBAR_BG, SIDEBAR_FG, SIDEBAR_HOVER,
-    SIDEBAR_HEADER_BG, SIDEBAR_HEADER_FG,
     SIDEBAR_SELECTED_BG, SIDEBAR_SELECTED_FG,
     SIDEBAR_ITEM_BORDER, ACCENT,
     TEXT_SECONDARY, TEXT_PRIMARY,
     FONT_BODY, FONT_BODY_BOLD, FONT_SMALL, FONT_HEADING,
 )
-from .widgets import _make_btn, _input_entry
-from .widgets.canvas_scroll import scroll_canvas_units_clamped
+from .widgets import _make_btn, _input_entry, ScrollableFrame
 from .dialogs.new_project import NewProjectDialog
 from ..project_manager import list_projects, delete_project, export_project, import_project, project_file_path, PROJECTS_DIR
 from ..project_status import ProjectStatus
 from .editability import EditabilityPolicy
+
+PROJECT_LIST_DEFAULT_WEIGHTS = {"name": 0.85, "status": 0.15}
+
+def _project_list_weights():
+    from ..config_loader import load_app
+    cfg = load_app().get("list_column_weights", {}).get("project_list", {})
+    return {
+        "name": cfg.get("name", PROJECT_LIST_DEFAULT_WEIGHTS["name"]),
+        "status": cfg.get("status", PROJECT_LIST_DEFAULT_WEIGHTS["status"]),
+    }
 
 
 class Sidebar(ttk.Frame):
     ROLLBACK_MENU_LABEL = "\U0001f504\ufe0f 回滚存档"
 
     def __init__(self, parent, on_select, editability=None, on_settings_closed=None):
-        super().__init__(parent, width=320)
-        self.pack_propagate(False)
+        super().__init__(parent)
         self.on_select = on_select
         self.selected_uuid = None
         self._editability: Optional[EditabilityPolicy] = editability
@@ -37,12 +44,6 @@ class Sidebar(ttk.Frame):
         self.refresh()
 
     def _build_ui(self):
-        header = tk.Frame(self, bg=SIDEBAR_HEADER_BG, height=70)
-        header.pack(fill=tk.X)
-        header.pack_propagate(False)
-        tk.Label(header, text="\U0001f3d7\ufe0f 施工项目记账", font=FONT_HEADING,
-                 bg=SIDEBAR_HEADER_BG, fg=SIDEBAR_HEADER_FG).pack(expand=True)
-
         ctrl = tk.Frame(self, bg=SIDEBAR_BG, pady=10, padx=10)
         ctrl.pack(fill=tk.X)
         _make_btn(ctrl, "\u2795 新建项目", self._new_project, "primary").pack(fill=tk.X)
@@ -82,23 +83,9 @@ class Sidebar(ttk.Frame):
         list_frame = tk.Frame(self, bg=SIDEBAR_BG)
         list_frame.pack(fill=tk.BOTH, expand=True, padx=6)
 
-        self.canvas = tk.Canvas(list_frame, borderwidth=0, highlightthickness=0, bg=SIDEBAR_BG)
-        self.scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.canvas.yview)
-        self.canvas.configure(yscrollcommand=self.scrollbar.set)
-        self.items_frame = tk.Frame(self.canvas, bg=SIDEBAR_BG)
-        self.canvas_win = self.canvas.create_window((0, 0), window=self.items_frame, anchor="nw")
-        self.canvas.bind("<Configure>", self._on_canvas_configure)
-        self.items_frame.bind("<Configure>", self._on_items_configure)
-        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        self.items_frame.bind("<MouseWheel>", self._on_mousewheel)
-        self.canvas.bind("<MouseWheel>", self._on_mousewheel)
-        # 兜底支持 Linux/macOS（其滚轮事件不是 <MouseWheel>）
-        self.items_frame.bind("<Button-4>", lambda e: self._scroll_units(-1))
-        self.items_frame.bind("<Button-5>", lambda e: self._scroll_units(1))
-        self.canvas.bind("<Button-4>", lambda e: self._scroll_units(-1))
-        self.canvas.bind("<Button-5>", lambda e: self._scroll_units(1))
+        self.scrollable = ScrollableFrame(list_frame, auto_hide_ms=None, bg=SIDEBAR_BG, scroll_step=3)
+        self.scrollable.pack(fill=tk.BOTH, expand=True)
+        self.items_frame = self.scrollable.inner
 
         # 记录 item 控件以便点击时只更新背景，不重建整列表
         self._item_widgets = {}
@@ -107,51 +94,6 @@ class Sidebar(ttk.Frame):
         bottom_frame = tk.Frame(self, bg=SIDEBAR_BG, padx=10, pady=10)
         bottom_frame.pack(side=tk.BOTTOM, fill=tk.X)
         _make_btn(bottom_frame, "\u2699\ufe0f 设置", self._open_settings, "ghost").pack(fill=tk.X)
-        _make_btn(bottom_frame, "\u21bb 检查更新", self._check_update, "ghost").pack(fill=tk.X)
-
-    def _on_canvas_configure(self, event=None):
-        self.canvas.itemconfig(self.canvas_win, width=self.canvas.winfo_width())
-        self._update_scrollregion()
-
-    def _on_items_configure(self, event=None):
-        self._update_scrollregion()
-
-    def _update_scrollregion(self):
-        """强制刷新 scrollregion，确保上下边界正确。"""
-        self.canvas.update_idletasks()
-        bbox = self.canvas.bbox("all")
-        if bbox and bbox[3] > bbox[1]:
-            self.canvas.configure(scrollregion=bbox)
-        else:
-            self.canvas.configure(scrollregion=(0, 0, self.canvas.winfo_width(), 0))
-
-    def _scroll_units(self, units):
-        """带边界检查的滚动，避免越界。"""
-        if not self.canvas.winfo_exists():
-            return
-        # 如果内容未超出视口，不响应滚动
-        sr = self.canvas.cget("scrollregion")
-        try:
-            x1, y1, x2, y2 = map(float, sr.split())
-        except (ValueError, tk.TclError):
-            return
-        if y2 - y1 <= self.canvas.winfo_height():
-            return
-        scroll_canvas_units_clamped(self.canvas, units)
-
-    def _on_mousewheel(self, event):
-        # Windows / macOS：event.delta 是 120 的整数倍
-        delta = -1 * (event.delta / 120)
-        units = 1 if delta > 0 else -1 if delta < 0 else 0
-        self._scroll_units(int(units * abs(delta)) or units)
-
-    def _bind_mousewheel_recursive(self, widget):
-        """让列表项及其所有子控件都能接收滚轮事件。"""
-        widget.bind("<MouseWheel>", self._on_mousewheel)
-        widget.bind("<Button-4>", lambda e: self._scroll_units(-1))
-        widget.bind("<Button-5>", lambda e: self._scroll_units(1))
-        for child in widget.winfo_children():
-            self._bind_mousewheel_recursive(child)
 
     def refresh(self):
         # 记住当前选中以便重建后保持高亮
@@ -166,14 +108,14 @@ class Sidebar(ttk.Frame):
             lbl = tk.Label(self.items_frame, text="暂无项目\n点击上方按钮创建",
                            bg=SIDEBAR_BG, fg=SIDEBAR_FG, font=FONT_BODY, pady=30)
             lbl.pack(fill=tk.X)
-            self._update_scrollregion()
+            self.scrollable.update_scrollregion()
             return
         for p in filtered:
             self._add_item(p)
         # 刷新后重新计算滚动区
-        self._update_scrollregion()
+        self.scrollable.update_scrollregion()
         # 滚回顶部
-        self.canvas.yview_moveto(0)
+        self.scrollable.scroll_to_top()
 
     def _add_item(self, project):
         uuid = project["project_uuid"]
@@ -202,23 +144,45 @@ class Sidebar(ttk.Frame):
             indicator = tk.Frame(item, bg=ACCENT, width=4)
             indicator.pack(side=tk.LEFT, padx=(0, 10))
 
-        name_frame = tk.Frame(item, bg=bg)
-        name_frame.pack(fill=tk.X)
-        name_lbl = tk.Label(name_frame, text=name, font=FONT_BODY_BOLD, bg=bg, fg=name_fg,
-                            anchor="w")
-        name_lbl.pack(side=tk.LEFT)
-        status_lbl = tk.Label(name_frame, text=status_text, font=FONT_SMALL, bg=bg,
-                              fg=status_color, anchor="w")
-        status_lbl.pack(side=tk.RIGHT)
+        weights = _project_list_weights()
+        name_w = weights["name"]
+        status_w = weights["status"]
+        total = name_w + status_w
+
+        content = tk.Frame(item, bg=bg)
+        content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        content.grid_columnconfigure(0, weight=name_w)
+        content.grid_columnconfigure(1, weight=status_w)
+
+        name_lbl = tk.Label(content, text=name, font=FONT_BODY_BOLD, bg=bg, fg=name_fg,
+                            anchor="w", wraplength=0)
+        name_lbl.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
+
+        status_lbl = tk.Label(content, text=status_text, font=FONT_SMALL, bg=bg,
+                              fg=status_color, anchor="e")
+        status_lbl.grid(row=0, column=1, sticky="nsew")
+
+        def _update_wraplength(evt=None):
+            cw = content.winfo_width()
+            if cw > 0 and total > 0:
+                nw = int(cw * name_w / total)
+                sw = int(cw * status_w / total)
+                try:
+                    name_lbl.config(wraplength=max(60, nw - 8))
+                    status_lbl.config(wraplength=max(60, sw - 8))
+                except tk.TclError:
+                    pass
+
+        content.bind("<Configure>", _update_wraplength)
 
         # 让 item + 所有直接子控件都能用 as 列表统一处理
-        all_widgets = [item, name_frame, name_lbl, status_lbl]
+        all_widgets = [item, content, name_lbl, status_lbl]
         if indicator is not None:
             all_widgets.append(indicator)
 
         def _set_item_bg(color, fg_color=None):
             item.config(bg=color)
-            name_frame.config(bg=color)
+            content.config(bg=color)
             name_lbl.config(bg=color, fg=(fg_color or SIDEBAR_FG))
             status_lbl.config(bg=color)
 
@@ -237,13 +201,10 @@ class Sidebar(ttk.Frame):
                 w.bind("<Leave>", lambda e, i=item, u=uuid:
                        i.config(bg=SIDEBAR_SELECTED_BG if u == self.selected_uuid else SIDEBAR_BG))
 
-        # 让项目行上的所有子控件都能响应滚轮
-        self._bind_mousewheel_recursive(item)
-
         # 注册到 _item_widgets，便于 _set_selected 局部更新
         self._item_widgets[uuid] = {
             "item": item,
-            "name_frame": name_frame,
+            "name_frame": content,   # keep key for compat
             "name_lbl": name_lbl,
             "status_lbl": status_lbl,
             "indicator": indicator,
@@ -272,8 +233,7 @@ class Sidebar(ttk.Frame):
             indicator = tk.Frame(w["item"], bg=ACCENT, width=4)
             indicator.pack(side=tk.LEFT, padx=(0, 10))
             w["indicator"] = indicator
-            # 给 indicator 重新绑定滚轮和点击
-            self._bind_mousewheel_recursive(indicator)
+            # 给 indicator 重新绑定点击 (ScrollableFrame handles event propagation)
             indicator.bind("<Button-1>",
                            lambda e, u=new_uuid: (self._set_selected(u), self.on_select(u)))
             indicator.bind("<Button-3>",
