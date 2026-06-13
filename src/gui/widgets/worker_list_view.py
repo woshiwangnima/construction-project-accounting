@@ -31,14 +31,19 @@ class WorkerListView(ListViewBase):
         on_delete=None,
         on_reorder=None,
         on_column_resize=None,
+        on_sort_by_price=None,
+        on_sort_by_billing_type=None,
         weights=None,
         selection_bg: str = "#90cdf4",
         editable: bool = True,
         **kwargs,
     ):
-        # 取出默认权重：在原 4 列权重基础上加 "操作" 让基类能 strip
-        # 基类会自动 filter "操作"，所以这里传完整 dict 也行，传只含数据列的也行
         default_weights = dict(weights) if weights else None
+        header_click_map = {}
+        if on_sort_by_price is not None and "单价" in WORKER_FULL_COLUMNS:
+            header_click_map["单价"] = lambda col, cb=on_sort_by_price: cb()
+        if on_sort_by_billing_type is not None and "计费类型" in WORKER_FULL_COLUMNS:
+            header_click_map["计费类型"] = lambda col, cb=on_sort_by_billing_type: cb()
         super().__init__(
             parent,
             columns=WORKER_FULL_COLUMNS,
@@ -55,7 +60,8 @@ class WorkerListView(ListViewBase):
             on_row_activated=on_activate,
             selection_bg=selection_bg,
             editable=editable,
-            wrap_cols=("名称",),  # 名称列会随列宽自动 wraplength
+            wrap_cols=("名称",),
+            header_click_map=header_click_map,
             **kwargs,
         )
         self._items = list(items)
@@ -100,22 +106,24 @@ class WorkerListView(ListViewBase):
 
         # 选中行：所有模式都允许（点数据单元 = 选中，点操作按钮 = 触发动作）
         for col_key, w in cells.items():
-            w.bind("<Button-1>", lambda e, i=idx: self._on_row_click(i))
+            w.bind("<Button-1>", lambda *a, i=idx: self._on_row_click(i))
         # 右键菜单：cell 上单独绑
         for col_key, w in cells.items():
-            w.bind("<Button-3>", lambda e, i=idx: self._fire_row_right_click(e, i))
+            w.bind("<Button-3>", lambda *a, i=idx: self._fire_row_right_click(a[0] if a else None, i))
         # 已完成状态：不绑双击编辑
         if self._editable and self._on_row_activated:
             for col_key, w in cells.items():
                 w.bind(
                     "<Double-1>",
-                    lambda e, i=idx: self._on_row_activated(i),
+                    lambda *a, i=idx: self._on_row_activated(i),
                 )
 
         return cells
 
     def _on_row_right_click(self, event, idx) -> None:
         """工种行 / 空白处右键：弹「复制 / 粘贴」菜单。"""
+        if event is None:
+            return  # 事件对象缺失，无法定位菜单
         menu = self._build_row_right_click_menu(idx)
         if menu is None:
             return  # 没菜单项就不弹

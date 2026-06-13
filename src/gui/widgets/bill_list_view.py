@@ -45,6 +45,7 @@ class BillListView(ListViewBase):
         on_column_resize=None,
         on_review_toggle=None,
         on_review_header_toggle=None,
+        on_sort_by_modified=None,
         weights=None,
         editable: bool = True,
         selection_bg: str = "#90cdf4",
@@ -63,6 +64,8 @@ class BillListView(ListViewBase):
         header_click_map = {}
         if on_review_header_toggle is not None and "审核" in BILLS_COLUMNS:
             header_click_map["审核"] = lambda col: on_review_header_toggle()
+        if on_sort_by_modified is not None and "修改时间" in BILLS_COLUMNS:
+            header_click_map["修改时间"] = lambda col: on_sort_by_modified()
 
         super().__init__(
             parent,
@@ -81,7 +84,7 @@ class BillListView(ListViewBase):
             selection_bg=selection_bg,
             row_bg_getter=self._row_bg_for_bill,
             editable=editable,
-            wrap_cols=("工作内容", "公式", "备注"),
+            wrap_cols=("工作内容", "公式", "备注", "修改时间"),
             header_click_map=header_click_map,
             **kwargs,
         )
@@ -107,6 +110,8 @@ class BillListView(ListViewBase):
 
     def _on_row_right_click(self, event, idx) -> None:
         """账单行 / 空白处右键：弹「复制 / 粘贴」菜单。"""
+        if event is None:
+            return  # 事件对象缺失，无法定位菜单
         menu = self._build_row_right_click_menu(idx)
         if menu is None:
             return  # 没菜单项就不弹
@@ -193,6 +198,8 @@ class BillListView(ListViewBase):
                              wraplength=80, justify="left", fg=TEXT_SECONDARY),
             "日期": tk.Label(row_frame, text=date, font=FONT_SMALL, anchor="w", padx=6,
                              fg=TEXT_SECONDARY),
+            "修改时间": tk.Label(row_frame, text=b.get("record_time", "-"), font=FONT_SMALL,
+                               anchor="w", padx=6, fg=TEXT_SECONDARY),
         }
         # 数据列 grid 配置
         for col_idx, col in enumerate(self._data_cols):
@@ -201,13 +208,13 @@ class BillListView(ListViewBase):
 
         # 选中行：所有模式都允许（点数据单元 = 选中，点操作按钮 = 触发动作）
         for col_key, w in cells.items():
-            w.bind("<Button-1>", lambda e, i=idx: self._on_row_click(i))
+            w.bind("<Button-1>", lambda *a, i=idx: self._on_row_click(i))
         # 右键菜单：cell 上单独绑（不会冒泡到 body）
         for col_key, w in cells.items():
-            w.bind("<Button-3>", lambda e, i=idx: self._fire_row_right_click(e, i))
+            w.bind("<Button-3>", lambda *a, i=idx: self._fire_row_right_click(a[0] if a else None, i))
         # 已完成状态：不绑双击编辑
         if self._editable:
             for col_key, w in cells.items():
-                w.bind("<Double-1>", lambda e, i=idx: self._on_edit and self._on_edit(i))
+                w.bind("<Double-1>", lambda *a, i=idx: self._on_edit and self._on_edit(i))
 
         return cells

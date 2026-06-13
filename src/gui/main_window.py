@@ -3,12 +3,13 @@ import tkinter as tk
 from tkinter import ttk
 
 from .theme import (
-    APP_BG, FONT_BODY, FONT_TREE, FONT_TREE_HEADER,
+    APP_BG, FONT_BODY, FONT_TREE, FONT_TREE_HEADER, SIDEBAR_BG,
 )
 from .sidebar import Sidebar
 from .content import ContentArea
 from .editability import EditabilityPolicy
-from ..config_loader import load_app, save_app, load_user, save_user
+from .widgets import DraggableSplitter
+from ..config_loader import load_app, save_app
 from ..logger import logger
 from ..voice import get_voice
 
@@ -25,67 +26,92 @@ class MainInterface:
         self._apply_window_geometry()
         self._apply_styles()
 
-        self._main_pane = ttk.PanedWindow(root, orient=tk.HORIZONTAL)
-        logger.debug("MainInterface: PanedWindow created, parent=root")
-        self._main_pane.pack(fill=tk.BOTH, expand=True)
-        logger.debug("MainInterface: PanedWindow packed fill=BOTH expand=True")
+        # ── 主布局：sidebar(fixed) | splitter | content(expand) ──
+        self._main_frame = tk.Frame(root, bg=APP_BG)
+        self._main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # 计算初始 sidebar 宽度（从 app_config 读取归一化比例）
+        ratio = load_app().get("sidebar_width_ratio", 0.2)
+        ww = max(self.root.winfo_width(), 800)
+        raw_w = int(ww * ratio)
+        self._sidebar_width = max(200, min(900, raw_w))
+        logger.debug("[sidebar] init: ratio=%.6f win_width=%s raw_px=%s clamped_px=%s",
+                     ratio, ww, raw_w, self._sidebar_width)
+
+        self.sidebar = Sidebar(
+            self._main_frame, self._on_project_select,
+            editability=None,
+            on_settings_closed=self._on_settings_closed,
+        )
+        self.sidebar.configure(width=self._sidebar_width)
+        self.sidebar.pack(side=tk.LEFT, fill=tk.Y)
+        self.sidebar.pack_propagate(False)
+
+        self._splitter = DraggableSplitter(
+            self._main_frame, self.sidebar,
+            min_width=200, max_width=900,
+            on_resize=self._on_sidebar_resize,
+            default_width=self._sidebar_width,
+            bg=SIDEBAR_BG,
+            name="sidebar",
+            ref_widget=self.root,
+        )
+        self._splitter.pack(side=tk.LEFT, fill=tk.Y)
 
         self.content = ContentArea(
-            self._main_pane,
+            self._main_frame,
             on_name_change=self._on_project_name_change,
             on_status_change=self._on_project_status_change,
         )
-        logger.debug("MainInterface: ContentArea created, parent=_main_pane")
+        self.content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        logger.debug("MainInterface: ContentArea created, packed expand=True")
 
         self.editability = EditabilityPolicy(
             get_current_status=self.content.get_project_status,
             current_uuid_provider=lambda: self.content.current_uuid or "",
         )
         self.content.set_editability(self.editability)
-
-        self.sidebar = Sidebar(
-            self._main_pane, self._on_project_select,
-            editability=self.editability,
-            on_settings_closed=self._on_settings_closed,
-        )
-        logger.debug("MainInterface: Sidebar created, parent=_main_pane")
-        self._main_pane.add(self.sidebar, weight=0)
-        self._main_pane.add(self.content, weight=1)
-        logger.debug("MainInterface: PanedWindow add sidebar+content done")
-
-        # Track sidebar width changes via Configure event
-        # (fires on sash drag, window resize, any layout change)
-        self._sidebar_save_after_id = None
-        self.sidebar.bind("<Configure>", self._on_sidebar_configure)
-        logger.debug("MainInterface: sidebar <Configure> bound")
+        self.sidebar._editability = self.editability
 
         self._bind_shortcuts()
         self._bind_window_events()
         self._schedule_update_check()
-        self.root.after_idle(self._apply_sidebar_width)
+        self.root.after_idle(self._log_layout_state)
 
-    def _on_sidebar_configure(self, event):
-        if event.widget is not self.sidebar:
-            return
-        logger.debug("_on_sidebar_configure: sidebar width=%s", event.width)
-        if self._sidebar_save_after_id:
-            try:
-                self.root.after_cancel(self._sidebar_save_after_id)
-            except tk.TclError:
-                pass
-        self._sidebar_save_after_id = self.root.after(
-            500, self._debounced_save_sidebar_width
-        )
-
-    def _debounced_save_sidebar_width(self):
-        self._sidebar_save_after_id = None
+    def _log_layout_state(self) -> None:
+        """启动后输出布局实测数据，用于排查宽度问题。"""
         try:
-            width = self.sidebar.winfo_width()
-            if width >= 100:
-                logger.debug("save_sidebar: width=%s", width)
-                self._save_sidebar_width(width)
+            win_w = self.root.winfo_width()
+            frame_w = self._main_frame.winfo_width()
+            side_w = self.sidebar.winfo_width()
+            split_w = self._splitter.winfo_width()
+            content_w = self.content.winfo_width()
+            logger.debug(
+                "[layout] win=%s frame=%s | sidebar=%s splitter=%s content=%s sum=%s",
+                win_w, frame_w, side_w, split_w, content_w,
+                side_w + split_w + content_w,
+            )
         except tk.TclError:
             pass
+
+    def _on_sidebar_resize(self, width: int) -> None:
+        """DraggableSplitter 释放时回调：保存归一化宽度比例到 app_config。"""
+        try:
+            win_w = self.root.winfo_width()
+            frame_w = self._main_frame.winfo_width()
+            ratio = round(width / max(win_w, 1), 6)
+            logger.debug("[sidebar] save: width=%s win_width=%s frame_width=%s ratio=%.6f",
+                         width, win_w, frame_w, ratio)
+            cfg = load_app()
+            old = cfg.get("sidebar_width_ratio", 0)
+            if abs(old - ratio) > 1e-6:
+                cfg["sidebar_width_ratio"] = ratio
+                save_app(cfg)
+                logger.debug("[sidebar] saved: %.6f -> %.6f", old, ratio)
+            else:
+                logger.debug("[sidebar] unchanged: ratio=%.6f", ratio)
+        except Exception as e:
+            logger.error("[sidebar] save failed: %s", e, exc_info=True)
 
     def _apply_window_geometry(self):
         cfg = load_app()
@@ -129,10 +155,14 @@ class MainInterface:
         sizes = cfg.setdefault("window_sizes", {})
         if sizes.get(self.WINDOW_KEY) != [w, h]:
             sizes[self.WINDOW_KEY] = [w, h]
+            logger.debug("[win_geom] saving: %dx%d cat_ratio=%s",
+                         w, h, cfg.get("category_list_width_ratio", "<absent>"))
             try:
                 save_app(cfg)
             except Exception:
                 pass
+        else:
+            logger.debug("[win_geom] unchanged: %dx%d", w, h)
 
     def _bind_window_events(self):
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -141,6 +171,8 @@ class MainInterface:
     def _on_configure(self, event):
         if event.widget is not self.root:
             return
+        logger.debug("[win_geom] Configure event: %dx%d, debounce 200ms",
+                     event.width, event.height)
         if getattr(self, "_save_after_id", None):
             try:
                 self.root.after_cancel(self._save_after_id)
@@ -216,27 +248,3 @@ class MainInterface:
         except Exception:
             pass
 
-    def _save_sidebar_width(self, width):
-        try:
-            cfg = load_user()
-            ratio = round(width / max(self.root.winfo_width(), 1), 6)
-            cfg["sidebar_width_ratio"] = ratio
-            save_user(cfg)
-            logger.debug("save_sidebar: saved ratio=%s (width=%s win=%s) to user_config",
-                         ratio, width, self.root.winfo_width())
-        except Exception:
-            pass
-
-    def _apply_sidebar_width(self):
-        try:
-            ratio = load_user().get("sidebar_width_ratio",
-                                    load_app().get("sidebar_width_ratio", 0.2))
-            ww = max(self.root.winfo_width(), 800)
-            width = int(ww * ratio)
-            width = max(200, min(900, width))
-            logger.debug("apply_sidebar: ratio=%s win_width=%s -> width=%s",
-                         ratio, ww, width)
-            self._main_pane.sashpos(0, width)
-            logger.debug("apply_sidebar: sashpos set OK")
-        except Exception as e:
-            logger.warning("apply_sidebar failed: %s", e, exc_info=True)

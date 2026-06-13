@@ -11,7 +11,7 @@ from .theme import (
     FONT_TITLE, FONT_HEADING, FONT_SUBHEADING, FONT_BODY, FONT_BODY_BOLD,
     FONT_SMALL,
 )
-from .widgets import _make_btn, _set_btn_state, _input_entry, ScrollableFrame, TooltipCarousel
+from .widgets import _make_btn, _set_btn_state, _input_entry, ScrollableFrame, TooltipCarousel, DraggableSplitter
 from .widgets.status_badge import ClickableStatusBadge
 from .widgets.reorder import move_item, reorder_subset_by_ids
 from .dialogs.edit_bill import EditBillDialog
@@ -22,7 +22,7 @@ from ..project_manager import (
     get_project, update_project, _load_default_items, _load_default_categories,
 )
 from ..project_status import ProjectStatus
-from ..config_loader import load_user, save_user, load_app
+from ..config_loader import load_user, load_app, save_app
 from ..export_config import ExportDefaults
 from ..image_output import save_styled_image
 from ..calculator import to_canonical, to_display, MathParseError
@@ -285,7 +285,7 @@ def _format_bill_date(b: dict) -> str:
 # 权重（weights）总和 = 1.0；窗口缩放时按比例自动重算像素宽度。
 # 存储位置：项目文件 bill_column_widths（用户调过的列）→ app_config 默认。
 # 兼容旧字段名"数量"（作为"公式"的别名）—— 见 resolve_bill_column_weights。
-BILLS_COLUMNS = ("#", "审核", "工作内容", "公式", "单价", "金额", "备注", "日期", "操作")
+BILLS_COLUMNS = ("#", "审核", "工作内容", "公式", "单价", "金额", "备注", "日期", "修改时间", "操作")
 BILLS_MIN_WIDTH = 40
 BILLS_DEFAULT_WEIGHTS = {
     "#": 0.0526315789,
@@ -295,8 +295,9 @@ BILLS_DEFAULT_WEIGHTS = {
     "单价": 0.1263157895,
     "金额": 0.1263157895,
     "备注": 0.1684210526,
-    "日期": 0.1263157895,
-    "操作": 0.0842105263,
+    "日期": 0.08,
+    "修改时间": 0.07,
+    "操作": 0.07,
 }
 
 # ── 工作类型（worker）表格列宽配置 ─────────────────────────────────────
@@ -573,6 +574,9 @@ class ContentArea(tk.Frame):
         self._reviewed_bg = load_app().get("bill_reviewed_row_color", "#e6fffa")
         # 应用内剪贴板：单槽结构，跨项目持久（实例由 ContentArea 持有，切换项目不丢失）
         self._clipboard = AppClipboard()
+        self._bill_sort_descending = False
+        self._worker_price_sort_descending = False
+        self._worker_billing_sort_descending = False
         self._show_welcome()
 
     def refresh_app_settings(self) -> None:
@@ -617,6 +621,8 @@ class ContentArea(tk.Frame):
             messagebox.showerror("错误", "无法加载项目")
             self._show_welcome()
             return
+        logger.debug("[project] load_project: uuid=%s tab=%s CA_w=%s",
+                     uuid[:16], self.tab_var.get(), self.winfo_width())
         self._render()
 
     def _render(self):
@@ -690,21 +696,21 @@ class ContentArea(tk.Frame):
         self._switch_tab()
 
     def _switch_tab(self):
+        tab = self.tab_var.get()
+        ca_w = self.winfo_width()
+        cf_w = self.content_frame.winfo_width()
+        logger.debug("[tab] switch to=%s CA_w=%s CF_w=%s", tab, ca_w, cf_w)
         for w in self.content_frame.winfo_children():
             w.destroy()
         # Update tab highlight
         for val, btn in self._tab_buttons.items():
-            if val == self.tab_var.get():
+            if val == tab:
                 btn.config(fg=ACCENT, bg=HIGHLIGHT_BG, relief="solid", bd=1)
             else:
                 btn.config(fg=TEXT_SECONDARY, bg=APP_BG, relief="flat", bd=0)
-        if self.tab_var.get() == "bills":
-            cw = self.content_frame.winfo_width()
-            logger.debug("_switch_tab: bills, content_frame width=%s", cw)
+        if tab == "bills":
             self._render_bills()
         else:
-            cw = self.content_frame.winfo_width()
-            logger.debug("_switch_tab: workers, content_frame width=%s", cw)
             self._render_workers()
 
     def _save_name(self, name):
@@ -853,7 +859,8 @@ class ContentArea(tk.Frame):
             on_copy=self._copy_bill_at,
             on_paste=self._paste_bill_at,
             on_review_toggle=self._set_bill_reviewed,
-            on_review_header_toggle=self._toggle_all_bills_reviewed,
+            on_review_header_toggle=self._toggle_all_bills_reviewed if self._editable else None,
+            on_sort_by_modified=self._sort_bills_by_modified if self._editable else None,
             paste_enabled=self._clipboard.has_bill,
             paste_allowed=self._is_paste_allowed,
             weights=self._bill_weights,
@@ -913,10 +920,94 @@ class ContentArea(tk.Frame):
         self._refresh_bill_review_visuals()
 
     def _toggle_all_bills_reviewed(self) -> None:
+        if self._editability is not None and not self._editability.is_editable:
+            return
         bills = self.project_data.get("bills", []) if self.project_data else []
         apply_bulk_review(bills)
         self._persist_bill_review_state()
         self._refresh_bill_review_visuals()
+
+    def _sort_bills_by_modified(self) -> None:
+        if self._editability is not None and not self._editability.is_editable:
+            return
+        if not self.project_data:
+            return
+        bills = self.project_data.get("bills", [])
+        descending = self._bill_sort_descending
+        bills.sort(
+            key=lambda b: b.get("record_time", ""),
+            reverse=descending,
+        )
+        self.project_data["bills"] = bills
+        self._save_current_bills_top()
+        update_project(self.current_uuid, self.project_data)
+        self._bill_sort_descending = not descending
+        self._render_bills()
+        self._bill_list.set_header_sort_indicator(
+            "修改时间", "desc" if descending else "asc",
+        )
+
+    def _sort_trade_items_by_price(self) -> None:
+        if self._editability is not None and not self._editability.is_editable:
+            return
+        if not self.project_data:
+            return
+        items = self.project_data.get("trade_items", [])
+        descending = self._worker_price_sort_descending
+
+        # 有单价项在列表中的位置
+        price_positions = [
+            i for i, item in enumerate(items)
+            if read_billing(item).is_per_unit
+        ]
+        # 有单价项按单价排序
+        sorted_priced = sorted(
+            (items[i] for i in price_positions),
+            key=lambda item: read_billing(item).unit_price,
+            reverse=descending,
+        )
+
+        # 将排序后的项放回原来的位置
+        result = list(items)
+        for pos, item in zip(price_positions, sorted_priced):
+            result[pos] = item
+
+        items[:] = result
+        update_project(self.current_uuid, self.project_data)
+        self._worker_price_sort_descending = not descending
+        self._render_workers()
+        self._worker_list.set_header_sort_indicator(
+            "单价", "desc" if descending else "asc",
+        )
+
+    def _sort_trade_items_by_billing_type(self) -> None:
+        if self._editability is not None and not self._editability.is_editable:
+            return
+        if not self.project_data:
+            return
+        items = self.project_data.get("trade_items", [])
+        descending = self._worker_billing_sort_descending
+
+        all_positions = list(range(len(items)))
+        with_unit = [item for item in items if read_billing(item).is_per_unit]
+        without_unit = [item for item in items if not read_billing(item).is_per_unit]
+
+        if descending:
+            ordered = with_unit + without_unit
+        else:
+            ordered = without_unit + with_unit
+
+        result = list(items)
+        for pos, item in zip(all_positions, ordered):
+            result[pos] = item
+
+        items[:] = result
+        update_project(self.current_uuid, self.project_data)
+        self._worker_billing_sort_descending = not descending
+        self._render_workers()
+        self._worker_list.set_header_sort_indicator(
+            "计费类型", "desc" if descending else "asc",
+        )
 
     def _on_worker_column_resize(self, weights: dict) -> None:
         """用户拖完 worker heading 边界 → 立即更新内存 + 写回项目文件。
@@ -1103,51 +1194,22 @@ class ContentArea(tk.Frame):
         if self._selected_category not in cats:
             self._selected_category = cats[0] if cats else None
 
-        # ── 主容器：左侧分类 + 右侧表格 ──
-        main_pane = ttk.PanedWindow(parent, orient=tk.HORIZONTAL)
-        main_pane.pack(fill=tk.BOTH, expand=True)
+        # ── 主容器：左侧分类 + splitter + 右侧表格 ──
+        main_frame = tk.Frame(parent, bg=APP_BG)
+        main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # ── 左侧分类面板 ──
-        left_frame = tk.Frame(main_pane, bg=APP_BG)
-        main_pane.add(left_frame, weight=0)
+        # 计算分类列表初始宽度（从 app_config 读取归一化比例，以 ContentArea 宽度为基准）
+        _cat_ratio = load_app().get("category_list_width_ratio", 0.25)
+        _ref_w = max(self.winfo_width(), 800)
+        _cat_raw = int(_ref_w * _cat_ratio)
+        _cat_w = max(180, min(500, _cat_raw))
+        logger.debug("[category] init: ratio=%.6f CA_w=%s ref_w=%s raw_px=%s clamped_px=%s",
+                     _cat_ratio, self.winfo_width(), _ref_w, _cat_raw, _cat_w)
 
-        # Restore saved category width (ratio of content frame width)
-        _cat_ratio = load_user().get("category_list_width_ratio",
-                                     load_app().get("category_list_width_ratio", 0.25))
-        _cat_w = int(max(self.content_frame.winfo_width(), 300) * _cat_ratio)
-        _cat_w = max(180, min(500, _cat_w))
-
-        # Track category width changes via Configure event on left_frame
-        _cat_save_after_id = [None]
-
-        def _on_cat_configure(e):
-            if e.widget is not left_frame:
-                return
-            logger.debug("_on_cat_configure: left_frame width=%s", e.width)
-            if _cat_save_after_id[0]:
-                try:
-                    left_frame.after_cancel(_cat_save_after_id[0])
-                except tk.TclError:
-                    pass
-            _cat_save_after_id[0] = left_frame.after(
-                500, lambda: self._save_category_width(left_frame.winfo_width())
-            )
-
-        left_frame.bind("<Configure>", _on_cat_configure)
-
-        def _set_initial_sash():
-            try:
-                main_pane.sashpos(0, _cat_w)
-            except tk.TclError:
-                pass
-            self.after_idle(lambda: logger.debug(
-                "_render_workers: sash=%s left=%s right=%s pwidth=%s",
-                main_pane.sashpos(0),
-                left_frame.winfo_width(),
-                right_frame.winfo_width(),
-                parent.winfo_width(),
-            ))
-        parent.after_idle(_set_initial_sash)
+        # ── 左侧分类面板（固定宽度） ──
+        left_frame = tk.Frame(main_frame, bg=APP_BG, width=_cat_w)
+        left_frame.pack(side=tk.LEFT, fill=tk.Y)
+        left_frame.pack_propagate(False)
 
         left_header = tk.Frame(left_frame, bg=APP_BG, pady=4)
         left_header.pack(fill=tk.X, padx=8)
@@ -1178,9 +1240,21 @@ class ContentArea(tk.Frame):
             for b in left_btns:
                 self._editability.manage(b, normally_enabled=True)
 
+        # ── 拖拽分隔条 ──
+        cat_splitter = DraggableSplitter(
+            main_frame, left_frame,
+            min_width=180, max_width=500,
+            on_resize=self._on_category_resize,
+            default_width=_cat_w,
+            bg=APP_BG,
+            name="category",
+            ref_widget=self,
+        )
+        cat_splitter.pack(side=tk.LEFT, fill=tk.Y)
+
         # ── 右侧工种表格 ──
-        right_frame = tk.Frame(main_pane, bg=APP_BG)
-        main_pane.add(right_frame, weight=1)
+        right_frame = tk.Frame(main_frame, bg=APP_BG)
+        right_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         right_header = tk.Frame(right_frame, bg=APP_BG, pady=4)
         right_header.pack(fill=tk.X)
@@ -1222,6 +1296,8 @@ class ContentArea(tk.Frame):
             on_paste=self._paste_trade_item_at,
             paste_enabled=self._clipboard.has_trade_item,
             paste_allowed=self._is_paste_allowed,
+            on_sort_by_price=self._sort_trade_items_by_price if self._editable else None,
+            on_sort_by_billing_type=self._sort_trade_items_by_billing_type if self._editable else None,
             weights=self._worker_weights,
             selection_bg=self._selection_bg,
             editable=self._editable,
@@ -1250,17 +1326,23 @@ class ContentArea(tk.Frame):
         )
         self._worker_hint.pack(side=tk.BOTTOM, anchor="e", pady=(8, 0))
 
-    def _save_category_width(self, width):
+    def _on_category_resize(self, width: int) -> None:
+        """DraggableSplitter 释放时回调：保存归一化宽度比例到 app_config。"""
         try:
-            cfg = load_user()
-            content_width = self.content_frame.winfo_width()
-            ratio = round(width / max(content_width, 1), 6)
-            cfg["category_list_width_ratio"] = ratio
-            save_user(cfg)
-            logger.debug("_save_category_width: width=%s ratio=%s content_width=%s to user_config",
-                         width, ratio, content_width)
-        except Exception:
-            pass
+            ref_width = self.winfo_width()
+            ratio = round(width / max(ref_width, 1), 6)
+            logger.debug("[category] save: width=%s ref_width=%s ratio=%.6f",
+                         width, ref_width, ratio)
+            cfg = load_app()
+            old = cfg.get("category_list_width_ratio", 0)
+            if abs(old - ratio) > 1e-6:
+                cfg["category_list_width_ratio"] = ratio
+                save_app(cfg)
+                logger.debug("[category] saved: %.6f -> %.6f", old, ratio)
+            else:
+                logger.debug("[category] unchanged: ratio=%.6f", ratio)
+        except Exception as e:
+            logger.error("[category] save failed: %s", e, exc_info=True)
 
     def _add_category_item(self, cat_name):
         """左侧分类列表添加一个分类项"""

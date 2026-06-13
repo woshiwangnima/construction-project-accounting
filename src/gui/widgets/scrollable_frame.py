@@ -47,12 +47,14 @@ class ScrollableFrame(tk.Frame):
             lambda e: self.canvas.itemconfig(self.canvas_win, width=max(e.width, 60)),
         )
 
-        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        # scrollbar 必须先 pack 以保留右侧空间；canvas expand=True 填充剩余区域
         if auto_hide_ms is not None:
-            self.scrollbar.pack_forget()
+            # 自动隐藏模式：初始不 pack，滚动时再显示
+            self._scrollbar_visible = False
         else:
             self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
             self._scrollbar_visible = True
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         self._bind_events()
 

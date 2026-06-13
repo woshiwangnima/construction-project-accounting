@@ -154,4 +154,14 @@ def save_user(data: dict):
 
 def save_app(data: dict):
     path = _safe_path("app_config.json")
+    try:
+        import traceback
+        caller = traceback.extract_stack(limit=2)[0]
+        fname = caller.filename.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+        logger.debug("[save_app] %s:%s cat=%s side=%s",
+                     fname, caller.lineno,
+                     data.get("category_list_width_ratio", "-"),
+                     data.get("sidebar_width_ratio", "-"))
+    except Exception:
+        pass
     atomic_write_json(path, data)

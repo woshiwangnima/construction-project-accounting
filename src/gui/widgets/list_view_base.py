@@ -644,6 +644,11 @@ class ListViewBase(tk.Frame):
         if idx is not None:
             self._apply_row_bg(idx)
 
+    def set_header_sort_indicator(self, col: str, direction: str | None) -> None:
+        """设置排序列头箭头指示。"""
+        if self._header is not None:
+            self._header.set_sort_indicator(col, direction)
+
     def _on_row_click(self, idx: int) -> None:
         """用户点数据单元 → 选中并高亮，并让行获焦以便后续 ↑/↓ 切选中。"""
         if self._selected_idx == idx:

@@ -92,6 +92,6 @@ class RollbackListView(ListViewBase):
 
         for col_key in ROLLBACK_COLUMNS:
             w = cells[col_key]
-            w.bind("<Button-1>", lambda e, i=idx: self._on_row_click(i))
-            w.bind("<Double-1>", lambda e, i=idx: self._on_row_activated(i) if self._on_row_activated else None)
+            w.bind("<Button-1>", lambda *a, i=idx: self._on_row_click(i))
+            w.bind("<Double-1>", lambda *a, i=idx: self._on_row_activated(i) if self._on_row_activated else None)
         return cells

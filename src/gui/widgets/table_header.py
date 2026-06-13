@@ -1,8 +1,10 @@
 """表头组件：支持动态换行动态行高 + 列头点击回调"""
 
 import tkinter as tk
+from tkinter import font as tkfont
 
-from ..theme import FONT_BODY_BOLD, TEXT_PRIMARY
+from ..theme import FONT_BODY_BOLD, TEXT_PRIMARY, ACCENT
+from ...logger import logger
 
 
 class TableHeader(tk.Frame):
@@ -43,11 +45,29 @@ class TableHeader(tk.Frame):
             self._labels[col] = lbl
 
     def _bind_clicks(self):
+        underline_font = tkfont.Font(
+            family=FONT_BODY_BOLD[0], size=FONT_BODY_BOLD[1],
+            weight="bold", underline=True,
+        )
         for col, callback in self._header_click_map.items():
             lbl = self._labels.get(col)
             if lbl:
-                lbl.config(cursor="hand2")
-                lbl.bind("<Button-1>", lambda e, c=col: callback(c))
+                lbl.config(cursor="hand2", fg=ACCENT,
+                           font=underline_font)
+                lbl.bind("<Button-1>", lambda e, c=col, cb=callback: cb(c))
+                logger.debug("TableHeader: bound click for col=%s", col)
+
+    def set_sort_indicator(self, col: str, direction: str | None):
+        """设置排序列的箭头指示。direction: 'asc' | 'desc' | None 清除。"""
+        lbl = self._labels.get(col)
+        if not lbl:
+            return
+        text = col
+        if direction == "asc":
+            text = "▲ " + col
+        elif direction == "desc":
+            text = "▼ " + col
+        lbl.config(text=text)
 
     def refresh_widths(self, pixels: dict[str, int]):
         self._pixels = pixels
