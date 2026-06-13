@@ -76,6 +76,7 @@ class ListViewBase(tk.Frame):
         row_bg_getter=None,
         editable: bool = True,
         wrap_cols: tuple[str, ...] = (),
+        header_click_map: dict[str, Callable[[str], None]] | None = None,
         **kwargs,
     ):
         bg = kwargs.pop("bg", APP_BG)
@@ -91,6 +92,7 @@ class ListViewBase(tk.Frame):
         self._min_width = min_width
         # wrap_cols：会随列宽调整 wraplength 的数据列名
         self._wrap_cols = tuple(wrap_cols)
+        self._header_click_map = header_click_map or {}
         # ── 权重（数据列；操作列固定像素宽） ──
         if default_weights:
             self._weights = {c: float(default_weights.get(c, 0)) for c in self._columns}
@@ -223,27 +225,13 @@ class ListViewBase(tk.Frame):
         self._render_rows()
 
     def _build_header(self):
-        self._header = tk.Frame(self, bg="#e8e8e8", height=36)
+        from .table_header import TableHeader
+        self._header = TableHeader(
+            self, self._columns, self._pixels or {},
+            header_click_map=self._header_click_map,
+            on_drag_start=self._on_drag_start,
+        )
         self._header.pack(fill=tk.X)
-        self._header.pack_propagate(False)
-        for idx, col in enumerate(self._columns):
-            self._header.grid_columnconfigure(idx, minsize=80, weight=0)
-            cell = tk.Frame(self._header, bg="#e8e8e8")
-            lbl = tk.Label(
-                cell, text=col, font=FONT_BODY_BOLD, bg="#e8e8e8",
-                fg=TEXT_PRIMARY, anchor="w", padx=8,
-            )
-            lbl.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-            if idx < len(self._columns) - 1:
-                handle = tk.Frame(
-                    cell, bg=self.HANDLE_BG, width=self.HANDLE_WIDTH,
-                    cursor="sb_h_double_arrow",
-                )
-                handle.pack(side=tk.RIGHT, fill=tk.Y)
-                handle.bind("<ButtonPress-1>", lambda e, i=idx: self._on_drag_start(i, e))
-                handle.bind("<Enter>", lambda e, h=handle: h.config(bg=self.HANDLE_HOVER_BG))
-                handle.bind("<Leave>", lambda e, h=handle: h.config(bg=self.HANDLE_BG))
-            cell.grid(row=0, column=idx, sticky="nsew", padx=0, pady=0)
 
     def _build_body(self):
         outer = tk.Frame(self, bg=APP_BG)
@@ -352,10 +340,7 @@ class ListViewBase(tk.Frame):
         pixels = compute_column_pixels(specs, self._weights, total_w)
         self._pixels = pixels
 
-        for idx, col in enumerate(self._columns):
-            self._header.grid_columnconfigure(idx, minsize=pixels[col])
-            for child in self._header.grid_slaves(row=0, column=idx):
-                child.grid_configure(sticky="nsew")
+        self._header.refresh_widths(pixels)
 
         for widgets in self._row_widgets:
             # 找 row_frame：取任意 cell 的 master
@@ -447,8 +432,7 @@ class ListViewBase(tk.Frame):
         self._pixels = resize_adjacent_columns(
             self._column_specs(), self._drag_start_pixels, left_col, right_col, delta,
         )
-        for idx, col in enumerate(self._columns):
-            self._header.grid_columnconfigure(idx, minsize=self._pixels[col])
+        self._header.refresh_widths(self._pixels)
         for widgets in self._row_widgets:
             first_cell = next(iter(widgets.values()), None)
             if first_cell is None:

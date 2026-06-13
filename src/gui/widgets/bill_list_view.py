@@ -58,8 +58,12 @@ class BillListView(ListViewBase):
         self._trade_items = trade_items or []
         self._on_edit = on_edit
         self._on_review_toggle = on_review_toggle
-        self._on_review_header_toggle = on_review_header_toggle
         self._reviewed_bg = reviewed_bg
+
+        header_click_map = {}
+        if on_review_header_toggle is not None and "审核" in BILLS_COLUMNS:
+            header_click_map["审核"] = lambda col: on_review_header_toggle()
+
         super().__init__(
             parent,
             columns=BILLS_COLUMNS,
@@ -78,24 +82,13 @@ class BillListView(ListViewBase):
             row_bg_getter=self._row_bg_for_bill,
             editable=editable,
             wrap_cols=("工作内容", "公式", "备注"),
+            header_click_map=header_click_map,
             **kwargs,
         )
         # 存数据（基类 set_items 走 _render_rows，已经会读 self._items）
         self._items = list(bills)
         # 首次构建已经在基类 __init__ 走完了，这里需要重新渲染一次以填账单
         self._render_rows()
-
-    def _build_header(self):
-        super()._build_header()
-        if self._on_review_header_toggle is None or "审核" not in self._columns:
-            return
-        idx = self._columns.index("审核")
-        for cell in self._header.grid_slaves(row=0, column=idx):
-            for child in cell.winfo_children():
-                if isinstance(child, tk.Label):
-                    if self._editable:
-                        child.config(cursor="hand2")
-                        child.bind("<Button-1>", lambda e: self._on_review_header_toggle())
 
     def _row_bg_for_bill(self, idx: int, bill: dict) -> str:
         if is_bill_reviewed(bill):
