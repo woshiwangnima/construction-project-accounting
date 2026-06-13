@@ -311,6 +311,16 @@ WORKER_DEFAULT_WEIGHTS = {
     "操作": 0.12,
 }
 
+CATEGORY_LIST_DEFAULT_WEIGHTS = {"name": 0.80, "count": 0.20}
+
+def _category_list_weights():
+    from ..config_loader import load_app
+    cfg = load_app().get("list_column_weights", {}).get("category_list", {})
+    return {
+        "name": cfg.get("name", CATEGORY_LIST_DEFAULT_WEIGHTS["name"]),
+        "count": cfg.get("count", CATEGORY_LIST_DEFAULT_WEIGHTS["count"]),
+    }
+
 
 def _safe_positive_float(v) -> float | None:
     try:
@@ -1262,16 +1272,43 @@ class ContentArea(tk.Frame):
         item = tk.Frame(self._cat_items_frame, bg=bg, cursor="hand2", padx=10, pady=8)
         item.pack(fill=tk.X, padx=4, pady=1)
 
+        indicator = None
         if is_selected:
             indicator = tk.Frame(item, bg=ACCENT, width=4)
             indicator.pack(side=tk.LEFT, padx=(0, 8))
 
         # 统计该分类下的工种数
         count = sum(1 for ti in self.project_data.get("trade_items", []) if _trade_item_category_name(ti, self.project_data) == cat_name)
-        tk.Label(item, text=cat_name, font=FONT_BODY_BOLD, bg=bg, fg=fg,
-                 anchor="w").pack(side=tk.LEFT)
-        tk.Label(item, text=f"{count}项", font=FONT_SMALL, bg=bg, fg=TEXT_SECONDARY,
-                 anchor="w").pack(side=tk.RIGHT)
+
+        weights = _category_list_weights()
+        name_w = weights["name"]
+        count_w = weights["count"]
+
+        content = tk.Frame(item, bg=bg)
+        content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        content.grid_columnconfigure(0, weight=name_w)
+        content.grid_columnconfigure(1, weight=count_w)
+
+        name_lbl = tk.Label(content, text=cat_name, font=FONT_BODY_BOLD, bg=bg, fg=fg,
+                            anchor="w", wraplength=0)
+        name_lbl.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
+
+        count_lbl = tk.Label(content, text=f"{count}项", font=FONT_SMALL, bg=bg, fg=TEXT_SECONDARY,
+                             anchor="e")
+        count_lbl.grid(row=0, column=1, sticky="nsew")
+
+        def _update_wraplength(evt=None):
+            cw = content.winfo_width()
+            if cw > 0:
+                nw = int(cw * name_w / (name_w + count_w))
+                cw2 = int(cw * count_w / (name_w + count_w))
+                try:
+                    name_lbl.config(wraplength=max(60, nw - 8))
+                    count_lbl.config(wraplength=max(60, cw2 - 8))
+                except tk.TclError:
+                    pass
+
+        content.bind("<Configure>", _update_wraplength)
 
         def on_click(e, c=cat_name):
             logger.debug("category_on_click: %r (previous selected=%r)", c, self._selected_category)
@@ -1282,7 +1319,10 @@ class ContentArea(tk.Frame):
         def on_right_click(e, c=cat_name):
             self._show_category_context_menu(e, c)
 
-        for w in [item] + item.winfo_children():
+        bind_widgets = [item, content, name_lbl, count_lbl]
+        if indicator is not None:
+            bind_widgets.append(indicator)
+        for w in bind_widgets:
             w.bind("<Button-1>", on_click)
             w.bind("<Button-3>", on_right_click)
             if not is_selected:
