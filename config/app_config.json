@@ -324,10 +324,10 @@
       "status": 0.2
     },
     "category_list": {
-      "name": 0.8,
-      "count": 0.2
+      "name": 0.65,
+      "count": 0.35
     }
   },
-  "sidebar_width_ratio": 0.117188,
-  "category_list_width_ratio": 0.113066
+  "sidebar_width_ratio": 0.119531,
+  "category_list_width_ratio": 0.093861
 }
