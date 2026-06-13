@@ -13,12 +13,22 @@ from ..theme import (
     FONT_BODY, FONT_BODY_BOLD, FONT_SMALL,
 )
 from ..widgets import ScrollableFrame, _make_btn, _input_entry
+from ...config_loader import load_app, save_app
 from ...project_manager import update_project
 from ...billing import Billing, read_billing, write_billing
 from ...trade_item_id import ensure_trade_item_id
 
 
 BILLING_TYPES = ["按单价", "无单价"]
+
+_SAVE_RESIZE_DEBOUNCE_MS = 300
+
+
+def _save_edit_trade_size(w: int, h: int) -> None:
+    cfg = load_app()
+    sizes = cfg.setdefault("window_sizes", {})
+    sizes["edit_trade"] = [int(w), int(h)]
+    save_app(cfg)
 
 
 class EditTradeItemDialog:
@@ -37,7 +47,10 @@ class EditTradeItemDialog:
         # 统一所有下拉框弹层（Listbox）字号：需在所有 Combobox 创建前设置才生效
         dialog.option_add("*TCombobox*Listbox.font", ("Microsoft YaHei UI", 14))
 
-        w, h = 600, 540
+        cfg = load_app()
+        sizes = (cfg.get("window_sizes") or {})
+        et_size = sizes.get("edit_trade") or [600, 540]
+        w, h = int(et_size[0]), int(et_size[1])
         x = parent.winfo_rootx() + (parent.winfo_width() - w) // 2
         y = parent.winfo_rooty() + (parent.winfo_height() - h) // 2
         # 确保弹窗不超出屏幕
@@ -45,8 +58,13 @@ class EditTradeItemDialog:
         if y + h > screen_h - 40:
             y = max(20, screen_h - h - 40)
         dialog.geometry(f"{w}x{h}+{x}+{y}")
-        dialog.minsize(max(520, w - 60), max(420, h - 80))
         dialog.resizable(True, True)
+
+        # 尺寸持久化：防抖保存用户调整后的窗口大小
+        self._dialog = dialog
+        self._initial_size = (w, h)
+        self._save_size_after_id: str | None = None
+        dialog.bind("<Configure>", self._on_configure)
 
         # ── 滚动包裹框 + 底部按钮 ──
         wrap = tk.Frame(dialog, bg=APP_BG)
@@ -127,7 +145,7 @@ class EditTradeItemDialog:
         btn_frame.grid_columnconfigure(0, weight=1)
         inner_btn = tk.Frame(btn_frame, bg=APP_BG)
         inner_btn.grid(row=0, column=0)
-        _make_btn(inner_btn, "取消", dialog.destroy, "ghost").pack(side=tk.LEFT, padx=4)
+        _make_btn(inner_btn, "取消", self._close, "ghost").pack(side=tk.LEFT, padx=4)
         self._save_btn = _make_btn(inner_btn, "确定", lambda: self._confirm(dialog),
                                     "primary")
         self._save_btn.pack(side=tk.LEFT, padx=4)
@@ -138,7 +156,30 @@ class EditTradeItemDialog:
 
         self._toggle_price()
 
-        self._dialog = dialog
+    def _on_configure(self, event):
+        if event.widget is not self._dialog:
+            return
+        if self._save_size_after_id is not None:
+            try:
+                self._dialog.after_cancel(self._save_size_after_id)
+            except tk.TclError:
+                pass
+        self._save_size_after_id = self._dialog.after(
+            _SAVE_RESIZE_DEBOUNCE_MS, self._save_size_now
+        )
+
+    def _save_size_now(self):
+        self._save_size_after_id = None
+        if not self._dialog.winfo_exists():
+            return
+        w, h = self._dialog.winfo_width(), self._dialog.winfo_height()
+        if (w, h) == self._initial_size:
+            return
+        try:
+            _save_edit_trade_size(w, h)
+        except Exception as e:
+            from ...logger import logger
+            logger.warning("保存工作项目窗口尺寸失败: %s", e)
 
     def _ensure_valid_billing_value(self):
         """容错：item 中存的是旧「按单价计费 / 无单价计费」时也归一为新值。"""
@@ -194,6 +235,11 @@ class EditTradeItemDialog:
             self.project.setdefault("trade_items", []).append(self.item)
 
         update_project(self.ref, self.project)
+        self._save_size_now()
         dialog.destroy()
         if self.on_done:
             self.on_done()
+
+    def _close(self):
+        self._save_size_now()
+        self._dialog.destroy()

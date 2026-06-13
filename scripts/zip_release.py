@@ -10,7 +10,7 @@ def main():
         print("Usage: python zip_release.py <build_dir> [version]")
         sys.exit(1)
     build_dir = Path(sys.argv[1])
-    version = sys.argv[2] if len(sys.argv) > 2 else "1.0.0"
+    version = sys.argv[2] if len(sys.argv) > 2 else "1.0.1"
     if not build_dir.is_dir():
         print(f"Error: directory not found {build_dir}", file=sys.stderr)
         sys.exit(1)

@@ -9,7 +9,7 @@ from ..theme import (
     FONT_BODY, FONT_BODY_BOLD, FONT_SMALL, FONT_HEADING, FONT_CALC_BTN,
 )
 from ..widgets import ScrollableFrame, _make_btn, _input_entry, DateTypeSelector
-from ...config_loader import load_app
+from ...config_loader import load_app, save_app
 from ...calculator import (
     MathParseError,
     evaluate_canonical,
@@ -43,6 +43,16 @@ def _formula_result_text(content: str, op_map: dict) -> str:
     return f"结果：{_format_number(result)}"
 
 
+_SAVE_RESIZE_DEBOUNCE_MS = 300
+
+
+def _save_edit_bill_size(w: int, h: int) -> None:
+    cfg = load_app()
+    sizes = cfg.setdefault("window_sizes", {})
+    sizes["edit_bill"] = [int(w), int(h)]
+    save_app(cfg)
+
+
 class EditBillDialog:
     def __init__(self, parent, project, on_done, bill=None, editable=True):
         self.project = project
@@ -74,13 +84,19 @@ class EditBillDialog:
         if y + h > screen_h - 40:
             y = max(20, screen_h - h - 40)
         dialog.geometry(f"{w}x{h}+{x}+{y}")
-        dialog.minsize(max(680, w - 40), max(820, h - 80))
         # 允许纵横缩放
         dialog.resizable(True, True)
+
+        # 尺寸持久化：防抖保存用户调整后的窗口大小
+        self._dialog = dialog
+        self._initial_size = (w, h)
+        self._save_size_after_id: str | None = None
+        dialog.bind("<Configure>", self._on_configure)
 
         # 关闭时停止 TTS 朗读（pyttsx3 引擎在另一线程，停不掉的播报会一直响）
         voice = get_voice()
         def _on_close():
+            self._save_size_now()
             voice.stop()
             dialog.destroy()
         dialog.protocol("WM_DELETE_WINDOW", _on_close)
@@ -283,7 +299,31 @@ class EditBillDialog:
             _set_btn_state(self._save_btn, True)
 
         self._update_display(op_map)
-        self._dialog = dialog
+
+    def _on_configure(self, event):
+        if event.widget is not self._dialog:
+            return
+        if self._save_size_after_id is not None:
+            try:
+                self._dialog.after_cancel(self._save_size_after_id)
+            except tk.TclError:
+                pass
+        self._save_size_after_id = self._dialog.after(
+            _SAVE_RESIZE_DEBOUNCE_MS, self._save_size_now
+        )
+
+    def _save_size_now(self):
+        self._save_size_after_id = None
+        if not self._dialog.winfo_exists():
+            return
+        w, h = self._dialog.winfo_width(), self._dialog.winfo_height()
+        if (w, h) == self._initial_size:
+            return
+        try:
+            _save_edit_bill_size(w, h)
+        except Exception as e:
+            from ...logger import logger
+            logger.warning("保存账单窗口尺寸失败: %s", e)
 
     def _handle_trade_selection(self, op_map):
         if self._orphan_on_open and self._orphan_label is not None:
@@ -422,6 +462,7 @@ class EditBillDialog:
             bills.append(bill)
 
         update_project(self.project["_path"], self.project)
+        self._save_size_now()
         voice.stop()
         dialog.destroy()
         if self.on_done:

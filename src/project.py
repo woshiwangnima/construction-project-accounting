@@ -75,7 +75,7 @@ class Project:
         self._sync_trade_item_category_ids()
         return {
             "app_version": APP_VERSION,
-            "schema_version": CURRENT_SCHEMA_VERSION,
+            "schema_version": self.schema_version,
             "project_uuid": self.project_uuid,
             "name": self.name,
             "status": self.status,

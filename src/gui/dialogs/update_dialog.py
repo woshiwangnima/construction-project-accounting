@@ -1,4 +1,6 @@
 """更新对话框：有新版本时弹出下载确认，含进度条。"""
+import queue
+import threading
 import tkinter as tk
 from tkinter import ttk
 
@@ -18,6 +20,9 @@ class UpdateDialog(tk.Toplevel):
 
         self._info = info
         self._downloading = False
+        self._progress_queue: queue.Queue = queue.Queue()
+        self._download_thread: threading.Thread | None = None
+        self._download_result = None
 
         w, h = 480, 340
         pw = parent.winfo_width() if parent.winfo_width() > 100 else 1280
@@ -66,9 +71,55 @@ class UpdateDialog(tk.Toplevel):
         self._downloading = True
         self._download_btn.config(state=tk.DISABLED, text="正在下载…")
         self._status_var.set("正在下载更新包…")
+        self._progress_queue = queue.Queue()
+        self._download_result = None
         self.update_idletasks()
 
-        update_dir = download_update(self._info, self._on_progress)
+        self._download_thread = threading.Thread(
+            target=self._download_worker, daemon=True
+        )
+        self._download_thread.start()
+        self._poll_download()
+
+    def _download_worker(self):
+        """后台线程：执行下载，将进度放入 queue。"""
+        try:
+            self._download_result = download_update(
+                self._info, self._on_progress_threadsafe
+            )
+        except Exception as e:
+            logger.error("Download thread error: %s", e)
+            self._download_result = None
+
+    def _on_progress_threadsafe(self, downloaded: int, total: int):
+        """线程安全的进度回调，放入 queue。"""
+        self._progress_queue.put((downloaded, total))
+
+    def _poll_download(self):
+        """主线程轮询 queue，更新 UI 进度。"""
+        try:
+            while True:
+                downloaded, total = self._progress_queue.get_nowait()
+                self._update_progress_ui(downloaded, total)
+        except queue.Empty:
+            pass
+
+        if self._download_thread is not None and self._download_thread.is_alive():
+            self.after(80, self._poll_download)
+        else:
+            self._on_download_complete(self._download_result)
+
+    def _update_progress_ui(self, downloaded: int, total: int):
+        """在主线程更新进度条和状态文本。"""
+        if total > 0:
+            pct = int(downloaded / total * 100)
+            self._progress["value"] = pct
+            mb = downloaded / 1024 / 1024
+            total_mb = total / 1024 / 1024
+            self._status_var.set(f"下载中… {mb:.1f}MB / {total_mb:.1f}MB ({pct}%)")
+
+    def _on_download_complete(self, update_dir):
+        """下载完成后在主线程处理后续流程。"""
         if update_dir is None:
             self._status_var.set("下载失败，请检查网络后重试")
             self._download_btn.config(state=tk.NORMAL, text="重试")
@@ -94,13 +145,8 @@ class UpdateDialog(tk.Toplevel):
         self.master.destroy()
 
     def _on_progress(self, downloaded: int, total: int):
-        if total > 0:
-            pct = int(downloaded / total * 100)
-            self._progress["value"] = pct
-            mb = downloaded / 1024 / 1024
-            total_mb = total / 1024 / 1024
-            self._status_var.set(f"下载中… {mb:.1f}MB / {total_mb:.1f}MB ({pct}%)")
-            self.update_idletasks()
+        """保留兼容旧调用，实际由 _on_progress_threadsafe 替代。"""
+        pass
 
     def _on_cancel(self):
         self.grab_release()

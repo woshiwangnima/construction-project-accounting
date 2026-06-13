@@ -1,5 +1,5 @@
 {
-  "app_version": "1.0.0",
+  "app_version": "1.0.1",
   "schema_version": 1,
   "button_font_size": 16,
   "symbol_mapping": {
@@ -111,7 +111,7 @@
     ],
     "edit_bill": [
       720,
-      900
+      743
     ],
     "edit_trade_item": [
       440,
@@ -286,6 +286,18 @@
   ],
   "release_notes": [
     {
+      "version": "1.0.1",
+      "date": "2026-06-14",
+      "notes": [
+        "修复分类列表宽度不持久化的问题",
+        "修复账单/工作项目窗口最小尺寸限制",
+        "新增账单/工作项目窗口尺寸记忆",
+        "更新时保护用户数据目录不被覆盖",
+        "新增数据迁移原语和批次回退功能",
+        "更新下载改为后台线程，不再阻塞界面"
+      ]
+    },
+    {
       "version": "1.0.0",
       "date": "2026-06-08",
       "notes": [
@@ -316,6 +328,6 @@
       "count": 0.2
     }
   },
-  "sidebar_width_ratio": 0.109766,
+  "sidebar_width_ratio": 0.117188,
   "category_list_width_ratio": 0.113066
 }

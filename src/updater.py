@@ -203,15 +203,27 @@ def download_update(info: UpdateInfo, progress_callback: Callable[[int, int], No
 
 
 def _write_apply_script(update_dir: Path) -> Path:
-    """在 update_dir 中创建 apply_update.bat，返回其路径。
+    """在 update_dir 中创建 apply_update.bat + exclude.txt，返回 bat 路径。
 
-    脚本逻辑：等父进程退出 → xcopy 新文件覆盖安装目录 → 删除 update_dir → 重启。
+    脚本逻辑：等父进程退出 → xcopy 新文件（排除用户数据目录）→ 删除 update_dir → 重启。
     """
     app_dir = _app_dir()
     bat_path = update_dir / "apply_update.bat"
+    exclude_path = update_dir / "exclude.txt"
 
     is_frozen = getattr(sys, "frozen", False)
     exe_name = "ConstructionAccounting.exe" if is_frozen else "python.exe"
+
+    # xcopy /EXCLUDE 格式：每行一个子串，文件路径包含该子串则被跳过。
+    # 保护用户数据目录不被发布包覆盖。
+    exclude_patterns = [
+        "\\config\\",
+        "\\projects\\",
+        "\\backups\\",
+        "\\migration_backups\\",
+        "\\logs\\",
+    ]
+    exclude_path.write_text("\r\n".join(exclude_patterns), encoding="utf-8")
 
     lines = [
         "@echo off",
@@ -227,8 +239,8 @@ def _write_apply_script(update_dir: Path) -> Path:
         "",
         "echo 正在更新文件…",
         "",
-        "REM 复制新文件（release zip 只含 exe + _internal，不会覆盖用户数据）",
-        f'xcopy /s /y "{update_dir}\\*" "{app_dir}\\" >nul',
+        "REM 复制新文件，排除用户数据目录（config/projects/backups/logs）",
+        f'xcopy /s /y /EXCLUDE:"{exclude_path}" "{update_dir}\\*" "{app_dir}\\" >nul',
         "",
         "REM 清理更新临时目录",
         f'rmdir /s /q "{update_dir}" 2>nul',

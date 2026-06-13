@@ -12,7 +12,7 @@ echo.
 rem ── 从 versioning.py 中读取版本号 ────────────────────
 for /f "tokens=2 delims== " %%a in ('findstr /b "APP_VERSION" src\versioning.py') do set "VERSION=%%~a"
 set "VERSION=%VERSION:"=%"
-if "%VERSION%"=="" set "VERSION=1.0.0"
+if "%VERSION%"=="" set "VERSION=1.0.1"
 echo Version: %VERSION%
 
 echo [1/4] Cleaning old builds...

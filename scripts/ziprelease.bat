@@ -5,7 +5,7 @@ REM Creates a release zip containing only exe + _internal + manifest
 
 setlocal
 set "VERSION=%~1"
-if "%VERSION%"=="" set "VERSION=1.0.0"
+if "%VERSION%"=="" set "VERSION=1.0.1"
 
 cd /d "%~dp0..\dist\ConstructionAccounting"
 

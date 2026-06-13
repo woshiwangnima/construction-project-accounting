@@ -12,7 +12,7 @@ from .logger import logger
 from .utils import atomic_write_json
 
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 CURRENT_SCHEMA_VERSION = 1
 
 
@@ -53,6 +53,73 @@ MIGRATIONS: dict[str, dict[int, MigrationFunc]] = {
     "project": {0: _migrate_0_to_1},
     "backup": {0: _migrate_0_to_1},
 }
+
+
+# ── 迁移原语（Migration Primitives）──────────────────────
+# 在编写 _migrate_N_to_M 函数时组合使用这些原语，
+# 每个原语都返回 data 本身以支持链式调用。
+
+def _resolve_path(data: dict, nested: tuple[str, ...] | None) -> dict:
+    """沿 nested 路径向下导航，返回目标 dict。路径不存在时返回空 dict。"""
+    if not nested:
+        return data
+    current = data
+    for key in nested:
+        if isinstance(current, dict) and key in current and isinstance(current[key], dict):
+            current = current[key]
+        else:
+            return {}
+    return current
+
+
+def rename_field(data: dict, old_key: str, new_key: str, *,
+                 nested: tuple[str, ...] | None = None) -> dict:
+    """重命名字段。nested 指定嵌套路径，如 ("export_defaults",)。"""
+    target = _resolve_path(data, nested)
+    if old_key in target and new_key not in target:
+        target[new_key] = target.pop(old_key)
+    return data
+
+
+def set_default(data: dict, key: str, default, *,
+                nested: tuple[str, ...] | None = None) -> dict:
+    """如果字段不存在，注入默认值。"""
+    target = _resolve_path(data, nested)
+    if key not in target:
+        target[key] = default
+    return data
+
+
+def change_type(data: dict, key: str, converter: Callable, *,
+                nested: tuple[str, ...] | None = None) -> dict:
+    """转换字段类型，如 str→int、list→dict。converter 接收旧值返回新值。"""
+    target = _resolve_path(data, nested)
+    if key in target:
+        try:
+            target[key] = converter(target[key])
+        except (TypeError, ValueError):
+            pass
+    return data
+
+
+def remove_field(data: dict, key: str, *,
+                 nested: tuple[str, ...] | None = None) -> dict:
+    """删除废弃字段。"""
+    target = _resolve_path(data, nested)
+    target.pop(key, None)
+    return data
+
+
+def transform_each(data: dict, list_key: str, transform_fn: Callable[[dict], dict], *,
+                   nested: tuple[str, ...] | None = None) -> dict:
+    """对列表中每个 dict 元素执行变换（如 bills、trade_items）。"""
+    target = _resolve_path(data, nested)
+    if list_key in target and isinstance(target[list_key], list):
+        target[list_key] = [
+            transform_fn(item) if isinstance(item, dict) else item
+            for item in target[list_key]
+        ]
+    return data
 
 
 def migrate_json_document(kind: str, data: dict) -> dict:
@@ -159,6 +226,35 @@ def migrate_all_known_files(*, config_dir: str | Path | None = None,
     failed = sum(1 for r in results if r.error)
     logger.info("Migration summary checked=%s changed=%s failed=%s", len(results), changed, failed)
     return results
+
+
+def rollback_migration_batch(batch_id: str, *,
+                             backup_root: str | Path | None = None) -> list[str]:
+    """将指定批次迁移的所有文件恢复到迁移前的状态。
+
+    返回已恢复的文件路径列表。如果没有找到批次备份，返回空列表。
+    """
+    base_dir = Path(__file__).resolve().parent.parent
+    backup_root = Path(backup_root) if backup_root is not None else base_dir / "migration_backups"
+    batch_dir = backup_root / batch_id
+    if not batch_dir.is_dir():
+        logger.warning("rollback: batch_id=%s not found at %s", batch_id, batch_dir)
+        return []
+
+    restored: list[str] = []
+    for backup_file in sorted(batch_dir.rglob("*.json")):
+        relative = backup_file.relative_to(batch_dir)
+        original = base_dir / relative
+        try:
+            original.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(backup_file, original)
+            restored.append(str(original))
+            logger.info("rollback: restored %s from %s", original, backup_file)
+        except OSError as e:
+            logger.error("rollback: failed to restore %s: %s", original, e)
+
+    logger.info("rollback: batch=%s restored=%d files", batch_id, len(restored))
+    return restored
 
 
 def main() -> None:
