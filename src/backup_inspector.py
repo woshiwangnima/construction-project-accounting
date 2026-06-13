@@ -68,8 +68,6 @@ def orphan_count_from_backup(data: dict) -> int:
 
 def summarize_trades(data: dict) -> str:
     items = (data or {}).get("trade_items") or []
-    if not items:
-        return "-"
     categories = (data or {}).get("category_order") or []
     cat_name_by_id = {c.get("id", ""): c.get("name", "") for c in categories if isinstance(c, dict)}
     counts: dict[str, dict[str, int]] = {}
@@ -81,11 +79,29 @@ def summarize_trades(data: dict) -> str:
             bucket["unit"] += 1
         else:
             bucket["no_unit"] += 1
+    # 确保所有分类均出现在输出中（含 0 项）
+    for cat_obj in categories:
+        if isinstance(cat_obj, dict):
+            name = cat_obj.get("name", "")
+            if name and name not in counts:
+                counts[name] = {"unit": 0, "no_unit": 0}
     parts = []
-    for cat, count in counts.items():
-        total = count["unit"] + count["no_unit"]
-        parts.append(f"{cat}：{total}项（有单价{count['unit']}，无单价{count['no_unit']}）")
-    return "；".join(parts)
+    seen = set()
+    for cat_obj in categories:
+        if isinstance(cat_obj, dict):
+            name = cat_obj.get("name", "")
+            if name and name not in seen:
+                seen.add(name)
+                if name in counts:
+                    c = counts[name]
+                    total = c["unit"] + c["no_unit"]
+                    parts.append(f"{name}:{total}项(有{c['unit']}+无{c['no_unit']})")
+    # 未分类项放在最后
+    if "未分类" in counts and "未分类" not in seen:
+        c = counts["未分类"]
+        total = c["unit"] + c["no_unit"]
+        parts.append(f"未分类:{total}项(有{c['unit']}+无{c['no_unit']})")
+    return "；".join(parts) if parts else "-"
 
 
 def summarize_bills(data: dict, orphan_count: int) -> str:
@@ -131,6 +147,8 @@ def inspect_backup(path: Union[Path, str]) -> BackupInfo:
 
 
 def list_backups_for(project_uuid: str) -> list[BackupInfo]:
-    """列出某项目的所有备份，按时间倒序，每个附带有效性。"""
+    """列出某项目的所有备份，按存档时间倒序（最新在最上面）。"""
     paths = list_all_backup_files(project_uuid)
-    return [inspect_backup(p) for p in paths]
+    backups = [inspect_backup(p) for p in paths]
+    backups.sort(key=lambda b: b.last_modified, reverse=True)
+    return backups

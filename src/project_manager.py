@@ -15,7 +15,7 @@ from .category import Category
 from .trade_item import TradeItem
 from .bill import Bill
 from .billing import Billing, write_billing
-from .backup_policy import next_sequence_backup_path, rotate_sequence_backups, should_backup
+from .backup_policy import next_sequence_backup_path, should_backup, make_room_for_backup
 from .trade_item_id import (
     generate_category_id,
     generate_trade_item_id,
@@ -304,7 +304,11 @@ def _backup_project(uuid: str, force: bool = False, next_project: dict | None = 
         if old_path.is_file():
             src = old_path
         else:
-            return
+            existing = _find_project_file(uuid)
+            if existing is not None:
+                src = existing
+            else:
+                return
     backups_dir = get_backups_dir()
     os.makedirs(backups_dir, exist_ok=True)
 
@@ -319,11 +323,11 @@ def _backup_project(uuid: str, force: bool = False, next_project: dict | None = 
     elif not force:
         return
 
+    n = _get_backup_count()
+    make_room_for_backup(src, Path(backups_dir), n)
     dst = next_sequence_backup_path(src, Path(backups_dir))
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(str(src), str(dst))
-    n = _get_backup_count()
-    rotate_sequence_backups(src, Path(backups_dir), n)
 
 
 def update_project(uuid: str, project: Project) -> None:

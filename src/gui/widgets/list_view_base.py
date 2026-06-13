@@ -29,9 +29,9 @@ from tkinter import ttk
 from ...logger import logger
 from ..theme import (
     APP_BG, BORDER, TEXT_PRIMARY,
-    FONT_BODY_BOLD,
 )
 from . import RowActionButtons
+from ...config_loader import load_app
 from .scroll_anchor import (
     RowGeometry,
     ScrollAnchor,
@@ -160,16 +160,20 @@ class ListViewBase(tk.Frame):
         """
         raise NotImplementedError
 
+    @staticmethod
+    def _action_font():
+        bfs = load_app().get("button_font_size", 16)
+        return ("Microsoft YaHei UI", max(int(bfs * 0.8), 10))
+
     def _create_action_cell(self, row_frame, idx, col_idx) -> tk.Widget:
         """默认创建操作列：拖拽手柄 + 删除。"""
         action_frame = tk.Frame(row_frame, bg=row_frame.cget("bg"))
         action_frame.grid(row=0, column=col_idx, sticky="ns", padx=4, pady=4)
         row_frame.grid_columnconfigure(col_idx, minsize=self._action_col_width)
+        ft = self._action_font()
         if self._on_reorder:
             handle = self._make_action_button(
-                action_frame,
-                text="☰ 拖动",
-                fg="#2d3748",
+                action_frame, text="☰ 拖动", fg="#2d3748", font=ft,
                 cursor="hand2" if self._editable else "arrow",
             )
             handle.config(state=tk.NORMAL if self._editable else tk.DISABLED)
@@ -179,18 +183,14 @@ class ListViewBase(tk.Frame):
                 handle.bind("<B1-Motion>", self._on_row_drag_motion)
                 handle.bind("<ButtonRelease-1>", self._on_row_drag_release)
             delete_btn = self._make_action_button(
-                action_frame,
-                text="🗑 删除",
-                fg="#c0392b",
+                action_frame, text="🗑 删除", fg="#c0392b", font=ft,
                 command=(lambda i=idx: self._on_delete and self._on_delete(i)) if self._editable else None,
             )
             delete_btn.config(state=tk.NORMAL if self._editable else tk.DISABLED)
             delete_btn.pack(side=tk.LEFT, expand=False)
             return action_frame
         btns = RowActionButtons(
-            action_frame,
-            labels=("", "", "删除"),
-            button_width=4,
+            action_frame, labels=("", "", "删除"), button_width=4, font=ft,
             on_delete=(lambda i=idx: self._on_delete and self._on_delete(i))
             if self._editable else None,
         )
@@ -200,11 +200,11 @@ class ListViewBase(tk.Frame):
         btns.pack(side=tk.LEFT, expand=False)
         return btns
 
-    def _make_action_button(self, parent, text: str, fg: str, command=None, cursor: str = "hand2") -> tk.Button:
+    def _make_action_button(self, parent, text: str, fg: str, font, command=None, cursor: str = "hand2") -> tk.Button:
         return tk.Button(
             parent,
             text=text,
-            font=FONT_BODY_BOLD,
+            font=font,
             command=command,
             bg="white",
             fg=fg,
@@ -213,8 +213,8 @@ class ListViewBase(tk.Frame):
             relief="groove",
             bd=1,
             cursor=cursor,
-            padx=8,
-            pady=2,
+            padx=4,
+            pady=1,
         )
 
     # ── 构建 ──

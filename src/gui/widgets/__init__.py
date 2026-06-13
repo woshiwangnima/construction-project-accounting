@@ -213,6 +213,7 @@ class RowActionButtons(tk.Frame):
         on_delete=None,
         labels=("上移", "下移", "删除"),
         button_width: int = 4,
+        font=None,
         **kwargs,
     ):
         bg = kwargs.pop("bg", APP_BG)
@@ -227,7 +228,7 @@ class RowActionButtons(tk.Frame):
             b = tk.Button(
                 self,
                 text=label,
-                font=FONT_SMALL,
+                font=font or FONT_SMALL,
                 width=button_width,
                 command=cmd,
                 bg="white",

@@ -71,6 +71,28 @@ def rotate_sequence_backups(project_path: Path, backups_dir: Path, keep_count: i
         path.unlink(missing_ok=True)
 
 
+def make_room_for_backup(project_path: Path, backups_dir: Path, max_count: int) -> None:
+    """按文件修改时间删除最老备份，使序列备份数 < max_count。
+
+    配合 _backup_project 的"先删后建"策略使用。
+    按 mtime 排序（而非序列号）以避免循环复用序号后认错新旧关系。
+    """
+    stem = Path(project_path).stem
+    seq_paths: list[tuple[int, Path]] = []
+    for path in Path(backups_dir).glob(f"{stem}.*.json"):
+        seq = _extract_sequence(path, stem)
+        if seq is not None:
+            seq_paths.append((seq, path))
+    if len(seq_paths) < max_count:
+        return
+    seq_paths.sort(key=lambda item: item[1].stat().st_mtime)
+    for _seq, path in seq_paths[:len(seq_paths) - max_count + 1]:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def _extract_sequence(path: Path, stem: str) -> int | None:
     match = re.fullmatch(rf"{re.escape(stem)}\.(\d+)\.json", path.name)
     if not match:
