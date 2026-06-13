@@ -869,6 +869,7 @@ class ContentArea(tk.Frame):
         hint = TooltipCarousel(
             parent,
             messages=_tc_cfg.get("messages", ["双击行可编辑；拖表头竖条可调列宽"]),
+            prefix=_tc_cfg.get("prefix", "◆ "),
             dwell_per_char_ms=_tc_cfg.get("dwell_per_char_ms", 80),
             font_size=_tc_cfg.get("font_size", 13),
             anchor="e",
@@ -1242,6 +1243,7 @@ class ContentArea(tk.Frame):
         self._worker_hint = TooltipCarousel(
             parent,
             messages=_tc_cfg.get("messages", ["双击行可编辑；拖表头竖条可调列宽"]),
+            prefix=_tc_cfg.get("prefix", "◆ "),
             dwell_per_char_ms=_tc_cfg.get("dwell_per_char_ms", 80),
             font_size=_tc_cfg.get("font_size", 13),
             anchor="e",

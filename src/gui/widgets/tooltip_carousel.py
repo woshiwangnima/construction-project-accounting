@@ -21,6 +21,7 @@ class TooltipCarousel(tk.Frame):
         self,
         parent,
         messages,
+        prefix="",
         dwell_per_char_ms=80,
         font_size=13,
         fg=TEXT_SECONDARY,
@@ -30,6 +31,7 @@ class TooltipCarousel(tk.Frame):
     ):
         super().__init__(parent, bg=bg, **kwargs)
         self._messages = list(messages)
+        self._prefix = prefix
         self._dwell_per_char_ms = dwell_per_char_ms
         self._font_size = font_size
         self._fg = fg
@@ -53,7 +55,7 @@ class TooltipCarousel(tk.Frame):
             self._index = 0
             if not self._messages:
                 return
-        msg = self._messages[self._index]
+        msg = self._prefix + self._messages[self._index]
         self._label.config(text=msg)
         self.update_idletasks()
 
@@ -70,7 +72,7 @@ class TooltipCarousel(tk.Frame):
             self._scroll_forward()
 
     def _scroll_forward(self):
-        msg = self._messages[self._index]
+        msg = self._prefix + self._messages[self._index]
         self._label.config(text=msg + "    ")
         self.update_idletasks()
         container_w = self.winfo_width()
