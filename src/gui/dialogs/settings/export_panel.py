@@ -9,7 +9,7 @@ from tkinter import ttk, colorchooser
 
 from .base import BaseSettingsPanel, register_section
 from ...theme import APP_BG, TEXT_PRIMARY, FONT_BODY, FONT_SMALL, FONT_BODY_BOLD
-from ...widgets import _make_btn
+from ...widgets import ScrollableFrame, _make_btn
 from ....config_loader import load_user, save_user, load_app
 from ....export_config import ExportDefaults, PriceListSettings, TextColors
 
@@ -22,7 +22,9 @@ class ExportSettingsPanel(BaseSettingsPanel):
     section_order = 20
 
     def _build(self):
-        canvas, scrollbar, inner = self._make_scrollable()
+        sf = ScrollableFrame(self, auto_hide_ms=None, bg=APP_BG)
+        sf.pack(fill=tk.BOTH, expand=True)
+        inner = sf.inner
 
         tk.Label(inner, text=f"{self.section_icon} 导出图片", font=FONT_BODY_BOLD,
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w", pady=(0, 12))
@@ -84,9 +86,6 @@ class ExportSettingsPanel(BaseSettingsPanel):
         btn_frame = tk.Frame(inner, bg=APP_BG)
         btn_frame.pack(fill=tk.X, pady=(20, 8))
         _make_btn(btn_frame, "恢复默认设置", self._restore_defaults, "secondary").pack(side=tk.LEFT)
-
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
         # ── 追踪所有变量，自动保存 ──────────────────────────────
         all_vars = [
@@ -197,27 +196,6 @@ class ExportSettingsPanel(BaseSettingsPanel):
             self._show_no_unit.set(False)
 
     # ── widgets ──────────────────────────────────────────────────
-
-    def _make_scrollable(self):
-        canvas = tk.Canvas(self, borderwidth=0, highlightthickness=0, bg=APP_BG)
-        scrollbar = ttk.Scrollbar(self, orient=tk.VERTICAL, command=canvas.yview)
-        canvas.configure(yscrollcommand=scrollbar.set)
-        inner = tk.Frame(canvas, bg=APP_BG)
-        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        win_id = canvas.create_window((0, 0), window=inner, anchor="nw")
-        canvas.bind("<Configure>", lambda e, wid=win_id: canvas.itemconfig(wid, width=e.width))
-
-        def _on_mousewheel(e):
-            canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
-
-        def _bind_wheel(widget):
-            widget.bind("<MouseWheel>", _on_mousewheel)
-            for child in widget.winfo_children():
-                _bind_wheel(child)
-
-        canvas.bind("<MouseWheel>", _on_mousewheel)
-        _bind_wheel(inner)
-        return canvas, scrollbar, inner
 
     def _checkbox(self, parent, text, var):
         cb = tk.Checkbutton(parent, text=text, variable=var, font=FONT_BODY,

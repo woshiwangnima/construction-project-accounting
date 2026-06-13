@@ -8,20 +8,17 @@ from ..theme import (
     APP_BG, ACCENT, ACCENT_HOVER, DANGER,
     FONT_BODY, FONT_BUTTON, FONT_SMALL,
 )
+from .draggable_splitter import DraggableSplitter
+from .scrollable_frame import ScrollableFrame
+from .tooltip_carousel import TooltipCarousel
 
 
 def _make_scrollable(parent, height=None):
-    canvas = tk.Canvas(parent, borderwidth=0, highlightthickness=0, height=height,
-                       bg=parent.cget("bg") if isinstance(parent, tk.Frame) else APP_BG)
-    scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=canvas.yview)
-    canvas.configure(yscrollcommand=scrollbar.set)
-    frame = ttk.Frame(canvas)
-    frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-    win_id = canvas.create_window((0, 0), window=frame, anchor="nw")
-    canvas.bind("<Configure>", lambda e, wid=win_id: canvas.itemconfig(wid, width=e.width), add="+")
-    canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-    return canvas, scrollbar, frame
+    """Legacy wrapper; delegates to ScrollableFrame."""
+    sf = ScrollableFrame(parent, auto_hide_ms=None)
+    if height:
+        sf.canvas.configure(height=height)
+    return sf.canvas, sf.scrollbar, sf.inner
 
 
 def _make_btn(parent, text, cmd, style="primary", width=None):
@@ -260,6 +257,9 @@ __all__ = [
     "DatePicker",
     "DateTypeSelector",
     "RowActionButtons",
+    "ScrollableFrame",
+    "DraggableSplitter",
+    "TooltipCarousel",
     "ListViewBase",
     "BillListView",
     "WorkerListView",

@@ -1,9 +1,11 @@
 """关于面板。"""
 
 import tkinter as tk
+import webbrowser
 
 from .base import BaseSettingsPanel, register_section
-from ...theme import APP_BG, TEXT_PRIMARY, TEXT_SECONDARY, FONT_BODY, FONT_SMALL, FONT_BODY_BOLD
+from ...theme import APP_BG, TEXT_PRIMARY, FONT_BODY, FONT_SMALL, FONT_BODY_BOLD
+from ...widgets import ScrollableFrame, _make_btn
 from ....config_loader import load_app
 from ....versioning import APP_VERSION
 
@@ -16,13 +18,29 @@ class AboutSettingsPanel(BaseSettingsPanel):
     section_order = 99
 
     def _build(self):
-        tk.Label(self, text=f"{self.section_icon} 关于", font=FONT_BODY_BOLD, bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w")
-        self._version_var = tk.StringVar()
-        tk.Label(self, textvariable=self._version_var, font=FONT_BODY,
-                 bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w", pady=(8, 16))
-        tk.Label(self, text="版本更新说明", font=FONT_BODY_BOLD,
+        sf = ScrollableFrame(self, auto_hide_ms=None, bg=APP_BG)
+        sf.pack(fill=tk.BOTH, expand=True)
+        inner = sf.inner
+
+        tk.Label(inner, text=f"{self.section_icon} 关于", font=FONT_BODY_BOLD,
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w")
-        notes_frame = tk.Frame(self, bg=APP_BG)
+        self._version_var = tk.StringVar()
+        tk.Label(inner, textvariable=self._version_var, font=FONT_BODY,
+                 bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w", pady=(8, 16))
+
+        REPO_URL = "https://github.com/woshiwangnima/construction-project-accounting"
+        github_link = tk.Label(
+            inner, text=f"GitHub: {REPO_URL}",
+            font=FONT_SMALL, bg=APP_BG, fg="#2b6cb0", cursor="hand2",
+        )
+        github_link.pack(anchor="w", pady=(4, 8))
+        github_link.bind("<Button-1>", lambda e: webbrowser.open(REPO_URL))
+
+        _make_btn(inner, "\u21bb 检查更新", self._check_update, "secondary").pack(anchor="w", pady=(4, 8))
+
+        tk.Label(inner, text="版本更新说明", font=FONT_BODY_BOLD,
+                 bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w")
+        notes_frame = tk.Frame(inner, bg=APP_BG)
         notes_frame.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
         self._notes_scrollbar = tk.Scrollbar(notes_frame, orient=tk.VERTICAL)
         self._notes = tk.Text(notes_frame, height=20, font=FONT_SMALL, wrap="word",
@@ -48,6 +66,21 @@ class AboutSettingsPanel(BaseSettingsPanel):
         self._notes.delete("1.0", tk.END)
         self._notes.insert("1.0", "\n".join(lines).strip())
         self._notes.config(state=tk.DISABLED)
+
+    def _check_update(self):
+        try:
+            from ....updater import check_for_update, UpdateChecker
+            from ..update_dialog import UpdateDialog
+            checker = UpdateChecker()
+            info = check_for_update()
+            if info is None:
+                from tkinter import messagebox
+                messagebox.showinfo("检查更新", "当前已是最新版本。", parent=self)
+            else:
+                UpdateDialog(self.winfo_toplevel(), info)
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("检查更新失败", str(e))
 
     def _save(self):
         return

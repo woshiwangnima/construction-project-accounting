@@ -12,7 +12,7 @@ from ..theme import (
     APP_BG, TEXT_PRIMARY, TEXT_SECONDARY,
     FONT_BODY, FONT_BODY_BOLD, FONT_SMALL,
 )
-from ..widgets import _make_btn, _input_entry
+from ..widgets import ScrollableFrame, _make_btn, _input_entry
 from ...project_manager import update_project
 from ...billing import Billing, read_billing, write_billing
 from ...trade_item_id import ensure_trade_item_id
@@ -48,52 +48,15 @@ class EditTradeItemDialog:
         dialog.minsize(max(520, w - 60), max(420, h - 80))
         dialog.resizable(True, True)
 
-        # ── 滚动包裹框：所有元素都放进 content_frame 内，超出可滚 ──
+        # ── 滚动包裹框 + 底部按钮 ──
         wrap = tk.Frame(dialog, bg=APP_BG)
         wrap.pack(fill=tk.BOTH, expand=True)
-        canvas = tk.Canvas(wrap, borderwidth=0, highlightthickness=0, bg=APP_BG)
-        scrollbar = ttk.Scrollbar(wrap, orient=tk.VERTICAL, command=canvas.yview)
-        canvas.configure(yscrollcommand=scrollbar.set)
-        content_frame = tk.Frame(canvas, bg=APP_BG)
-        content_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all")),
-        )
-        canvas_win = canvas.create_window((0, 0), window=content_frame, anchor="nw")
-        canvas.bind(
-            "<Configure>",
-            lambda e, w=canvas_win: canvas.itemconfig(w, width=e.width),
-        )
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        wrap.grid_rowconfigure(0, weight=1)
+        wrap.grid_columnconfigure(0, weight=1)
 
-        # 让鼠标在 content_frame 上滚轮时驱动滚动条（Windows / macOS / Linux 三套事件）
-        def _on_wheel(e):
-            sr = canvas.cget("scrollregion")
-            try:
-                _, y1, _, y2 = map(float, sr.split())
-            except (ValueError, tk.TclError):
-                return
-            if y2 - y1 <= canvas.winfo_height():
-                return
-            delta = -1 * (e.delta / 120) if e.delta else 0
-            canvas.yview_scroll(int(delta), "units")
-
-        def _wheel_up(_):
-            _on_wheel(type("E", (), {"delta": 120})())
-
-        def _wheel_down(_):
-            _on_wheel(type("E", (), {"delta": -120})())
-
-        # 给滚动框内所有子控件（递归）也绑滚轮事件，
-        # 解决「必须滚到滚动条上才生效」的问题
-        def _bind_wheel_recursive(widget):
-            widget.bind("<MouseWheel>", _on_wheel, add="+")
-            widget.bind("<Button-4>", _wheel_up, add="+")
-            widget.bind("<Button-5>", _wheel_down, add="+")
-            for child in widget.winfo_children():
-                _bind_wheel_recursive(child)
-        _bind_wheel_recursive(content_frame)
+        sf = ScrollableFrame(wrap, auto_hide_ms=None, bg=APP_BG)
+        sf.grid(row=0, column=0, sticky="nsew")
+        content_frame = sf.inner
 
         # ── 业务字段 ──
 
@@ -158,11 +121,14 @@ class EditTradeItemDialog:
         self.unit_cb.grid(row=1, column=1, sticky="ew", padx=(8, 0), pady=(8, 2))
         self.price_frame.grid_columnconfigure(1, weight=1)
 
-        # 底部按钮（取消/确定）放在 content_frame 末尾，跟着滚动
-        self._btn_frame = tk.Frame(content_frame, bg=APP_BG)
-        self._btn_frame.pack(pady=(24, 16))
-        _make_btn(self._btn_frame, "取消", dialog.destroy, "ghost").pack(side=tk.LEFT, padx=4)
-        self._save_btn = _make_btn(self._btn_frame, "确定", lambda: self._confirm(dialog),
+        # 底部按钮（取消/确定）固定在 dialog 底部
+        btn_frame = tk.Frame(wrap, bg=APP_BG)
+        btn_frame.grid(row=1, column=0, pady=(24, 16))
+        btn_frame.grid_columnconfigure(0, weight=1)
+        inner_btn = tk.Frame(btn_frame, bg=APP_BG)
+        inner_btn.grid(row=0, column=0)
+        _make_btn(inner_btn, "取消", dialog.destroy, "ghost").pack(side=tk.LEFT, padx=4)
+        self._save_btn = _make_btn(inner_btn, "确定", lambda: self._confirm(dialog),
                                     "primary")
         self._save_btn.pack(side=tk.LEFT, padx=4)
         if not self._editable:
@@ -170,7 +136,6 @@ class EditTradeItemDialog:
             _set_btn_state(self._save_btn, True)
             _set_btn_state(name_e, True)
 
-        # 初始按当前值决定容器显隐（_btn_frame 已建好，pack 会固定在按钮上方）
         self._toggle_price()
 
         self._dialog = dialog
@@ -187,16 +152,9 @@ class EditTradeItemDialog:
                 self.is_per_unit_var.set("按单价")
 
     def _toggle_price(self):
-        """「按单价」→ 显示单价+单位容器；「无单价」→ 隐藏。
-
-        必须用 before=self._btn_frame 显式指定位置，否则 pack_forget + pack
-        会把 price_frame 追加到 pack 顺序末尾（btn_frame 之后），
-        导致「单价/单位」跑到「取消/确定」按钮下面。
-        """
         self._ensure_valid_billing_value()
         if self.is_per_unit_var.get() == "按单价":
-            self.price_frame.pack(fill=tk.X, padx=20, pady=(8, 0),
-                                   before=self._btn_frame)
+            self.price_frame.pack(fill=tk.X, padx=20, pady=(8, 0))
         else:
             self.price_frame.pack_forget()
 

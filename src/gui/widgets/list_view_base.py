@@ -368,7 +368,10 @@ class ListViewBase(tk.Frame):
             for wrap_col in self._wrap_cols:
                 w = widgets.get(wrap_col)
                 if w is not None:
-                    w.config(wraplength=max(pixels[wrap_col] - 16, 8))
+                    try:
+                        w.config(wraplength=max(pixels[wrap_col] - 16, 8))
+                    except tk.TclError:
+                        pass
 
     def _table_viewport_width(self) -> int:
         if self._canvas is not None:

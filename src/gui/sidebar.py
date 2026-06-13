@@ -15,6 +15,7 @@ from .theme import (
     FONT_BODY, FONT_BODY_BOLD, FONT_SMALL, FONT_HEADING,
 )
 from .widgets import _make_btn, _input_entry, ScrollableFrame
+from .widgets.status_badge import StatusBadge
 from .dialogs.new_project import NewProjectDialog
 from ..project_manager import list_projects, delete_project, export_project, import_project, project_file_path, PROJECTS_DIR
 from ..project_status import ProjectStatus
@@ -132,9 +133,6 @@ class Sidebar(ttk.Frame):
             fg = SIDEBAR_FG
             name_fg = SIDEBAR_FG
 
-        status_text = f"{status.icon} {status.display_name}"
-        status_color = status.color
-
         item = tk.Frame(self.items_frame, bg=bg, cursor="hand2", padx=14, pady=12)
         item.pack(fill=tk.X, padx=8, pady=3)
 
@@ -151,32 +149,29 @@ class Sidebar(ttk.Frame):
 
         content = tk.Frame(item, bg=bg)
         content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        content.grid_columnconfigure(0, weight=name_w)
-        content.grid_columnconfigure(1, weight=status_w)
+        content.grid_columnconfigure(0, weight=round(name_w * 100))
+        content.grid_columnconfigure(1, weight=round(status_w * 100))
 
         name_lbl = tk.Label(content, text=name, font=FONT_BODY_BOLD, bg=bg, fg=name_fg,
                             anchor="w", wraplength=0)
         name_lbl.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
 
-        status_lbl = tk.Label(content, text=status_text, font=FONT_SMALL, bg=bg,
-                              fg=status_color, anchor="e")
-        status_lbl.grid(row=0, column=1, sticky="nsew")
+        badge = StatusBadge(content, status=status, font_size=11, bg=bg)
+        badge.grid(row=0, column=1, sticky="nsew")
 
         def _update_wraplength(evt=None):
             cw = content.winfo_width()
             if cw > 0 and total > 0:
                 nw = int(cw * name_w / total)
-                sw = int(cw * status_w / total)
                 try:
                     name_lbl.config(wraplength=max(60, nw - 8))
-                    status_lbl.config(wraplength=max(60, sw - 8))
                 except tk.TclError:
                     pass
 
         content.bind("<Configure>", _update_wraplength)
 
         # 让 item + 所有直接子控件都能用 as 列表统一处理
-        all_widgets = [item, content, name_lbl, status_lbl]
+        all_widgets = [item, content, name_lbl, badge]
         if indicator is not None:
             all_widgets.append(indicator)
 
@@ -184,7 +179,7 @@ class Sidebar(ttk.Frame):
             item.config(bg=color)
             content.config(bg=color)
             name_lbl.config(bg=color, fg=(fg_color or SIDEBAR_FG))
-            status_lbl.config(bg=color)
+            badge.set_bg(color)
 
         def on_click(e, u=uuid):
             self._set_selected(u)
@@ -204,9 +199,9 @@ class Sidebar(ttk.Frame):
         # 注册到 _item_widgets，便于 _set_selected 局部更新
         self._item_widgets[uuid] = {
             "item": item,
-            "name_frame": content,   # keep key for compat
+            "name_frame": content,
             "name_lbl": name_lbl,
-            "status_lbl": status_lbl,
+            "badge": badge,
             "indicator": indicator,
             "_set_item_bg": _set_item_bg,
             "name": name,
@@ -331,10 +326,12 @@ class Sidebar(ttk.Frame):
         if w is None:
             return
         w["status"] = ps.value
-        try:
-            w["status_lbl"].config(text=f"{ps.icon} {ps.display_name}", fg=ps.color)
-        except tk.TclError:
-            pass
+        badge = w.get("badge")
+        if badge is not None:
+            try:
+                badge.configure_status(ps)
+            except tk.TclError:
+                pass
 
     def _delete_project(self, uuid, project):
         project = self._project_for_context_menu(uuid, project)

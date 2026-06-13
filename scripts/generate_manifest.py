@@ -42,7 +42,8 @@ def main():
 
     manifest = generate_manifest(build_dir, args.version)
     dest = build_dir / "file_manifest.json"
-    json.dump(manifest, dest, indent=2, ensure_ascii=False)
+    with open(dest, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2, ensure_ascii=False)
     print(f"manifest 生成完毕：{len(manifest['files'])} 个文件 → {dest}")
 
 

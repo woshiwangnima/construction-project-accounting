@@ -1,4 +1,6 @@
 {
+  "app_version": "1.0.0",
+  "schema_version": 1,
   "button_font_size": 16,
   "symbol_mapping": {
     "operators": {
@@ -87,6 +89,18 @@
     ]
   },
   "window_sizes": {
+    "settings": [
+      900,
+      700
+    ],
+    "rollback": [
+      1200,
+      650
+    ],
+    "new_project": [
+      640,
+      420
+    ],
     "main": [
       2560,
       1369
@@ -110,27 +124,8 @@
     "add_category": [
       360,
       130
-    ],
-    "new_project": [
-      640,
-      420
-    ],
-    "rollback": [
-      1200,
-      650
-    ],
-    "settings": [
-      900,
-      700
     ]
   },
-  "voice": {
-    "enabled": true,
-    "volume": 100,
-    "tts_rate": 110,
-    "preview_text": "砌墙，公式，12.5 乘以 3 加 8 除以 2 减去括号 1.5 加 0.5 括号，等于 41.5"
-  },
-  "backup_count": 20,
   "export_defaults": {
     "price_list_settings": {
       "visible": true,
@@ -153,16 +148,23 @@
     "export_show_export_time": false,
     "export_append_note_to_item_title": true
   },
+  "voice": {
+    "enabled": true,
+    "volume": 100,
+    "tts_rate": 110,
+    "preview_text": "砌墙，公式，12.5 乘以 3 加 8 除以 2 减去括号 1.5 加 0.5 括号，等于 41.5"
+  },
+  "backup_count": 20,
   "default_bill_column_widths": {
     "#": 0.0526315789,
-    "审核": 0.05,
     "工作内容": 0.1394736842,
     "公式": 0.1263157895,
     "单价": 0.1263157895,
     "金额": 0.1263157895,
     "备注": 0.1684210526,
     "日期": 0.1263157895,
-    "操作": 0.0842105263
+    "操作": 0.0842105263,
+    "审核": 0.05
   },
   "default_worker_column_widths": {
     "名称": 0.3571428571,
@@ -174,13 +176,12 @@
   "selection_highlight_color": "#ff8000",
   "bill_reviewed_row_color": "#00ff00",
   "rollback_column_widths": {
-    "序号": 0.0404774261,
-    "上次修改时间": 0.125583809,
-    "项目状态": 0.0736896731,
-    "有效性": 0.1271406331,
-    "工作数量情况": 0.4369486248,
-    "账单数": 0.1188375714,
-    "操作": 0.0773222626
+    "序号": 0.0438746439,
+    "上次修改时间": 0.1367521368,
+    "有效性": 0.0740740741,
+    "工作数量情况": 0.5270655271,
+    "账单数": 0.135042735,
+    "操作": 0.0831908832
   },
   "default_categories": [
     {
@@ -281,8 +282,6 @@
       "unit": ""
     }
   ],
-  "app_version": "1.0.0",
-  "schema_version": 1,
   "release_notes": [
     {
       "version": "1.0.0",
@@ -293,5 +292,27 @@
         "优化列宽与拖拽体验"
       ]
     }
-  ]
+  ],
+  "tooltips": {
+    "messages": [
+      "双击行可编辑",
+      "长按拖动按钮以排序",
+      "拖动表头竖条可以调整列宽",
+      "右键展示菜单选项"
+    ],
+    "dwell_per_char_ms": 300,
+    "font_size": 13
+  },
+  "list_column_weights": {
+    "project_list": {
+      "name": 0.8,
+      "status": 0.2
+    },
+    "category_list": {
+      "name": 0.8,
+      "count": 0.2
+    }
+  },
+  "sidebar_width_ratio": 0.202344,
+  "category_list_width_ratio": 0.25
 }

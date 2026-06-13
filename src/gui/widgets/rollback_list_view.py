@@ -1,6 +1,6 @@
 """回滚存档列表 widget - 复用 ListViewBase。
 
-列定义：("序号", "上次修改时间", "项目状态", "有效性", "工作数量情况", "账单数", "操作")。
+列定义：("序号", "上次修改时间", "有效性", "工作数量情况", "账单数", "操作")。
 所有数据列随列宽自动换行（wrap_cols），行高随内容动态变化。
 列宽可拖拽，权重保存在 app_config。
 操作列：删除按钮（无拖动手柄）。
@@ -9,12 +9,11 @@ import tkinter as tk
 
 from ..theme import APP_BG, FONT_BODY
 from .list_view_base import ListViewBase
-from ...project_status import ProjectStatus
 from ...backup_inspector import VALIDITY_OK, VALIDITY_HAS_ORPHANS, VALIDITY_INVALID_JSON
 from ...config_loader import load_app, save_app
 from ...logger import logger
 
-ROLLBACK_COLUMNS = ("序号", "上次修改时间", "项目状态", "有效性", "工作数量情况", "账单数")
+ROLLBACK_COLUMNS = ("序号", "上次修改时间", "有效性", "工作数量情况", "账单数")
 ROLLBACK_FULL_COLUMNS = ROLLBACK_COLUMNS + ("操作",)
 
 
@@ -70,11 +69,9 @@ class RollbackListView(ListViewBase):
 
     @staticmethod
     def _backup_to_item(info) -> dict:
-        status_display = ProjectStatus.from_value(info.status).display_name if info.status else ""
         return {
             "序号": info.file_index,
             "上次修改时间": info.last_modified,
-            "项目状态": status_display,
             "有效性": RollbackListView._validity_text(info),
             "工作数量情况": info.trade_summary,
             "账单数": info.bill_summary,

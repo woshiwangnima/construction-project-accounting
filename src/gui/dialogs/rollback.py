@@ -15,6 +15,7 @@ from ..theme import (
     FONT_BODY, FONT_HEADING,
 )
 from ..widgets import _make_btn
+from ..widgets.status_badge import StatusBadge
 from ..widgets.rollback_list_view import RollbackListView
 from ...backup_inspector import (
         list_backups_for, BackupInfo,
@@ -113,12 +114,12 @@ class RollbackDialog:
             font=FONT_HEADING, bg=APP_BG, fg=TEXT_PRIMARY,
         ).pack(anchor="w")
 
-        status_text = project_status.display_name if project_status else "未知"
-        tk.Label(
-            header,
-            text=f"项目：{project_name}  |  当前状态：{status_text}",
-            font=FONT_BODY, bg=APP_BG, fg=TEXT_SECONDARY,
-        ).pack(anchor="w", pady=(4, 0))
+        info_row = tk.Frame(header, bg=APP_BG)
+        info_row.pack(anchor="w", pady=(4, 0))
+        tk.Label(info_row, text=f"项目：{project_name}  ",
+                 font=FONT_BODY, bg=APP_BG, fg=TEXT_SECONDARY).pack(side=tk.LEFT)
+        if project_status:
+            StatusBadge(info_row, status=project_status, font_size=11, bg=APP_BG).pack(side=tk.LEFT)
 
         list_wrap = tk.Frame(dialog, bg="white", highlightbackground=BORDER, highlightthickness=1)
         list_wrap.grid(row=1, column=0, sticky="nsew", padx=20, pady=8)

@@ -8,7 +8,7 @@ import tkinter as tk
 
 from .base import BaseSettingsPanel, register_section
 from ...theme import APP_BG, TEXT_PRIMARY, TEXT_SECONDARY, FONT_BODY, FONT_SMALL, FONT_BODY_BOLD
-from ...widgets import _make_btn
+from ...widgets import ScrollableFrame, _make_btn
 from ....config_loader import load_app, save_app
 from ....voice import get_voice
 
@@ -24,12 +24,16 @@ class VoiceSettingsPanel(BaseSettingsPanel):
     RATE_MIN, RATE_MAX = 50, 400
 
     def _build(self):
-        tk.Label(self, text=f"{self.section_icon} 语音播报", font=FONT_BODY_BOLD,
+        sf = ScrollableFrame(self, auto_hide_ms=None, bg=APP_BG)
+        sf.pack(fill=tk.BOTH, expand=True)
+        inner = sf.inner
+
+        tk.Label(inner, text=f"{self.section_icon} 语音播报", font=FONT_BODY_BOLD,
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w", pady=(0, 12))
         # 启用开关
         self._enabled_var = tk.BooleanVar()
         tk.Checkbutton(
-            self,
+            inner,
             text="启用语音播报（按键音 + 公式朗读）",
             variable=self._enabled_var,
             font=FONT_BODY,
@@ -41,31 +45,31 @@ class VoiceSettingsPanel(BaseSettingsPanel):
 
         # 音量
         self._build_section(
-            self, "🔊 音量",
+            inner, "🔊 音量",
             "影响按键音（WAV）和公式朗读音量",
         )
         self._vol_scale, self._vol_value_lbl = self._make_scale_row(
-            self.VOL_MIN, self.VOL_MAX, suffix="",
+            inner, self.VOL_MIN, self.VOL_MAX, suffix="",
         )
         self._vol_scale.config(command=self._on_vol_change)
 
         # 语速
         self._build_section(
-            self, "🗣 公式朗读语速",
+            inner, "🗣 公式朗读语速",
             "仅影响 🔊 朗读按钮；不影响 0–9、运算符等按键音速度",
             wrap=True,
         )
         self._rate_scale, self._rate_value_lbl = self._make_scale_row(
-            self.RATE_MIN, self.RATE_MAX, suffix=" 词/分",
+            inner, self.RATE_MIN, self.RATE_MAX, suffix=" 词/分",
         )
         self._rate_scale.config(command=self._on_rate_change)
 
         # 试播
-        try_frame = tk.Frame(self, bg=APP_BG)
+        try_frame = tk.Frame(inner, bg=APP_BG)
         try_frame.pack(fill=tk.X, pady=(20, 0))
         _make_btn(try_frame, "▶ 试播示例", self._on_preview, "secondary").pack(side=tk.LEFT)
         self._preview_text = tk.StringVar()
-        tk.Label(self, textvariable=self._preview_text, font=FONT_SMALL,
+        tk.Label(inner, textvariable=self._preview_text, font=FONT_SMALL,
                  bg=APP_BG, fg=TEXT_SECONDARY, justify="left",
                  wraplength=520).pack(anchor="w", pady=(8, 0))
 
@@ -80,8 +84,8 @@ class VoiceSettingsPanel(BaseSettingsPanel):
             lbl.config(wraplength=380)
         lbl.pack(anchor="w")
 
-    def _make_scale_row(self, frm, to, suffix=""):
-        row = tk.Frame(self, bg=APP_BG)
+    def _make_scale_row(self, container, frm, to, suffix=""):
+        row = tk.Frame(container, bg=APP_BG)
         row.pack(fill=tk.X, pady=(2, 0))
         scale = tk.Scale(
             row, from_=frm, to=to, orient=tk.HORIZONTAL,

@@ -122,7 +122,25 @@ def load_json(filename: str) -> dict:
 
 
 def load_app():
-    return load_json("app_config.json")
+    """加载 app_config，以 _DEFAULT_CONFIGS 为基底，用文件值覆盖。
+
+    这样既保证所有默认键都存在，又保留用户自定义值；
+    调用 save_app() 时不会丢失 _DEFAULT_CONFIGS 里的字段。
+    """
+    defaults = _DEFAULT_CONFIGS.get("app_config.json", {}).copy()
+    file_data = load_json("app_config.json")
+    return _deep_merge(defaults, file_data)
+
+
+def _deep_merge(base: dict, overlay: dict) -> dict:
+    """递归合并两个 dict：overlay 的值覆盖 base，嵌套 dict 递归合并。"""
+    result = base.copy()
+    for key, val in overlay.items():
+        if key in result and isinstance(result[key], dict) and isinstance(val, dict):
+            result[key] = _deep_merge(result[key], val)
+        else:
+            result[key] = val
+    return result
 
 
 def load_user():

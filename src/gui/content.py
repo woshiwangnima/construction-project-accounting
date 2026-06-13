@@ -12,6 +12,7 @@ from .theme import (
     FONT_SMALL,
 )
 from .widgets import _make_btn, _set_btn_state, _input_entry, ScrollableFrame, TooltipCarousel
+from .widgets.status_badge import ClickableStatusBadge
 from .widgets.reorder import move_item, reorder_subset_by_ids
 from .dialogs.edit_bill import EditBillDialog
 from .dialogs.edit_trade import EditTradeItemDialog
@@ -641,12 +642,8 @@ class ContentArea(tk.Frame):
 
         # 状态切换（可点击标签）：始终从 self.project_data 读取最新状态
         current_status = ProjectStatus.from_value(self.project_data.get("status"))
-        toggle_fg = current_status.color
-        toggle_text = f"  {current_status.icon}  {current_status.display_name}  "
-        toggle_lbl = tk.Label(top, text=toggle_text, font=("Microsoft YaHei UI", 14, "bold"),
-                              bg=APP_BG, fg=toggle_fg, cursor="hand2", padx=10, pady=4)
 
-        def _do_toggle_status(e=None):
+        def _do_toggle_status():
             now = ProjectStatus.from_value(self.project_data.get("status"))
             new_status = (ProjectStatus.DONE if now == ProjectStatus.EDITING
                           else ProjectStatus.EDITING)
@@ -661,8 +658,8 @@ class ContentArea(tk.Frame):
             if self._editability is not None:
                 self._editability.refresh()
 
-        toggle_lbl.bind("<Button-1>", _do_toggle_status)
-        toggle_lbl.pack(side=tk.LEFT, padx=(12, 0))
+        toggle_badge = ClickableStatusBadge(top, status=current_status, on_click=_do_toggle_status)
+        toggle_badge.pack(side=tk.LEFT, padx=(12, 0))
 
         proj_date_text = _format_project_date(p)
         if proj_date_text:
@@ -1286,8 +1283,8 @@ class ContentArea(tk.Frame):
 
         content = tk.Frame(item, bg=bg)
         content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        content.grid_columnconfigure(0, weight=name_w)
-        content.grid_columnconfigure(1, weight=count_w)
+        content.grid_columnconfigure(0, weight=round(name_w * 100))
+        content.grid_columnconfigure(1, weight=round(count_w * 100))
 
         name_lbl = tk.Label(content, text=cat_name, font=FONT_BODY_BOLD, bg=bg, fg=fg,
                             anchor="w", wraplength=0)

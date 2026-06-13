@@ -5,7 +5,7 @@ from tkinter import ttk, colorchooser
 
 from .base import BaseSettingsPanel, register_section
 from ...theme import APP_BG, TEXT_PRIMARY, TEXT_SECONDARY, FONT_BODY, FONT_SMALL, FONT_BODY_BOLD
-from ...widgets import _make_btn
+from ...widgets import ScrollableFrame, _make_btn
 from ....config_loader import load_app, save_app
 from ....symbol_mapping import DEFAULT_SYMBOL_MAPPING, normalize_symbol_mapping
 
@@ -18,12 +18,16 @@ class BasicSettingsPanel(BaseSettingsPanel):
     section_order = 0
 
     def _build(self):
-        tk.Label(self, text=f"{self.section_icon} 基础设置", font=FONT_BODY_BOLD,
+        sf = ScrollableFrame(self, auto_hide_ms=None, bg=APP_BG)
+        sf.pack(fill=tk.BOTH, expand=True)
+        inner = sf.inner
+
+        tk.Label(inner, text=f"{self.section_icon} 基础设置", font=FONT_BODY_BOLD,
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w")
-        tk.Label(self, text="这些设置会写入 app_config.json，作为应用级默认值。",
+        tk.Label(inner, text="这些设置会写入 app_config.json，作为应用级默认值。",
                  font=FONT_SMALL, bg=APP_BG, fg=TEXT_SECONDARY).pack(anchor="w", pady=(2, 12))
 
-        row = tk.Frame(self, bg=APP_BG)
+        row = tk.Frame(inner, bg=APP_BG)
         row.pack(fill=tk.X, pady=3)
         tk.Label(row, text="备份数量", font=FONT_BODY, bg=APP_BG, fg=TEXT_PRIMARY,
                  width=10, anchor="w").pack(side=tk.LEFT)
@@ -35,30 +39,30 @@ class BasicSettingsPanel(BaseSettingsPanel):
 
         self._backup_count.trace_add("write", lambda *_: self._schedule_save())
 
-        tk.Frame(self, bg="#e2e8f0", height=1).pack(fill=tk.X, pady=12)
-        tk.Label(self, text="账单管理设置", font=FONT_BODY_BOLD,
+        tk.Frame(inner, bg="#e2e8f0", height=1).pack(fill=tk.X, pady=12)
+        tk.Label(inner, text="账单管理设置", font=FONT_BODY_BOLD,
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w")
-        tk.Label(self, text="颜色值使用 #RRGGBB 格式；选中颜色优先于已审核行颜色。",
+        tk.Label(inner, text="颜色值使用 #RRGGBB 格式；选中颜色优先于已审核行颜色。",
                  font=FONT_SMALL, bg=APP_BG, fg=TEXT_SECONDARY).pack(anchor="w", pady=(2, 8))
         self._selection_color = tk.StringVar(value="#90cdf4")
         self._reviewed_color = tk.StringVar(value="#e6fffa")
-        self._color_row("选中行颜色", self._selection_color)
-        self._color_row("已审核行颜色", self._reviewed_color)
+        self._color_row(inner, "选中行颜色", self._selection_color)
+        self._color_row(inner, "已审核行颜色", self._reviewed_color)
         self._selection_color.trace_add("write", lambda *_: self._schedule_save())
         self._reviewed_color.trace_add("write", lambda *_: self._schedule_save())
 
-        tk.Frame(self, bg="#e2e8f0", height=1).pack(fill=tk.X, pady=12)
-        tk.Label(self, text="符号映射", font=FONT_BODY_BOLD,
+        tk.Frame(inner, bg="#e2e8f0", height=1).pack(fill=tk.X, pady=12)
+        tk.Label(inner, text="符号映射", font=FONT_BODY_BOLD,
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w")
-        tk.Label(self, text="符号映射从 app_config.json 读取，仅在此展示；如需修改请编辑配置文件。",
+        tk.Label(inner, text="符号映射从 app_config.json 读取，仅在此展示；如需修改请编辑配置文件。",
                  font=FONT_SMALL, bg=APP_BG, fg=TEXT_SECONDARY).pack(anchor="w", pady=(2, 8))
-        self._symbol_display = tk.Text(self, height=11, font=FONT_SMALL, width=72, wrap="word",
+        self._symbol_display = tk.Text(inner, height=11, font=FONT_SMALL, width=72, wrap="word",
                                        bg="white", fg=TEXT_PRIMARY, relief="solid", bd=1)
         self._symbol_display.pack(fill=tk.X)
         self._symbol_display.config(state=tk.DISABLED)
 
-    def _color_row(self, label: str, var: tk.StringVar) -> None:
-        row = tk.Frame(self, bg=APP_BG)
+    def _color_row(self, container, label: str, var: tk.StringVar) -> None:
+        row = tk.Frame(container, bg=APP_BG)
         row.pack(fill=tk.X, pady=3)
         tk.Label(row, text=label, font=FONT_BODY, bg=APP_BG, fg=TEXT_PRIMARY,
                  width=12, anchor="w").pack(side=tk.LEFT)
