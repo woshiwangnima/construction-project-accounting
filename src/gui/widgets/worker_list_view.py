@@ -8,10 +8,12 @@
 import tkinter as tk
 
 from ..theme import (
-    APP_BG, FONT_BODY, FONT_BODY_BOLD, TEXT_SECONDARY,
+    APP_BG, TEXT_SECONDARY,
 )
+from ..font_manager import font_manager
 from .list_view_base import ListViewBase
 from ...billing import read_billing
+from ..shortcut_manager import shortcut_manager as sm
 
 
 # 工作类型表完整列（含操作列）
@@ -85,17 +87,17 @@ class WorkerListView(ListViewBase):
 
         cells: dict = {
             "名称": tk.Label(
-                row_frame, text=name, font=FONT_BODY, anchor="w", padx=6,
+                row_frame, text=name, font=font_manager.get("body"), anchor="w", padx=6,
                 wraplength=80, justify="left",
             ),
             "单价": tk.Label(
-                row_frame, text=price_text, font=FONT_BODY_BOLD, anchor="e", padx=6,
+                row_frame, text=price_text, font=font_manager.get("body_bold"), anchor="e", padx=6,
             ),
             "单位": tk.Label(
-                row_frame, text=unit_text, font=FONT_BODY, anchor="center", padx=6,
+                row_frame, text=unit_text, font=font_manager.get("body"), anchor="center", padx=6,
             ),
             "计费类型": tk.Label(
-                row_frame, text=billing_text, font=FONT_BODY, anchor="center", padx=6,
+                row_frame, text=billing_text, font=font_manager.get("body"), anchor="center", padx=6,
                 fg=billing_color,
             ),
         }
@@ -136,13 +138,18 @@ class WorkerListView(ListViewBase):
         """构造右键菜单（与 _on_row_right_click 分离，方便测试断言）。返回 None 表示无可弹项。"""
         menu = tk.Menu(self, tearoff=0)
         if idx is not None and self._on_copy:
-            menu.add_command(label="\U0001f4cb 复制此工作", command=lambda i=idx: self._on_copy(i))
+            menu.add_command(
+                label="\U0001f4cb 复制此工作",
+                command=lambda i=idx: self._on_copy(i),
+                accelerator=sm.get_accel("copy"),
+            )
         if self._on_paste and (self._paste_enabled is None or self._paste_enabled()):
             allowed = self._paste_allowed is None or self._paste_allowed()
             label = "\U0001f4ce 粘贴工作类型" if idx is None else "粘贴到末尾"
             menu.add_command(
                 label=label, command=lambda i=idx: self._on_paste(i),
                 state="normal" if allowed else "disabled",
+                accelerator=sm.get_accel("paste"),
             )
         if menu.index("end") is None:
             return None

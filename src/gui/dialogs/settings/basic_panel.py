@@ -4,7 +4,8 @@ import tkinter as tk
 from tkinter import ttk, colorchooser
 
 from .base import BaseSettingsPanel, register_section
-from ...theme import APP_BG, TEXT_PRIMARY, TEXT_SECONDARY, FONT_BODY, FONT_SMALL, FONT_BODY_BOLD
+from ...theme import APP_BG, TEXT_PRIMARY, TEXT_SECONDARY
+from ...font_manager import font_manager
 from ...widgets import ScrollableFrame, _make_btn
 from ....config_loader import load_app, save_app
 from ....symbol_mapping import DEFAULT_SYMBOL_MAPPING, normalize_symbol_mapping
@@ -22,28 +23,28 @@ class BasicSettingsPanel(BaseSettingsPanel):
         sf.pack(fill=tk.BOTH, expand=True)
         inner = sf.inner
 
-        tk.Label(inner, text=f"{self.section_icon} 基础设置", font=FONT_BODY_BOLD,
+        tk.Label(inner, text=f"{self.section_icon} 基础设置", font=font_manager.get("body_bold"),
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w")
         tk.Label(inner, text="这些设置会写入 app_config.json，作为应用级默认值。",
-                 font=FONT_SMALL, bg=APP_BG, fg=TEXT_SECONDARY).pack(anchor="w", pady=(2, 12))
+                 font=font_manager.get("small"), bg=APP_BG, fg=TEXT_SECONDARY).pack(anchor="w", pady=(2, 12))
 
         row = tk.Frame(inner, bg=APP_BG)
         row.pack(fill=tk.X, pady=3)
-        tk.Label(row, text="备份数量", font=FONT_BODY, bg=APP_BG, fg=TEXT_PRIMARY,
+        tk.Label(row, text="备份数量", font=font_manager.get("body"), bg=APP_BG, fg=TEXT_PRIMARY,
                  width=10, anchor="w").pack(side=tk.LEFT)
         self._backup_count = tk.IntVar(value=10)
         self._backup_spin = ttk.Spinbox(row, from_=1, to=100, textvariable=self._backup_count, width=8)
         self._backup_spin.pack(side=tk.LEFT)
-        tk.Label(row, text="每个项目最多保留的备份文件数", font=FONT_SMALL,
+        tk.Label(row, text="每个项目最多保留的备份文件数", font=font_manager.get("small"),
                  bg=APP_BG, fg=TEXT_SECONDARY).pack(side=tk.LEFT, padx=(8, 0))
 
         self._backup_count.trace_add("write", lambda *_: self._schedule_save())
 
         tk.Frame(inner, bg="#e2e8f0", height=1).pack(fill=tk.X, pady=12)
-        tk.Label(inner, text="账单管理设置", font=FONT_BODY_BOLD,
+        tk.Label(inner, text="账单管理设置", font=font_manager.get("body_bold"),
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w")
         tk.Label(inner, text="颜色值使用 #RRGGBB 格式；选中颜色优先于已审核行颜色。",
-                 font=FONT_SMALL, bg=APP_BG, fg=TEXT_SECONDARY).pack(anchor="w", pady=(2, 8))
+                 font=font_manager.get("small"), bg=APP_BG, fg=TEXT_SECONDARY).pack(anchor="w", pady=(2, 8))
         self._selection_color = tk.StringVar(value="#90cdf4")
         self._reviewed_color = tk.StringVar(value="#e6fffa")
         self._color_row(inner, "选中行颜色", self._selection_color)
@@ -52,11 +53,11 @@ class BasicSettingsPanel(BaseSettingsPanel):
         self._reviewed_color.trace_add("write", lambda *_: self._schedule_save())
 
         tk.Frame(inner, bg="#e2e8f0", height=1).pack(fill=tk.X, pady=12)
-        tk.Label(inner, text="符号映射", font=FONT_BODY_BOLD,
+        tk.Label(inner, text="符号映射", font=font_manager.get("body_bold"),
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w")
         tk.Label(inner, text="符号映射从 app_config.json 读取，仅在此展示；如需修改请编辑配置文件。",
-                 font=FONT_SMALL, bg=APP_BG, fg=TEXT_SECONDARY).pack(anchor="w", pady=(2, 8))
-        self._symbol_display = tk.Text(inner, height=11, font=FONT_SMALL, width=72, wrap="word",
+                 font=font_manager.get("small"), bg=APP_BG, fg=TEXT_SECONDARY).pack(anchor="w", pady=(2, 8))
+        self._symbol_display = tk.Text(inner, height=11, font=font_manager.get("small"), width=72, wrap="word",
                                        bg="white", fg=TEXT_PRIMARY, relief="solid", bd=1)
         self._symbol_display.pack(fill=tk.X)
         self._symbol_display.config(state=tk.DISABLED)
@@ -64,11 +65,11 @@ class BasicSettingsPanel(BaseSettingsPanel):
     def _color_row(self, container, label: str, var: tk.StringVar) -> None:
         row = tk.Frame(container, bg=APP_BG)
         row.pack(fill=tk.X, pady=3)
-        tk.Label(row, text=label, font=FONT_BODY, bg=APP_BG, fg=TEXT_PRIMARY,
+        tk.Label(row, text=label, font=font_manager.get("body"), bg=APP_BG, fg=TEXT_PRIMARY,
                  width=12, anchor="w").pack(side=tk.LEFT)
-        entry = ttk.Entry(row, textvariable=var, font=FONT_SMALL, width=12)
+        entry = ttk.Entry(row, textvariable=var, font=font_manager.get("small"), width=12)
         entry.pack(side=tk.LEFT, padx=(0, 6))
-        swatch = tk.Label(row, text="  ●  ", font=FONT_BODY, bg=var.get(),
+        swatch = tk.Label(row, text="  ●  ", font=font_manager.get("body"), bg=var.get(),
                           fg="white" if self._is_dark(var.get()) else "black",
                           cursor="hand2", relief="groove", bd=1)
         swatch.pack(side=tk.LEFT, padx=(0, 6))
@@ -108,6 +109,7 @@ class BasicSettingsPanel(BaseSettingsPanel):
         self._backup_count.set(max(1, int(cfg.get("backup_count", 10))))
         self._selection_color.set(cfg.get("selection_highlight_color", "#90cdf4"))
         self._reviewed_color.set(cfg.get("bill_reviewed_row_color", "#e6fffa"))
+
         mapping = normalize_symbol_mapping(cfg.get("symbol_mapping") or DEFAULT_SYMBOL_MAPPING)
         lines = []
         lines.append("运算符：")

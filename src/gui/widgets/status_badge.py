@@ -1,7 +1,8 @@
 """状态徽章组件：小圆圈图标在上方居中、文字在下方居中"""
 
 import tkinter as tk
-from ..theme import APP_BG, FONT_SMALL, FONT_BODY_BOLD
+from ..theme import APP_BG
+from ..font_manager import font_manager
 from ...project_status import ProjectStatus
 
 
@@ -17,11 +18,11 @@ class StatusBadge(tk.Frame):
             text = status.display_name
             color = status.color
 
-        icon_lbl = tk.Label(self, text=icon or "", font=(FONT_BODY_BOLD[0], font_size),
+        icon_lbl = tk.Label(self, text=icon or "", font=(font_manager.get("body_bold").cget("family"), font_size),
                             bg=self["bg"], fg=color, anchor="center")
         icon_lbl.pack()
 
-        text_lbl = tk.Label(self, text=text or "", font=(FONT_SMALL[0], font_size - 2),
+        text_lbl = tk.Label(self, text=text or "", font=(font_manager.get("small").cget("family"), font_size - 2),
                             bg=self["bg"], fg=color, anchor="center")
         text_lbl.pack()
 

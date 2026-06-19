@@ -3,9 +3,13 @@ chcp 65001 >nul
 
 setlocal enabledelayedexpansion
 
+rem ── 平台参数（默认 win64）────────────────────────────
+set "PLATFORM=%~1"
+if "%PLATFORM%"=="" set "PLATFORM=win64"
+
 echo ============================================
 echo   Building Construction Accounting
-echo   Target: Windows 10 64-bit
+echo   Target: %PLATFORM%
 echo ============================================
 echo.
 
@@ -14,13 +18,15 @@ for /f "tokens=2 delims== " %%a in ('findstr /b "APP_VERSION" src\versioning.py'
 set "VERSION=%VERSION:"=%"
 if "%VERSION%"=="" set "VERSION=1.0.1"
 echo Version: %VERSION%
+echo Platform: %PLATFORM%
+echo.
 
-echo [1/4] Cleaning old builds...
+echo [1/5] Cleaning old builds...
 if exist dist rmdir /s /q dist
 if exist build rmdir /s /q build
 if exist *.spec del /q *.spec
 
-echo [2/4] Building with PyInstaller (onedir)...
+echo [2/5] Building with PyInstaller (onedir)...
 pyinstaller --onedir --windowed --name "ConstructionAccounting" --add-data "config;config" --add-data "assets;assets" --hidden-import pyttsx3 --hidden-import comtypes --hidden-import comtypes.gen --hidden-import pythoncom --hidden-import pywintypes --distpath dist --workpath build --specpath . main.py
 
 if errorlevel 1 (
@@ -34,11 +40,11 @@ if not exist "dist\ConstructionAccounting\config" mkdir "dist\ConstructionAccoun
 xcopy /s /y config\* "dist\ConstructionAccounting\config\" >nul
 
 echo [4/5] Generating file manifest...
-python scripts\generate_manifest.py "dist\ConstructionAccounting" --version "%VERSION%"
+python scripts\generate_manifest.py "dist\ConstructionAccounting" --version "%VERSION%" --platform "%PLATFORM%"
 
 echo [5/5] Creating release zip...
 cd dist\ConstructionAccounting
-..\..\scripts\ziprelease.bat "%VERSION%"
+..\..\scripts\ziprelease.bat "%VERSION%" "%PLATFORM%"
 cd ..\..
 
 echo Cleaning temp files...
@@ -49,6 +55,6 @@ echo.
 echo ============================================
 echo   Build complete!
 echo   Output: dist\ConstructionAccounting\
-echo   Release: dist\ConstructionAccounting-%VERSION%.zip
+echo   Release: dist\ConstructionAccounting-%VERSION%-%PLATFORM%.zip
 echo ============================================
 pause

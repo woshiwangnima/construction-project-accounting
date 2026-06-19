@@ -4,7 +4,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 
-from ..theme import FONT_BODY, FONT_BUTTON
+from ..font_manager import font_manager
 from ..widgets.confirm_dialog import confirm_dialog
 from ...updater import UpdateInfo, UpdateChecker, download_update, apply_update
 from ...logger import logger
@@ -39,10 +39,10 @@ class UpdateDialog(tk.Toplevel):
     def _build_ui(self):
         pad = {"padx": 20, "pady": 6}
 
-        tk.Label(self, text=f"新版本 {self._info.version} 可用", font=FONT_BUTTON).pack(pady=(20, 4), **pad)
+        tk.Label(self, text=f"新版本 {self._info.version} 可用", font=font_manager.get("button")).pack(pady=(20, 4), **pad)
 
         notes = self._info.release_notes or ["（无更新说明）"]
-        text_w = tk.Text(self, height=6, wrap=tk.WORD, font=FONT_BODY,
+        text_w = tk.Text(self, height=6, wrap=tk.WORD, font=font_manager.get("body"),
                          relief=tk.FLAT, bg=self.cget("bg"), state=tk.DISABLED)
         text_w.pack(fill=tk.BOTH, **pad)
         text_w.config(state=tk.NORMAL)
@@ -54,15 +54,15 @@ class UpdateDialog(tk.Toplevel):
         self._progress.pack(fill=tk.X, **pad)
 
         self._status_var = tk.StringVar(value="")
-        tk.Label(self, textvariable=self._status_var, font=FONT_BODY, fg="#666").pack(**pad)
+        tk.Label(self, textvariable=self._status_var, font=font_manager.get("body"), fg="#666").pack(**pad)
 
         btn_frame = tk.Frame(self)
         btn_frame.pack(pady=(0, 16))
 
-        self._download_btn = tk.Button(btn_frame, text="下载更新", font=FONT_BUTTON,
+        self._download_btn = tk.Button(btn_frame, text="下载更新", font=font_manager.get("button"),
                                        command=self._on_download)
         self._download_btn.pack(side=tk.LEFT, padx=6)
-        tk.Button(btn_frame, text="稍后再说", font=FONT_BUTTON,
+        tk.Button(btn_frame, text="稍后再说", font=font_manager.get("button"),
                   command=self._on_cancel).pack(side=tk.LEFT, padx=6)
 
     def _on_download(self):

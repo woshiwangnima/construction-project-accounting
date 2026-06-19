@@ -28,6 +28,15 @@ GITHUB_OWNER = "woshiwangnima"
 GITHUB_REPO = "construction-project-accounting"
 # ──────────────────────────────────────────────────────
 
+# 当前运行平台标识，与 release zip 文件名后缀对应
+# 扩展时在此添加新平台，如 "mac-arm64"、"linux64" 等
+if sys.platform == "win32":
+    import struct
+    _bits = struct.calcsize("P") * 8
+    CURRENT_PLATFORM = f"win{_bits}"       # "win64" 或 "win32"
+else:
+    CURRENT_PLATFORM = sys.platform         # 未来扩展
+
 GITHUB_API = "https://api.github.com"
 
 
@@ -100,12 +109,21 @@ def check_for_update() -> UpdateInfo | None:
     body = (data.get("body") or "").strip()
     notes = [line.strip("- ").strip() for line in body.split("\n") if line.strip()]
 
+    # 优先匹配当前平台的 zip（如 -win64.zip），兜底匹配无平台后缀的旧版 zip
+    platform_suffix = f"-{CURRENT_PLATFORM}.zip"
     zip_url = ""
+    fallback_url = ""
     for asset in data.get("assets", []):
         name: str = asset.get("name", "")
-        if name.endswith(".zip") and name.startswith("ConstructionAccounting"):
-            zip_url = asset.get("browser_download_url", "")
+        if not name.endswith(".zip") or not name.startswith("ConstructionAccounting"):
+            continue
+        url = asset.get("browser_download_url", "")
+        if name.endswith(platform_suffix):
+            zip_url = url
             break
+        if not fallback_url:
+            fallback_url = url
+    zip_url = zip_url or fallback_url
 
     if not zip_url:
         logger.warning("updater: 未在 release assets 中找到 zip 文件")

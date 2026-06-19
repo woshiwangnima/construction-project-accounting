@@ -12,14 +12,15 @@ from .theme import (
     SIDEBAR_SELECTED_BG, SIDEBAR_SELECTED_FG,
     SIDEBAR_ITEM_BORDER, ACCENT,
     TEXT_SECONDARY, TEXT_PRIMARY,
-    FONT_BODY, FONT_BODY_BOLD, FONT_SMALL, FONT_HEADING,
 )
+from .font_manager import font_manager
 from .widgets import _make_btn, _input_entry, ScrollableFrame
 from .widgets.status_badge import StatusBadge
 from .dialogs.new_project import NewProjectDialog
-from ..project_manager import list_projects, delete_project, export_project, import_project, project_file_path, PROJECTS_DIR
+from ..project_manager import list_projects, delete_project, export_project, import_project, get_project, project_file_path, PROJECTS_DIR
 from ..project_status import ProjectStatus
 from .editability import EditabilityPolicy
+from .shortcut_manager import shortcut_manager as sm
 
 PROJECT_LIST_DEFAULT_WEIGHTS = {"name": 0.85, "status": 0.15}
 
@@ -47,15 +48,15 @@ class Sidebar(ttk.Frame):
     def _build_ui(self):
         ctrl = tk.Frame(self, bg=SIDEBAR_BG, pady=10, padx=10)
         ctrl.pack(fill=tk.X)
-        _make_btn(ctrl, "\u2795 新建项目", self._new_project, "primary").pack(fill=tk.X)
+        _make_btn(ctrl, "\u2795 新建项目", self._new_project, "icon_btn").pack(fill=tk.X)
 
         # 导入/导出按钮行
         io_frame = tk.Frame(self, bg=SIDEBAR_BG, padx=10)
         io_frame.pack(fill=tk.X, pady=(0, 6))
         io_frame.grid_columnconfigure(0, weight=1, uniform="project_io")
         io_frame.grid_columnconfigure(1, weight=1, uniform="project_io")
-        import_btn = _make_btn(io_frame, "\U0001f4e5 导入项目", self._import_project, "ghost")
-        export_btn = _make_btn(io_frame, "\U0001f4e4 导出项目", self._export_project, "ghost")
+        import_btn = _make_btn(io_frame, "\U0001f4e5 导入项目", self._import_project, "icon_btn")
+        export_btn = _make_btn(io_frame, "\U0001f4e4 导出项目", self._export_project, "icon_btn")
         import_btn.grid(row=0, column=0, sticky="ew", padx=(0, 4))
         export_btn.grid(row=0, column=1, sticky="ew")
 
@@ -65,14 +66,14 @@ class Sidebar(ttk.Frame):
                                      highlightbackground=SIDEBAR_ITEM_BORDER,
                                      highlightthickness=1, bd=0)
         search_container.pack(fill=tk.X)
-        icon_lbl = tk.Label(search_container, text="\U0001f50d", font=FONT_BODY,
+        icon_lbl = tk.Label(search_container, text="\U0001f50d", font=font_manager.get("body"),
                             bg="white", fg=TEXT_SECONDARY)
         icon_lbl.pack(side=tk.LEFT, padx=(8, 4), pady=4)
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self._filter())
         # ttk.Entry 不支持 relief/borderwidth/bg；用 tk.Entry 实现白底无边框搜索框
         se = tk.Entry(search_container, textvariable=self.search_var,
-                      font=FONT_BODY, relief="flat", borderwidth=0,
+                      font=font_manager.get("body"), relief="flat", borderwidth=0,
                       highlightthickness=0, bg="white", fg=TEXT_PRIMARY,
                       insertbackground=TEXT_PRIMARY)
         se.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8), pady=4)
@@ -91,10 +92,15 @@ class Sidebar(ttk.Frame):
         # 记录 item 控件以便点击时只更新背景，不重建整列表
         self._item_widgets = {}
 
+        # 缓存选中态粗斜体字体（避免每次选中都创建新 Font 对象）
+        self._entry_sel_font = font_manager.get("entry_item").copy()
+        self._entry_sel_font.configure(slant="italic")
+        self._entry_normal_font = font_manager.get("entry_item")
+
         # ── 底部设置入口（先 pack，BOTTOM 固定在底） ───────────
         bottom_frame = tk.Frame(self, bg=SIDEBAR_BG, padx=10, pady=10)
         bottom_frame.pack(side=tk.BOTTOM, fill=tk.X)
-        _make_btn(bottom_frame, "\u2699\ufe0f 设置", self._open_settings, "ghost").pack(fill=tk.X)
+        _make_btn(bottom_frame, "\u2699\ufe0f 设置", self._open_settings, "icon_btn").pack(fill=tk.X)
 
     def refresh(self):
         # 记住当前选中以便重建后保持高亮
@@ -107,7 +113,7 @@ class Sidebar(ttk.Frame):
         filtered = [p for p in projects if not query or query in p.get("name", "").lower()]
         if not filtered:
             lbl = tk.Label(self.items_frame, text="暂无项目\n点击上方按钮创建",
-                           bg=SIDEBAR_BG, fg=SIDEBAR_FG, font=FONT_BODY, pady=30)
+                           bg=SIDEBAR_BG, fg=SIDEBAR_FG, font=font_manager.get("body"), pady=30)
             lbl.pack(fill=tk.X)
             self.scrollable.update_scrollregion()
             return
@@ -152,7 +158,9 @@ class Sidebar(ttk.Frame):
         content.grid_columnconfigure(0, weight=round(name_w * 100))
         content.grid_columnconfigure(1, weight=round(status_w * 100))
 
-        name_lbl = tk.Label(content, text=name, font=FONT_BODY_BOLD, bg=bg, fg=name_fg,
+        name_lbl = tk.Label(content, text=name,
+                            font=self._entry_sel_font if is_selected else self._entry_normal_font,
+                            bg=bg, fg=name_fg,
                             anchor="w", wraplength=0)
         name_lbl.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
 
@@ -218,6 +226,7 @@ class Sidebar(ttk.Frame):
         if old_uuid in self._item_widgets:
             w = self._item_widgets[old_uuid]
             w["_set_item_bg"](SIDEBAR_BG, SIDEBAR_FG)
+            w["name_lbl"].config(font=self._entry_normal_font)
             if w["indicator"] is not None:
                 w["indicator"].destroy()
                 w["indicator"] = None
@@ -225,6 +234,7 @@ class Sidebar(ttk.Frame):
         if new_uuid in self._item_widgets:
             w = self._item_widgets[new_uuid]
             w["_set_item_bg"](SIDEBAR_SELECTED_BG, SIDEBAR_SELECTED_FG)
+            w["name_lbl"].config(font=self._entry_sel_font)
             indicator = tk.Frame(w["item"], bg=ACCENT, width=4)
             indicator.pack(side=tk.LEFT, padx=(0, 10))
             w["indicator"] = indicator
@@ -248,9 +258,20 @@ class Sidebar(ttk.Frame):
             label=self.ROLLBACK_MENU_LABEL,
             command=lambda: self._open_rollback_dialog(uuid),
             state=self._project_rollback_menu_state(project),
+            accelerator=sm.get_accel("rollback"),
+        )
+        menu.add_command(
+            label="\u270f\ufe0f 编辑项目",
+            command=lambda: self._edit_project(uuid),
+            state=self._project_edit_menu_state(project),
+            accelerator=sm.get_accel("edit_project"),
         )
         menu.add_separator()
-        menu.add_command(label="\U0001f5c2\ufe0f 打开文件位置", command=lambda: self._open_file_location(uuid))
+        menu.add_command(
+            label="\U0001f5c2\ufe0f 打开文件位置",
+            command=lambda: self._open_file_location(uuid),
+            accelerator=sm.get_accel("open_location"),
+        )
         menu.add_separator()
         # 已完成项目禁止删除（与 EditabilityPolicy 联动）
         delete_state = self._project_delete_menu_state(project)
@@ -258,6 +279,7 @@ class Sidebar(ttk.Frame):
             label="\U0001f5d1\ufe0f 删除项目",
             command=lambda: self._delete_project(uuid, project),
             state=delete_state,
+            accelerator=sm.get_accel("delete_project"),
         )
         menu.tk_popup(event.x_root, event.y_root)
 
@@ -289,6 +311,12 @@ class Sidebar(ttk.Frame):
             return "disabled"
         return "normal"
 
+    def _project_edit_menu_state(self, project: dict) -> str:
+        project_status = ProjectStatus.from_value((project or {}).get("status"))
+        if project_status == ProjectStatus.DONE:
+            return "disabled"
+        return "normal"
+
     def _open_rollback_dialog(self, uuid: str):
         """打开回滚存档弹窗。"""
         from .dialogs.rollback import RollbackDialog
@@ -304,6 +332,19 @@ class Sidebar(ttk.Frame):
         """回滚完成后：刷新侧边栏 + 重新加载项目。"""
         self.refresh()
         self.on_select(uuid)
+
+    def _edit_project(self, uuid):
+        from .dialogs.new_project import NewProjectDialog
+        project_data = get_project(uuid)
+        if project_data is None:
+            return
+        pd = project_data.to_dict() if hasattr(project_data, 'to_dict') else dict(project_data)
+        NewProjectDialog(self.winfo_toplevel(), self._on_edit_done, mode="edit", project_data=pd)
+
+    def _on_edit_done(self):
+        self.refresh()
+        if self.selected_uuid:
+            self.on_select(self.selected_uuid)
 
     def update_item_name(self, uuid: str, new_name: str) -> None:
         """就地更新项目列表中某项的名称标签（不重建列表，避免闪烁）。"""

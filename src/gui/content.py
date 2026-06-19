@@ -8,10 +8,9 @@ from typing import Optional
 
 from .theme import (
     APP_BG, ACCENT, TEXT_PRIMARY, TEXT_SECONDARY, BORDER, HIGHLIGHT_BG,
-    FONT_TITLE, FONT_HEADING, FONT_SUBHEADING, FONT_BODY, FONT_BODY_BOLD,
-    FONT_SMALL,
 )
-from .widgets import _make_btn, _set_btn_state, _input_entry, ScrollableFrame, TooltipCarousel, DraggableSplitter
+from .font_manager import font_manager
+from .widgets import _make_btn, _set_btn_state, _input_entry, ScrollableFrame, DraggableSplitter
 from .widgets.status_badge import ClickableStatusBadge
 from .widgets.reorder import move_item, reorder_subset_by_ids
 from .dialogs.edit_bill import EditBillDialog
@@ -130,11 +129,15 @@ def build_export_blocks(project: dict, op_map: dict, ec,
 
     # 项目头部信息
     blocks.append({"text": f"{p.get('name', '')}", "style": "title"})
-    if ec.show_project_date:
+    if ec.show_project_date or ec.show_project_created_at:
+        date_parts = []
         proj_date_text = _format_project_date(p)
-        if proj_date_text:
-            blocks.append({"text": f"项目日期：{proj_date_text}", "style": "small", "color": ec.text_colors.muted})
-        blocks.append({"text": f"创建时间：{p.get('created_at', 'N/A')}", "style": "small", "color": ec.text_colors.muted})
+        if ec.show_project_date and proj_date_text:
+            date_parts.append(f"项目日期：{proj_date_text}")
+        if ec.show_project_created_at:
+            date_parts.append(f"创建时间：{p.get('created_at', 'N/A')}")
+        for text in date_parts:
+            blocks.append({"text": text, "style": "small", "color": ec.text_colors.muted})
     if ec.show_export_time:
         blocks.append({"text": f"导出时间：{export_time}", "style": "small", "color": ec.text_colors.muted})
     blocks.append({"style": "separator"})
@@ -282,23 +285,12 @@ def _format_bill_date(b: dict) -> str:
 
 
 # ── 账单管理（bills）列宽配置 ─────────────────────────────────────────────
-# 权重（weights）总和 = 1.0；窗口缩放时按比例自动重算像素宽度。
-# 存储位置：项目文件 bill_column_widths（用户调过的列）→ app_config 默认。
-# 兼容旧字段名"数量"（作为"公式"的别名）—— 见 resolve_bill_column_weights。
-BILLS_COLUMNS = ("#", "审核", "工作内容", "公式", "单价", "金额", "备注", "日期", "修改时间", "操作")
+# 权重总和 = 1.0；窗口缩放时按比例自动重算像素宽度。
+# 列顺序 + 默认权重 + simple模式隐藏规则统一由 app_config 的
+# default_bill_column_widths_data 数组定义。
+# 项目文件 bill_column_widths 为 [{name, weight}, ...]（用户自定义覆盖）。
 BILLS_MIN_WIDTH = 40
-BILLS_DEFAULT_WEIGHTS = {
-    "#": 0.0526315789,
-    "审核": 0.05,
-    "工作内容": 0.1394736842,
-    "公式": 0.1263157895,
-    "单价": 0.1263157895,
-    "金额": 0.1263157895,
-    "备注": 0.1684210526,
-    "日期": 0.08,
-    "修改时间": 0.07,
-    "操作": 0.07,
-}
+
 
 # ── 工作类型（worker）表格列宽配置 ─────────────────────────────────────
 # 与 bills 不同：worker 是 ttk.Treeview，没有"操作"列；列宽用户可调（拖 heading 边界），
@@ -334,37 +326,50 @@ def _safe_positive_float(v) -> float | None:
     return None
 
 
-def resolve_bill_column_weights(project_data: dict) -> dict:
-    """解析 bills 列的权重：项目保存值 → app_config 默认 → 模块级硬编码。
+def resolve_bill_columns(project_data: dict) -> tuple[list[str], dict[str, float], list[str]]:
+    """返回 (列顺序, 当前模式权重[全部11列], 隐藏列列表)。
 
-    返回的 dict 保证所有 BILLS_COLUMNS 都存在。**不归一化**：用户的权重就是用户
-    的意图，原样保留。像素换算阶段（weights_to_pixels）会内部归一化。
+    权重始终包含全部11列，简单模式下隐藏列的权重按比例分配给可见列。
+    数据来源：app_config.default_bill_column_widths_data > project.bill_column_widths。
     """
-    saved = (project_data or {}).get("bill_column_widths", {}) or {}
-    try:
-        defaults = load_app().get("default_bill_column_widths", {}) or {}
-    except Exception:
-        defaults = {}
+    from ..config_loader import load_app
 
-    result: dict[str, float] = {}
-    for col in BILLS_COLUMNS:
-        w = _safe_positive_float(saved.get(col))
-        if w is not None:
-            result[col] = w
-            continue
-        # 兼容旧字段名 "数量" → "公式"
-        if col == "公式":
-            w = _safe_positive_float(saved.get("数量"))
+    defaults = load_app().get("default_bill_column_widths_data", [])
+    columns = [d["name"] for d in defaults]
+
+    saved = (project_data or {}).get("bill_column_widths", []) or []
+    saved_map = {}
+    for item in saved:
+        if isinstance(item, dict) and "name" in item:
+            w = _safe_positive_float(item.get("weight"))
             if w is not None:
-                result[col] = w
-                continue
-        w = _safe_positive_float(defaults.get(col))
-        if w is not None:
-            result[col] = w
-            continue
-        result[col] = BILLS_DEFAULT_WEIGHTS[col]
-    logger.debug("resolve_bill_column_weights: saved=%s result=%s", saved, result)
-    return result
+                saved_map[item["name"]] = w
+
+    base = {}
+    for d in defaults:
+        base[d["name"]] = saved_map.get(d["name"], d["weight"])
+
+    mode = (project_data or {}).get("bill_display_mode", "complex")
+    if mode != "simple":
+        return columns, base, []
+
+    hidden = [d["name"] for d in defaults if not d.get("show_in_simple", True)]
+    if not hidden:
+        return columns, base, []
+
+    visible = [c for c in columns if c not in hidden]
+    total_hidden = sum(base[c] for c in hidden)
+    total_visible = sum(base[c] for c in visible)
+
+    if total_visible <= 0:
+        return columns, base, hidden
+
+    ratio = 1 + total_hidden / total_visible
+    weights = {}
+    for col in columns:
+        weights[col] = base.get(col, 0) * ratio if col in visible else base.get(col, 0)
+
+    return columns, weights, hidden
 
 
 def resolve_worker_column_weights(project_data: dict) -> dict:
@@ -455,7 +460,8 @@ def capture_bill_column_weights(tree, total_width: int | None = None) -> dict | 
         total_width = tree.winfo_width()
     if total_width < 1:
         return None
-    pixels = {c: tree.column(c, "width") for c in BILLS_COLUMNS}
+    BILLS_COLS = ("#", "审核", "工作内容", "公式", "公式结果", "单价", "金额", "备注", "日期", "修改时间", "操作")
+    pixels = {c: tree.column(c, "width") for c in BILLS_COLS}
     return pixels_to_weights(pixels, total_width)
 
 
@@ -599,10 +605,10 @@ class ContentArea(tk.Frame):
         self.clear()
         frame = tk.Frame(self, bg=APP_BG)
         frame.place(relx=0.5, rely=0.4, anchor="center")
-        tk.Label(frame, text="\U0001f44b 欢迎使用", font=FONT_TITLE, bg=APP_BG, fg=TEXT_PRIMARY).pack()
-        tk.Label(frame, text="点击左侧【\u2795 新建项目】开始记账", font=FONT_BODY,
+        tk.Label(frame, text="\U0001f44b 欢迎使用", font=font_manager.get("title"), bg=APP_BG, fg=TEXT_PRIMARY).pack()
+        tk.Label(frame, text="点击左侧【\u2795 新建项目】开始记账", font=font_manager.get("body"),
                  bg=APP_BG, fg=TEXT_SECONDARY).pack(pady=(12, 0))
-        tk.Label(frame, text="或选择一个已有项目查看", font=FONT_BODY,
+        tk.Label(frame, text="或选择一个已有项目查看", font=font_manager.get("body"),
                  bg=APP_BG, fg=TEXT_SECONDARY).pack(pady=(6, 0))
 
     def clear(self):
@@ -632,19 +638,10 @@ class ContentArea(tk.Frame):
         top = tk.Frame(self, bg=APP_BG, padx=24)
         top.pack(fill=tk.X, pady=(16, 8))
 
-        # 项目名：羽毛笔图标 + 可编辑输入框
-        name_container = tk.Frame(top, bg=APP_BG)
-        name_container.pack(side=tk.LEFT)
-        tk.Label(name_container, text="\U0001f589\ufe0f", font=FONT_HEADING,
-                 bg=APP_BG, fg=TEXT_SECONDARY).pack(side=tk.LEFT, padx=(0, 6))
-        name_var = tk.StringVar(value=p.get("name", ""))
-        self._name_entry = ttk.Entry(name_container, textvariable=name_var, font=FONT_HEADING, width=30)
-        self._name_entry.pack(side=tk.LEFT)
-        name_var.trace_add("write", lambda *_: self._save_name(name_var.get()))
-        if self._editability is not None:
-            self._editability.manage(self._name_entry, normally_enabled=True)
-        elif not self._editable:
-            _set_btn_state(self._name_entry, True)
+        # 项目名：只读文本
+        project_name_lbl = tk.Label(top, text=p.get("name", ""), font=font_manager.get("heading"),
+                                    bg=APP_BG, fg=TEXT_PRIMARY, anchor="w")
+        project_name_lbl.pack(side=tk.LEFT)
 
         # 状态切换（可点击标签）：始终从 self.project_data 读取最新状态
         current_status = ProjectStatus.from_value(self.project_data.get("status"))
@@ -670,10 +667,10 @@ class ContentArea(tk.Frame):
         proj_date_text = _format_project_date(p)
         if proj_date_text:
             tk.Label(top, text=f"项目日期：{proj_date_text}",
-                     font=FONT_SMALL, bg=APP_BG, fg=TEXT_SECONDARY).pack(side=tk.LEFT, padx=(12, 0))
+                     font=font_manager.get("small"), bg=APP_BG, fg=TEXT_SECONDARY).pack(side=tk.LEFT, padx=(12, 0))
 
         tk.Label(top, text=f"创建：{p.get('created_at', 'N/A')}",
-                 font=FONT_SMALL, bg=APP_BG, fg=TEXT_SECONDARY).pack(side=tk.RIGHT)
+                 font=font_manager.get("small"), bg=APP_BG, fg=TEXT_SECONDARY).pack(side=tk.RIGHT)
 
         sep = tk.Frame(self, bg=BORDER, height=1)
         sep.pack(fill=tk.X, padx=24, pady=4)
@@ -681,14 +678,18 @@ class ContentArea(tk.Frame):
         nb = tk.Frame(self, bg=APP_BG, padx=24, pady=4)
         nb.pack(fill=tk.X)
         self._tab_buttons = {}
+        self._tab_selected_font = font_manager.get("entry_item").copy()
+        self._tab_selected_font.configure(slant="italic")
+        self._tab_normal_font = font_manager.get("entry_item")
         for val, txt in [("bills", "\U0001f4b0 账单管理"), ("workers", "\U0001f527 工作类型")]:
             rb = tk.Radiobutton(nb, text=txt, variable=self.tab_var, value=val,
-                                command=self._switch_tab, font=FONT_BODY_BOLD,
+                                command=self._switch_tab, font=self._tab_normal_font,
                                 bg=APP_BG, activebackground=APP_BG, indicatoron=0,
                                 padx=24, pady=10, relief="flat", bd=0,
                                 fg=TEXT_SECONDARY, selectcolor=APP_BG)
             rb.pack(side=tk.LEFT, padx=(0, 6))
             self._tab_buttons[val] = rb
+        self._tab_buttons["bills"].bind("<Button-3>", self._show_bill_mode_menu)
 
         self.content_frame = tk.Frame(self, bg=APP_BG)
         self.content_frame.pack(fill=tk.BOTH, expand=True, padx=24, pady=(8, 16))
@@ -705,27 +706,15 @@ class ContentArea(tk.Frame):
         # Update tab highlight
         for val, btn in self._tab_buttons.items():
             if val == tab:
-                btn.config(fg=ACCENT, bg=HIGHLIGHT_BG, relief="solid", bd=1)
+                btn.config(fg=ACCENT, bg=HIGHLIGHT_BG, relief="solid", bd=1,
+                           font=self._tab_selected_font)
             else:
-                btn.config(fg=TEXT_SECONDARY, bg=APP_BG, relief="flat", bd=0)
+                btn.config(fg=TEXT_SECONDARY, bg=APP_BG, relief="flat", bd=0,
+                           font=self._tab_normal_font)
         if tab == "bills":
             self._render_bills()
         else:
             self._render_workers()
-
-    def _save_name(self, name):
-        if not self._editable:
-            # 已完成状态：项目名是数据字段，不应被改
-            return
-        cleaned = name.strip()
-        if self.project_data and cleaned:
-            self.project_data["name"] = cleaned
-            update_project(self.current_uuid, self.project_data)
-            if self._on_name_change is not None:
-                try:
-                    self._on_name_change(self.current_uuid, cleaned)
-                except Exception as e:
-                    logger.warning("通知侧边栏项目名更新失败: %s", e)
 
     def _get_edit_cat_name(self) -> str:
         """通过 _edit_cat_id 查出 category_order 中对应的当前名字。"""
@@ -826,28 +815,22 @@ class ContentArea(tk.Frame):
         total_text = f"合计（{len(bills)} 条）：￥{total:.2f}"
         if err_cnt:
             total_text += f"（{err_cnt} 条计算错误）"
-        tk.Label(header, text=total_text, font=FONT_HEADING, bg=APP_BG,
+        tk.Label(header, text=total_text, font=font_manager.get("heading"), bg=APP_BG,
                  fg="#c0392b").pack(side=tk.LEFT)
 
-        btn_frame = tk.Frame(header, bg=APP_BG)
-        btn_frame.pack(side=tk.RIGHT)
-        add_btn = _make_btn(btn_frame, "\u2795 添加记录", self._add_bill, "primary")
-        add_btn.pack(side=tk.LEFT, padx=4)
-        img_btn = _make_btn(btn_frame, "\U0001f4be 保存为图片", self._export_image, "secondary")
-        img_btn.pack(side=tk.LEFT, padx=4)
-        # add_btn 受 editability 策略管理；img_btn 在 DONE 状态仍可点（导出图片允许）
-        if self._editability is not None:
-            self._editability.manage(add_btn, normally_enabled=True)
-        elif not self._editable:
-            _set_btn_state(add_btn, True)
-
         # ── 自定义列表（替代 ttk.Treeview，支持公式换行 + 不等行高 + 行内 3 按钮）──
-        self._bill_weights = resolve_bill_column_weights(p)
+        columns, weights, hidden = resolve_bill_columns(p)
+        mode = (p or {}).get("bill_display_mode", "complex")
+        self._bill_weights = weights
         from .widgets import BillListView
         self._bill_list = BillListView(
             parent,
             bills=bills,
             op_map=op_map,
+            columns=columns,
+            weights=weights,
+            hidden_cols=hidden,
+            mode=mode,
             trade_items=self.project_data.get("trade_items", []),
             on_edit=self._edit_bill,
             on_move_up=self._move_bill_up,
@@ -863,7 +846,6 @@ class ContentArea(tk.Frame):
             on_sort_by_modified=self._sort_bills_by_modified if self._editable else None,
             paste_enabled=self._clipboard.has_bill,
             paste_allowed=self._is_paste_allowed,
-            weights=self._bill_weights,
             bg=APP_BG,
             editable=self._editable,
             selection_bg=self._selection_bg,
@@ -872,23 +854,8 @@ class ContentArea(tk.Frame):
         self._bill_list.pack(fill=tk.BOTH, expand=True)
         self._restore_bills_scroll()
 
-        _tc_cfg = load_app().get("tooltips", {})
-        hint = TooltipCarousel(
-            parent,
-            messages=_tc_cfg.get("messages", ["双击行可编辑；拖表头竖条可调列宽"]),
-            prefix=_tc_cfg.get("prefix", "◆ "),
-            dwell_per_char_ms=_tc_cfg.get("dwell_per_char_ms", 80),
-            font_size=_tc_cfg.get("font_size", 13),
-            anchor="e",
-        )
-        hint.pack(side=tk.BOTTOM, anchor="e", pady=(8, 0))
-
     def _on_bill_column_resize(self, weights: dict) -> None:
-        """用户拖完列分隔条 → 立即更新内存 + 写回项目文件。
-
-        on_column_resize 只在松手时触发一次（motion 不触发），不需要防抖。
-        防抖反而会让用户在 300ms 内切换 tab / 重新渲染时被旧值覆盖。
-        """
+        """用户拖完列分隔条 → 立即更新内存 + 写回项目文件。"""
         self._bill_weights = dict(weights)
         logger.debug("_on_bill_column_resize: weights=%s uuid=%s",
                      weights, self.current_uuid)
@@ -896,7 +863,8 @@ class ContentArea(tk.Frame):
             return
         try:
             if self.project_data is not None:
-                self.project_data["bill_column_widths"] = dict(weights)
+                cols_list = [{"name": k, "weight": v} for k, v in weights.items()]
+                self.project_data["bill_column_widths"] = cols_list
                 update_project(self.current_uuid, self.project_data)
                 logger.debug("_on_bill_column_resize: saved to project uuid=%s",
                              self.current_uuid)
@@ -1213,7 +1181,7 @@ class ContentArea(tk.Frame):
 
         left_header = tk.Frame(left_frame, bg=APP_BG, pady=4)
         left_header.pack(fill=tk.X, padx=8)
-        tk.Label(left_header, text="分类列表", font=FONT_SUBHEADING,
+        tk.Label(left_header, text="分类列表", font=font_manager.get("subheading"),
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(side=tk.LEFT)
 
         # 分类列表（可滚动）
@@ -1260,7 +1228,7 @@ class ContentArea(tk.Frame):
         right_header.pack(fill=tk.X)
         cat_name_container = tk.Frame(right_header, bg=APP_BG)
         cat_name_container.pack(side=tk.LEFT)
-        tk.Label(cat_name_container, text="\U0001f589\ufe0f", font=FONT_SUBHEADING,
+        tk.Label(cat_name_container, text="\U0001f589\ufe0f", font=font_manager.get("subheading"),
                  bg=APP_BG, fg=TEXT_SECONDARY).pack(side=tk.LEFT, padx=(0, 6))
         # 绑定当前选中分类的 UUID，区分用户主动输入 vs 切换分类时的程序性 set()
         self._edit_cat_id = ""
@@ -1271,7 +1239,7 @@ class ContentArea(tk.Frame):
                 break
         self._cat_name_var = tk.StringVar(value=self._selected_category or "")
         self._cat_name_entry = ttk.Entry(cat_name_container, textvariable=self._cat_name_var,
-                                         font=FONT_SUBHEADING, width=30)
+                                         font=font_manager.get("subheading"), width=30)
         self._cat_name_entry.pack(side=tk.LEFT)
         self._cat_name_var.trace_add("write", lambda *_: self._save_category_name())
         if self._editability is not None:
@@ -1315,17 +1283,6 @@ class ContentArea(tk.Frame):
             self._editability.manage(add_trade_btn, normally_enabled=True)
         elif not self._editable:
             _set_btn_state(add_trade_btn, True)
-        _tc_cfg = load_app().get("tooltips", {})
-        self._worker_hint = TooltipCarousel(
-            parent,
-            messages=_tc_cfg.get("messages", ["双击行可编辑；拖表头竖条可调列宽"]),
-            prefix=_tc_cfg.get("prefix", "◆ "),
-            dwell_per_char_ms=_tc_cfg.get("dwell_per_char_ms", 80),
-            font_size=_tc_cfg.get("font_size", 13),
-            anchor="e",
-        )
-        self._worker_hint.pack(side=tk.BOTTOM, anchor="e", pady=(8, 0))
-
     def _on_category_resize(self, width: int) -> None:
         """DraggableSplitter 释放时回调：保存归一化宽度比例到 app_config。"""
         try:
@@ -1370,11 +1327,13 @@ class ContentArea(tk.Frame):
         content.grid_columnconfigure(0, weight=round(name_w * 100))
         content.grid_columnconfigure(1, weight=round(count_w * 100))
 
-        name_lbl = tk.Label(content, text=cat_name, font=FONT_BODY_BOLD, bg=bg, fg=fg,
+        name_lbl = tk.Label(content, text=cat_name,
+                            font=self._tab_selected_font if is_selected else self._tab_normal_font,
+                            bg=bg, fg=fg,
                             anchor="w", wraplength=0)
         name_lbl.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
 
-        count_lbl = tk.Label(content, text=f"{count}项", font=FONT_SMALL, bg=bg, fg=TEXT_SECONDARY,
+        count_lbl = tk.Label(content, text=f"{count}项", font=font_manager.get("small"), bg=bg, fg=TEXT_SECONDARY,
                              anchor="e")
         count_lbl.grid(row=0, column=1, sticky="nsew")
 
@@ -1506,7 +1465,9 @@ class ContentArea(tk.Frame):
         if not path:
             return
 
-        ec = ExportDefaults.from_dict(user_cfg.get("export_defaults", {}))
+        app_export_cfg = load_app().get("export_defaults", {})
+        merged_export = {**app_export_cfg, **user_cfg.get("export_defaults", {})}
+        ec = ExportDefaults.from_dict(merged_export)
 
         blocks, _total = build_export_blocks(p, op_map, ec)
 
@@ -1553,9 +1514,9 @@ class ContentArea(tk.Frame):
         y = self.winfo_rooty() + (self.winfo_height() - h) // 2
         dialog.geometry(f"{w}x{h}+{x}+{y}")
 
-        tk.Label(dialog, text="图片已保存到：", font=FONT_BODY,
+        tk.Label(dialog, text="图片已保存到：", font=font_manager.get("body"),
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(pady=(16, 4), padx=16, anchor="w")
-        entry = ttk.Entry(dialog, font=FONT_SMALL, width=60)
+        entry = ttk.Entry(dialog, font=font_manager.get("small"), width=60)
         entry.insert(0, path)
         entry.config(state="readonly")
         entry.pack(fill=tk.X, padx=16)
@@ -1581,7 +1542,7 @@ class ContentArea(tk.Frame):
         y = self.winfo_rooty() + (self.winfo_height() - h) // 2
         dialog.geometry(f"{w}x{h}+{x}+{y}")
 
-        tk.Label(dialog, text="工作类型名称：", font=FONT_BODY, bg=APP_BG).pack(pady=(20, 4), padx=20, anchor="w")
+        tk.Label(dialog, text="工作类型名称：", font=font_manager.get("body"), bg=APP_BG).pack(pady=(20, 4), padx=20, anchor="w")
         entry, var = _input_entry(dialog, placeholder="如：泥瓦工程")
         entry.pack(fill=tk.X, padx=20)
         entry.focus_set()
@@ -1590,6 +1551,68 @@ class ContentArea(tk.Frame):
         btn_frame.pack(pady=(16, 0))
         _make_btn(btn_frame, "取消", dialog.destroy, "ghost").pack(side=tk.LEFT, padx=4)
         _make_btn(btn_frame, "确定", lambda: self._confirm_add_cat(dialog, var.get()), "primary").pack(side=tk.LEFT, padx=4)
+
+    def _edit_category_dialog(self, cat_name):
+        if self._editability is not None and not self._editability.is_editable:
+            return
+        dialog = tk.Toplevel(self)
+        dialog.title("编辑工作类型")
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.configure(bg=APP_BG)
+
+        w, h = 500, 180
+        x = self.winfo_rootx() + (self.winfo_width() - w) // 2
+        y = self.winfo_rooty() + (self.winfo_height() - h) // 2
+        dialog.geometry(f"{w}x{h}+{x}+{y}")
+
+        tk.Label(dialog, text="工作类型名称：", font=font_manager.get("body"), bg=APP_BG).pack(pady=(20, 4), padx=20, anchor="w")
+        var = tk.StringVar(value=cat_name)
+        entry = ttk.Entry(dialog, textvariable=var, font=font_manager.get("body"), width=30)
+        entry.pack(fill=tk.X, padx=20)
+        entry.focus_set()
+        entry.selection_range(0, tk.END)
+
+        btn_frame = tk.Frame(dialog, bg=APP_BG)
+        btn_frame.pack(pady=(16, 0))
+        _make_btn(btn_frame, "取消", dialog.destroy, "ghost").pack(side=tk.LEFT, padx=4)
+        _make_btn(btn_frame, "确定", lambda: self._confirm_edit_cat(dialog, cat_name, var.get()), "primary").pack(side=tk.LEFT, padx=4)
+
+    def _confirm_edit_cat(self, dialog, old_name, new_name):
+        new_name = new_name.strip()
+        if not new_name:
+            messagebox.showwarning("提示", "请输入名称")
+            return
+        if new_name == old_name:
+            dialog.destroy()
+            return
+        co = self.project_data.get("category_order", [])
+        updated = False
+        for i, cat in enumerate(co):
+            if _category_name(cat) == old_name:
+                if hasattr(cat, "name"):
+                    cat.name = new_name
+                elif isinstance(cat, dict):
+                    cat["name"] = new_name
+                else:
+                    co[i] = new_name
+                updated = True
+                break
+        if not updated:
+            return
+        for ti in self.project_data.get("trade_items", []):
+            if isinstance(ti, dict):
+                if ti.get("category") == old_name:
+                    ti["category"] = new_name
+            elif hasattr(ti, 'category') and ti.category == old_name:
+                ti.category = new_name
+        if hasattr(self.project_data, '_sync_trade_item_category_ids'):
+            self.project_data._sync_trade_item_category_ids()
+        update_project(self.current_uuid, self.project_data)
+        dialog.destroy()
+        self._selected_category = new_name
+        self._render()
 
     def _confirm_add_cat(self, dialog, name):
         name = name.strip()
@@ -1922,25 +1945,36 @@ class ContentArea(tk.Frame):
         return _project_category_names(self.project_data)
 
     def _show_category_context_menu(self, event, cat: str) -> None:
-        """分类列表的右键菜单：上移 / 下移 / 删除分类。已完成状态不提供。"""
+        """分类列表的右键菜单：编辑 / 上移 / 下移 / 删除分类。已完成状态不提供。"""
         if not self._category_context_menu_allowed(cat):
             return
+        from .shortcut_manager import shortcut_manager as sm
         cats = self._build_category_list()
         idx = cats.index(cat)
         menu = tk.Menu(self, tearoff=0)
+        # 编辑分类（最优先）
+        menu.add_command(
+            label="\u270f\ufe0f 编辑分类",
+            command=lambda: self._edit_category_dialog(cat),
+            accelerator=sm.get_accel("edit_category"),
+        )
+        menu.add_separator()
         # 上移：非最顶
         up_state = "normal" if idx > 0 else "disabled"
         menu.add_command(label="\u2b06\ufe0f 上移",
                          command=lambda: self._move_category_up(cat),
-                         state=up_state)
+                         state=up_state,
+                         accelerator=sm.get_accel("move_up"))
         # 下移：非最底
         down_state = "normal" if idx < len(cats) - 1 else "disabled"
         menu.add_command(label="\u2b07\ufe0f 下移",
                          command=lambda: self._move_category_down(cat),
-                         state=down_state)
+                         state=down_state,
+                         accelerator=sm.get_accel("move_down"))
         menu.add_separator()
         menu.add_command(label="\U0001f5d1\ufe0f 删除分类",
-                         command=lambda: self._delete_category(cat))
+                         command=lambda: self._delete_category(cat),
+                         accelerator=sm.get_accel("delete_category"))
         try:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
@@ -1956,6 +1990,30 @@ class ContentArea(tk.Frame):
         if self._editability is not None:
             return self._editability.is_editable
         return self._editable
+
+    def _show_bill_mode_menu(self, event):
+        from .shortcut_manager import shortcut_manager as sm
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="➕ 添加记录", command=self._add_bill,
+                         accelerator=sm.get_accel("add_record"))
+        menu.add_command(label="💾 保存为图片", command=self._export_image,
+                         accelerator=sm.get_accel("save_image"))
+        menu.add_separator()
+        menu.add_command(label="繁简切换", command=self._toggle_bill_display_mode,
+                         accelerator=sm.get_accel("toggle_display"))
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _toggle_bill_display_mode(self):
+        if not self.project_data or not self.current_uuid:
+            return
+        mode = self.project_data.get("bill_display_mode", "complex")
+        new_mode = "simple" if mode == "complex" else "complex"
+        self.project_data["bill_display_mode"] = new_mode
+        update_project(self.current_uuid, self.project_data)
+        self._render_bills()
 
     def _refresh_workers_only(self):
         """仅刷新工作类型页面（不重新渲染整个项目视图）"""
@@ -1993,7 +2051,7 @@ class ContentArea(tk.Frame):
             tw.wm_overrideredirect(True)
             tw.configure(bg="#2d3748")
             lbl = tk.Label(tw, text=msg, bg="#2d3748", fg="white",
-                           font=FONT_BODY, padx=14, pady=6)
+                           font=font_manager.get("body"), padx=14, pady=6)
             lbl.pack()
             # 定位：屏幕底部居中
             top.update_idletasks()

@@ -28,6 +28,7 @@ class ExportDefaults:
     bg_color: str = "#ffffff"
     strip_category: bool = True
     show_project_date: bool = False
+    show_project_created_at: bool = False
     show_record_time: bool = False
     show_export_time: bool = False
     append_note_to_item_title: bool = False
@@ -39,6 +40,7 @@ class ExportDefaults:
             "export_bg_color": self.bg_color,
             "export_strip_category": self.strip_category,
             "export_show_project_date": self.show_project_date,
+            "export_show_project_created_at": self.show_project_created_at,
             "export_show_record_time": self.show_record_time,
             "export_show_export_time": self.show_export_time,
             "export_append_note_to_item_title": self.append_note_to_item_title,
@@ -73,6 +75,7 @@ class ExportDefaults:
             bg_color=data.get("export_bg_color", "#ffffff"),
             strip_category=data.get("export_strip_category", True),
             show_project_date=data.get("export_show_project_date", False),
+            show_project_created_at=data.get("export_show_project_created_at", False),
             show_record_time=data.get("export_show_record_time", False),
             show_export_time=data.get("export_show_export_time", False),
             append_note_to_item_title=data.get("export_append_note_to_item_title", False),

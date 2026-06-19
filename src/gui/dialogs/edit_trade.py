@@ -10,8 +10,8 @@ from tkinter import ttk, messagebox
 
 from ..theme import (
     APP_BG, TEXT_PRIMARY, TEXT_SECONDARY,
-    FONT_BODY, FONT_BODY_BOLD, FONT_SMALL,
 )
+from ..font_manager import font_manager
 from ..widgets import ScrollableFrame, _make_btn, _input_entry
 from ...config_loader import load_app, save_app
 from ...project_manager import update_project
@@ -79,18 +79,18 @@ class EditTradeItemDialog:
         # ── 业务字段 ──
 
         # 工作类型：下拉（样式与「选择工作项目」一致）
-        tk.Label(content_frame, text="\U0001f527 工作类型", font=FONT_BODY_BOLD,
+        tk.Label(content_frame, text="\U0001f527 工作类型", font=font_manager.get("body_bold"),
                  bg=APP_BG).pack(pady=(16, 4), padx=20, anchor="w")
         self.cat_var = tk.StringVar(value=item.get("category", ""))
         self.cat_cb = ttk.Combobox(content_frame, values=categories,
                                     textvariable=self.cat_var,
-                                    font=FONT_BODY, state="readonly")
+                                    font=font_manager.get("body"), state="readonly")
         self.cat_cb.pack(fill=tk.X, padx=20)
         if categories and not self.cat_var.get():
             self.cat_cb.set(categories[0])
 
         # 工作名称：label + entry
-        tk.Label(content_frame, text="\U0001f4dd 工作名称", font=FONT_BODY_BOLD,
+        tk.Label(content_frame, text="\U0001f4dd 工作名称", font=font_manager.get("body_bold"),
                  bg=APP_BG).pack(pady=(12, 4), padx=20, anchor="w")
         self.name_var = tk.StringVar(value=item.get("name", ""))
         name_e, _ = _input_entry(content_frame)
@@ -98,7 +98,7 @@ class EditTradeItemDialog:
         name_e.pack(fill=tk.X, padx=20)
 
         # 计费类型：下拉（样式与「日期」栏一致：下拉 + 联动容器）
-        tk.Label(content_frame, text="\U0001f4b0 计费类型", font=FONT_BODY_BOLD,
+        tk.Label(content_frame, text="\U0001f4b0 计费类型", font=font_manager.get("body_bold"),
                  bg=APP_BG).pack(pady=(12, 4), padx=20, anchor="w")
         # 初始值由 Billing.from_dict 决定（缺 has_unit 时按 True）
         self.is_per_unit_var = tk.StringVar(
@@ -107,7 +107,7 @@ class EditTradeItemDialog:
         self.billing_cb = ttk.Combobox(
             content_frame, values=BILLING_TYPES,
             textvariable=self.is_per_unit_var,
-            font=FONT_BODY, state="readonly",
+            font=font_manager.get("body"), state="readonly",
         )
         self.billing_cb.pack(fill=tk.X, padx=20)
         self.billing_cb.bind("<<ComboboxSelected>>", lambda e: self._toggle_price())
@@ -116,7 +116,7 @@ class EditTradeItemDialog:
         # 按单价时显示的「单价 + 单位」容器（先建 frame，pack 留到 _toggle_price）
         self.price_frame = tk.Frame(content_frame, bg=APP_BG)
 
-        tk.Label(self.price_frame, text="单价", font=FONT_BODY_BOLD,
+        tk.Label(self.price_frame, text="单价", font=font_manager.get("body_bold"),
                  bg=APP_BG).grid(row=0, column=0, sticky="w", pady=2)
         # 单价：新增模式固定 1；编辑既有条目时取 Billing 解析值
         default_billing = read_billing(item)
@@ -129,13 +129,13 @@ class EditTradeItemDialog:
         price_e.config(textvariable=self.price_var, width=10)
         price_e.grid(row=0, column=1, sticky="w", padx=(8, 0), pady=2)
 
-        tk.Label(self.price_frame, text="单位", font=FONT_BODY_BOLD,
+        tk.Label(self.price_frame, text="单位", font=font_manager.get("body_bold"),
                  bg=APP_BG).grid(row=1, column=0, sticky="w", pady=(8, 2))
         self.unit_var = tk.StringVar(value=default_billing.unit)
         # 既可输入又可下拉：用 ttk.Combobox 默认 state（normal），可编辑
         self.unit_cb = ttk.Combobox(self.price_frame, values=units,
                                      textvariable=self.unit_var,
-                                     font=FONT_BODY)
+                                     font=font_manager.get("body"))
         self.unit_cb.grid(row=1, column=1, sticky="ew", padx=(8, 0), pady=(8, 2))
         self.price_frame.grid_columnconfigure(1, weight=1)
 

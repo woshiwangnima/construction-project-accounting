@@ -1,9 +1,9 @@
 """表头组件：支持动态换行动态行高 + 列头点击回调"""
 
 import tkinter as tk
-from tkinter import font as tkfont
 
-from ..theme import FONT_BODY_BOLD, TEXT_PRIMARY, ACCENT
+from ..theme import TEXT_PRIMARY, ACCENT
+from ..font_manager import font_manager
 from ...logger import logger
 
 
@@ -28,7 +28,7 @@ class TableHeader(tk.Frame):
         for idx, col in enumerate(self._columns):
             self.grid_columnconfigure(idx, minsize=self._pixels.get(col, 80))
             cell = tk.Frame(self, bg="#e8e8e8")
-            lbl = tk.Label(cell, text=col, font=FONT_BODY_BOLD, bg="#e8e8e8",
+            lbl = tk.Label(cell, text=col, font=font_manager.get("body_bold"), bg="#e8e8e8",
                            fg=TEXT_PRIMARY, anchor="w", padx=8, wraplength=0)
             lbl.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             if idx < len(self._columns) - 1:
@@ -45,10 +45,9 @@ class TableHeader(tk.Frame):
             self._labels[col] = lbl
 
     def _bind_clicks(self):
-        underline_font = tkfont.Font(
-            family=FONT_BODY_BOLD[0], size=FONT_BODY_BOLD[1],
-            weight="bold", underline=True,
-        )
+        _uh = font_manager.get("body_bold").copy()
+        _uh.configure(underline=True)
+        underline_font = _uh
         for col, callback in self._header_click_map.items():
             lbl = self._labels.get(col)
             if lbl:

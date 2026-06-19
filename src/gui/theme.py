@@ -24,6 +24,11 @@ TEXT_SECONDARY = "#4a5568"
 BORDER = "#e2e8f0"
 HIGHLIGHT_BG = "#ebf8ff"
 
+# Icon button colors (sidebar top-level buttons)
+ICON_BTN_BG = "#f0f4f8"
+ICON_BTN_HOVER = "#e2e8f0"
+ICON_BTN_ACTIVE = "#cbd5e0"
+
 # ── 字体 ──────────────────────────────────────────────────────────────────────
 FONT_TITLE = ("Microsoft YaHei UI", 30, "bold")
 FONT_HEADING = ("Microsoft YaHei UI", 18, "bold")
@@ -32,7 +37,6 @@ FONT_BODY = ("Microsoft YaHei UI", 15)
 FONT_BODY_BOLD = ("Microsoft YaHei UI", 15, "bold")
 FONT_SMALL = ("Microsoft YaHei UI", 13)
 FONT_BUTTON = ("Microsoft YaHei UI", 15, "bold")
-FONT_BTN_LARGE = ("Microsoft YaHei UI", 16, "bold")
 FONT_TREE = ("Microsoft YaHei UI", 14)
 FONT_TREE_HEADER = ("Microsoft YaHei UI", 14, "bold")
 FONT_CALC_BTN = ("Microsoft YaHei UI", 20, "bold")

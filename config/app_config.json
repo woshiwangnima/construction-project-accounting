@@ -1,7 +1,7 @@
 {
   "app_version": "1.0.1",
   "schema_version": 1,
-  "button_font_size": 16,
+  "default_font_size": 14,
   "symbol_mapping": {
     "operators": {
       "+": {
@@ -144,6 +144,7 @@
     "export_bg_color": "#ffffff",
     "export_strip_category": true,
     "export_show_project_date": false,
+    "export_show_project_created_at": false,
     "export_show_record_time": false,
     "export_show_export_time": false,
     "export_append_note_to_item_title": true
@@ -155,18 +156,63 @@
     "preview_text": "砌墙，公式，12.5 乘以 3 加 8 除以 2 减去括号 1.5 加 0.5 括号，等于 41.5"
   },
   "backup_count": 20,
-  "default_bill_column_widths": {
-    "#": 0.0526315789,
-    "工作内容": 0.1394736842,
-    "公式": 0.1263157895,
-    "单价": 0.1263157895,
-    "金额": 0.1263157895,
-    "备注": 0.1684210526,
-    "日期": 0.08,
-    "操作": 0.07,
-    "修改时间": 0.07,
-    "审核": 0.05
-  },
+  "default_bill_column_widths_data": [
+    {
+      "name": "#",
+      "weight": 0.045,
+      "show_in_simple": true
+    },
+    {
+      "name": "审核",
+      "weight": 0.045,
+      "show_in_simple": true
+    },
+    {
+      "name": "工作内容",
+      "weight": 0.13,
+      "show_in_simple": true
+    },
+    {
+      "name": "公式",
+      "weight": 0.1,
+      "show_in_simple": true
+    },
+    {
+      "name": "公式结果",
+      "weight": 0.09,
+      "show_in_simple": false
+    },
+    {
+      "name": "单价",
+      "weight": 0.09,
+      "show_in_simple": true
+    },
+    {
+      "name": "金额",
+      "weight": 0.09,
+      "show_in_simple": true
+    },
+    {
+      "name": "备注",
+      "weight": 0.14,
+      "show_in_simple": true
+    },
+    {
+      "name": "日期",
+      "weight": 0.07,
+      "show_in_simple": false
+    },
+    {
+      "name": "修改时间",
+      "weight": 0.06,
+      "show_in_simple": false
+    },
+    {
+      "name": "操作",
+      "weight": 0.06,
+      "show_in_simple": true
+    }
+  ],
   "default_worker_column_widths": {
     "名称": 0.3571428571,
     "单价": 0.2142857143,
@@ -307,16 +353,86 @@
       ]
     }
   ],
+  "bill_display_mode": "complex",
+  "bill_display_modes": {
+    "complex": {
+      "hidden": []
+    },
+    "simple": {
+      "hidden": [
+        "公式结果",
+        "日期",
+        "修改时间"
+      ]
+    }
+  },
+  "default_bill_column_widths_by_mode": {
+    "complex": {
+      "#": 0.045,
+      "审核": 0.045,
+      "工作内容": 0.13,
+      "公式": 0.1,
+      "公式结果": 0.09,
+      "单价": 0.09,
+      "金额": 0.09,
+      "备注": 0.14,
+      "日期": 0.07,
+      "修改时间": 0.06,
+      "操作": 0.06
+    },
+    "simple": {
+      "#": 0.05,
+      "审核": 0.05,
+      "工作内容": 0.16,
+      "公式": 0.12,
+      "单价": 0.12,
+      "金额": 0.12,
+      "备注": 0.18,
+      "操作": 0.08
+    }
+  },
+  "default_bill_column_widths": {
+    "#": 0.0526315789,
+    "工作内容": 0.1394736842,
+    "公式": 0.1263157895,
+    "单价": 0.1263157895,
+    "金额": 0.1263157895,
+    "备注": 0.1684210526,
+    "日期": 0.08,
+    "操作": 0.07,
+    "修改时间": 0.07,
+    "审核": 0.05
+  },
   "tooltips": {
     "prefix": "◆ ",
     "messages": [
       "双击行可编辑",
       "长按拖动按钮以排序",
       "拖动表头竖条可以调整列宽",
-      "右键展示菜单选项"
+      "点击蓝色链接样式的表头列可以排序",
+      "右键项目列表展示的项目可以展开扩展菜单选项",
+      "右键【账单管理】按钮可以切换繁简显示模式"
     ],
     "dwell_per_char_ms": 300,
     "font_size": 13
+  },
+  "shortcut_settings": {
+    "new_project": {"event": "<Control-n>", "accel": "Ctrl+N"},
+    "add_record": {"event": "<Control-Return>", "accel": "Ctrl+Enter"},
+    "save_image": {"event": "<Control-Shift-S>", "accel": "Ctrl+Shift+S"},
+    "toggle_display": {"event": "<Alt-d>", "accel": "Alt+D"},
+    "rollback": {"event": "<F4>", "accel": "F4"},
+    "edit_project": {"event": "<Alt-e>", "accel": "Alt+E"},
+    "open_location": {"event": "<Alt-f>", "accel": "Alt+F"},
+    "delete_project": {"event": "<Alt-Delete>", "accel": "Alt+Del"},
+    "edit_category": {"event": "<Alt-c>", "accel": "Alt+C"},
+    "move_up": {"event": "<Alt-Up>", "accel": "Alt+↑"},
+    "move_down": {"event": "<Alt-Down>", "accel": "Alt+↓"},
+    "delete_category": {"event": "<Alt-Shift-Delete>", "accel": "Alt+Shift+Del"},
+    "edit_trade": {"event": "<F2>", "accel": "F2"},
+    "delete_item": {"event": "<Delete>", "accel": "Delete"},
+    "copy": {"event": "<Control-c>", "accel": "Ctrl+C"},
+    "paste": {"event": "<Control-v>", "accel": "Ctrl+V"}
   },
   "list_column_weights": {
     "project_list": {
@@ -329,5 +445,5 @@
     }
   },
   "sidebar_width_ratio": 0.119531,
-  "category_list_width_ratio": 0.093861
+  "category_list_width_ratio": 0.109033
 }

@@ -1,6 +1,6 @@
 """为 PyInstaller build 输出目录生成 SHA256 file_manifest.json。
 
-用法: python scripts/generate_manifest.py <build_dir> [--version X.Y.Z]
+用法: python scripts/generate_manifest.py <build_dir> [--version X.Y.Z] [--platform win64]
 """
 import argparse
 import hashlib
@@ -17,8 +17,8 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def generate_manifest(build_dir: Path, version: str = "") -> dict:
-    manifest: dict = {"version": version, "files": {}}
+def generate_manifest(build_dir: Path, version: str = "", platform: str = "") -> dict:
+    manifest: dict = {"version": version, "platform": platform, "files": {}}
     for p in sorted(build_dir.rglob("*")):
         if not p.is_file():
             continue
@@ -32,7 +32,8 @@ def generate_manifest(build_dir: Path, version: str = "") -> dict:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("build_dir", type=Path, help="dist/ConstructionAccounting/ 路径")
-    parser.add_argument("--version", default="", help="版本号，例如 1.0.0")
+    parser.add_argument("--version", default="", help="版本号，例如 1.0.1")
+    parser.add_argument("--platform", default="", help="平台标识，例如 win64")
     args = parser.parse_args()
 
     build_dir: Path = args.build_dir
@@ -40,7 +41,7 @@ def main():
         print(f"错误：目录不存在 {build_dir}", file=sys.stderr)
         sys.exit(1)
 
-    manifest = generate_manifest(build_dir, args.version)
+    manifest = generate_manifest(build_dir, args.version, args.platform)
     dest = build_dir / "file_manifest.json"
     with open(dest, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)

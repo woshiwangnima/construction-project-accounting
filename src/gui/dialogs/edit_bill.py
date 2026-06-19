@@ -6,8 +6,8 @@ from datetime import datetime
 
 from ..theme import (
     APP_BG, ACCENT, DANGER, TEXT_PRIMARY, TEXT_SECONDARY,
-    FONT_BODY, FONT_BODY_BOLD, FONT_SMALL, FONT_HEADING, FONT_CALC_BTN,
 )
+from ..font_manager import font_manager
 from ..widgets import ScrollableFrame, _make_btn, _input_entry, DateTypeSelector
 from ...config_loader import load_app, save_app
 from ...calculator import (
@@ -112,11 +112,11 @@ class EditBillDialog:
         content_frame = sf.inner
 
         # ── 业务字段 ──
-        tk.Label(content_frame, text="\U0001f527 选择工作项目", font=FONT_BODY_BOLD,
+        tk.Label(content_frame, text="\U0001f527 选择工作项目", font=font_manager.get("body_bold"),
                  bg=APP_BG).pack(pady=(16, 4), padx=20, anchor="w")
         item_labels = [f"{ti['category']} - {ti['name']}" for ti in self._trade_items]
         self.trade_cb = ttk.Combobox(content_frame, values=item_labels,
-                                     font=FONT_BODY, state="readonly")
+                                     font=font_manager.get("body"), state="readonly")
         self.trade_cb.pack(fill=tk.X, padx=20)
 
         # 编辑模式：用 trade_item_id 找到对应 trade item，预选 combobox
@@ -131,7 +131,7 @@ class EditBillDialog:
                 self._orphan_on_open = True
                 self._orphan_label = tk.StringVar(value="⚠ 引用的工作已删除/重命名，请重新选择")
                 tk.Label(content_frame, textvariable=self._orphan_label,
-                         font=FONT_SMALL, bg=APP_BG, fg=DANGER).pack(
+                         font=font_manager.get("small"), bg=APP_BG, fg=DANGER).pack(
                     pady=(0, 4), padx=20, anchor="w")
         self.trade_cb.bind("<<ComboboxSelected>>", lambda e: self._handle_trade_selection(op_map))
 
@@ -140,14 +140,14 @@ class EditBillDialog:
         info_frame.pack(fill=tk.X, padx=20, pady=(8, 0))
         self.info_cat = tk.StringVar()
         self.info_price = tk.StringVar()
-        tk.Label(info_frame, textvariable=self.info_cat, font=FONT_SMALL,
+        tk.Label(info_frame, textvariable=self.info_cat, font=font_manager.get("small"),
                  bg=APP_BG, fg=TEXT_SECONDARY).pack(side=tk.LEFT)
-        tk.Label(info_frame, textvariable=self.info_price, font=FONT_SMALL,
+        tk.Label(info_frame, textvariable=self.info_price, font=font_manager.get("small"),
                  bg=APP_BG, fg=TEXT_SECONDARY).pack(side=tk.LEFT, padx=(20, 0))
 
         # 公式输入区
         tk.Label(content_frame, text="\U0001f522 输入计算公式",
-                 font=FONT_BODY_BOLD, bg=APP_BG).pack(pady=(12, 4), padx=20, anchor="w")
+                 font=font_manager.get("body_bold"), bg=APP_BG).pack(pady=(12, 4), padx=20, anchor="w")
 
         self.content_var = tk.StringVar(value=bill.get("content", "") if bill else "")
         entry = ttk.Entry(content_frame, textvariable=self.content_var,
@@ -210,7 +210,7 @@ class EditBillDialog:
                     cmd = _backspace
                 else:
                     cmd = (lambda t=text: _ins(t))
-                b = tk.Button(calc_frame, text=text, font=FONT_CALC_BTN, bg=color, fg=TEXT_PRIMARY,
+                b = tk.Button(calc_frame, text=text, font=font_manager.get("calc_btn"), bg=color, fg=TEXT_PRIMARY,
                               bd=2, relief="raised", cursor="hand2",
                               command=cmd)
                 b.grid(row=r, column=c, padx=3, pady=2, sticky="nsew")
@@ -226,34 +226,34 @@ class EditBillDialog:
         disp_header = tk.Frame(content_frame, bg=APP_BG)
         disp_header.pack(fill=tk.X, padx=20, pady=(12, 2))
         speak_icon = "\U0001f50a" if voice.enabled else "\U0001f507"
-        tk.Label(disp_header, text="标准计算公式展示", font=FONT_SMALL,
+        tk.Label(disp_header, text="标准计算公式展示", font=font_manager.get("small"),
                  bg=APP_BG, fg=TEXT_SECONDARY).pack(side=tk.LEFT)
         btn_speak = tk.Button(
-            disp_header, text=speak_icon, font=FONT_BODY,
+            disp_header, text=speak_icon, font=font_manager.get("body"),
             bg=APP_BG, fg=ACCENT, relief="flat", cursor="hand2",
             activebackground=APP_BG,
             command=lambda: voice.speak_formula(self.display_var.get()),
         )
         btn_speak.pack(side=tk.LEFT, padx=(4, 0))
         self.formula_result_var = tk.StringVar()
-        tk.Label(disp_header, textvariable=self.formula_result_var, font=FONT_SMALL,
+        tk.Label(disp_header, textvariable=self.formula_result_var, font=font_manager.get("small"),
                  bg=APP_BG, fg=DANGER).pack(side=tk.RIGHT)
         self.display_var = tk.StringVar()
-        tk.Label(content_frame, textvariable=self.display_var, font=FONT_BODY,
+        tk.Label(content_frame, textvariable=self.display_var, font=font_manager.get("body"),
                  bg=APP_BG, fg=TEXT_PRIMARY, wraplength=520, justify="left",
                  anchor="w").pack(pady=(0, 4), padx=20, fill=tk.X)
 
         # 金额（红色：标签 + 数字同行）
         amount_row = tk.Frame(content_frame, bg=APP_BG)
         amount_row.pack(pady=(8, 0), padx=20, anchor="w")
-        tk.Label(amount_row, text="金额", font=FONT_BODY_BOLD,
+        tk.Label(amount_row, text="金额", font=font_manager.get("body_bold"),
                  bg=APP_BG, fg=DANGER).pack(side=tk.LEFT)
         self.total_var = tk.StringVar()
-        tk.Label(amount_row, textvariable=self.total_var, font=FONT_HEADING,
+        tk.Label(amount_row, textvariable=self.total_var, font=font_manager.get("heading"),
                  bg=APP_BG, fg=DANGER).pack(side=tk.LEFT, padx=(12, 0))
 
         # 备注
-        tk.Label(content_frame, text="\U0001f4ac 备注（可选）", font=FONT_BODY_BOLD,
+        tk.Label(content_frame, text="\U0001f4ac 备注（可选）", font=font_manager.get("body_bold"),
                  bg=APP_BG).pack(pady=(8, 4), padx=20, anchor="w")
         self.note_var = tk.StringVar(value=bill.get("note", "") if bill else "")
         note_e, _ = _input_entry(content_frame)
@@ -261,7 +261,7 @@ class EditBillDialog:
         note_e.pack(fill=tk.X, padx=20)
 
         # 日期
-        tk.Label(content_frame, text="\U0001f4c5 日期", font=FONT_BODY_BOLD,
+        tk.Label(content_frame, text="\U0001f4c5 日期", font=font_manager.get("body_bold"),
                  bg=APP_BG).pack(pady=(8, 4), padx=20, anchor="w")
         date_frame = tk.Frame(content_frame, bg=APP_BG)
         date_frame.pack(fill=tk.X, padx=20)

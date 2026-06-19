@@ -11,17 +11,21 @@ import tkinter as tk
 
 from ...theme import (
     APP_BG, ACCENT, SIDEBAR_BG, SIDEBAR_FG, TEXT_PRIMARY,
-    FONT_HEADING, FONT_BODY,
 )
+from ...font_manager import font_manager
 from ....logger import logger
 from .base import BaseSettingsPanel, get_sections
 
 # Trigger panel registration via the @register_section decorator.
 from . import basic_panel  # noqa: F401
+from . import font_panel  # noqa: F401
+from . import shortcut_panel  # noqa: F401
 from . import voice_panel  # noqa: F401
 from . import export_panel  # noqa: F401
 from . import about_panel  # noqa: F401
 from .basic_panel import BasicSettingsPanel  # noqa: F401
+from .font_panel import FontSettingsPanel  # noqa: F401
+from .shortcut_panel import ShortcutSettingsPanel  # noqa: F401
 from .voice_panel import VoiceSettingsPanel  # noqa: F401
 from .export_panel import ExportSettingsPanel  # noqa: F401
 from .about_panel import AboutSettingsPanel  # noqa: F401
@@ -132,7 +136,7 @@ class SettingsDialog:
         title_bar = tk.Frame(dialog, bg=APP_BG, height=48)
         title_bar.pack(fill=tk.X)
         title_bar.pack_propagate(False)
-        tk.Label(title_bar, text="⚙ 设置", font=FONT_HEADING,
+        tk.Label(title_bar, text="⚙ 设置", font=font_manager.get("heading"),
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(side=tk.LEFT, padx=20)
 
     def _build_main(self, dialog):
@@ -151,12 +155,15 @@ class SettingsDialog:
         self._sections = get_sections()
         self._current_panel: BaseSettingsPanel | None = None
         self._nav_buttons: list[tk.Button] = []
+        self._nav_selected_font = font_manager.get("entry_item").copy()
+        self._nav_selected_font.configure(slant="italic")
+        self._nav_normal_font = font_manager.get("entry_item")
 
         for sec in self._sections:
             btn = tk.Button(
                 self._nav,
                 text=f"  {sec.section_icon}  {sec.section_title}",
-                font=FONT_BODY, bg=SIDEBAR_BG, fg=SIDEBAR_FG, bd=0,
+                font=self._nav_normal_font, bg=SIDEBAR_BG, fg=SIDEBAR_FG, bd=0,
                 relief="flat", anchor="w", cursor="hand2",
                 activebackground="#e2e8f0", activeforeground=TEXT_PRIMARY,
                 padx=12, pady=10,
@@ -172,9 +179,9 @@ class SettingsDialog:
 
         for btn, sec in zip(self._nav_buttons, self._sections):
             if sec is section_cls:
-                btn.config(bg=ACCENT, fg="white")
+                btn.config(bg=ACCENT, fg="white", font=self._nav_selected_font)
             else:
-                btn.config(bg=SIDEBAR_BG, fg=SIDEBAR_FG)
+                btn.config(bg=SIDEBAR_BG, fg=SIDEBAR_FG, font=self._nav_normal_font)
 
         self._current_panel = section_cls(self._content)
         self._current_panel.pack(fill=tk.BOTH, expand=True, padx=20, pady=16)

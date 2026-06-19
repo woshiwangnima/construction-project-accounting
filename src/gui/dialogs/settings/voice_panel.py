@@ -7,7 +7,8 @@
 import tkinter as tk
 
 from .base import BaseSettingsPanel, register_section
-from ...theme import APP_BG, TEXT_PRIMARY, TEXT_SECONDARY, FONT_BODY, FONT_SMALL, FONT_BODY_BOLD
+from ...theme import APP_BG, TEXT_PRIMARY, TEXT_SECONDARY
+from ...font_manager import font_manager
 from ...widgets import ScrollableFrame, _make_btn
 from ....config_loader import load_app, save_app
 from ....voice import get_voice
@@ -28,7 +29,7 @@ class VoiceSettingsPanel(BaseSettingsPanel):
         sf.pack(fill=tk.BOTH, expand=True)
         inner = sf.inner
 
-        tk.Label(inner, text=f"{self.section_icon} 语音播报", font=FONT_BODY_BOLD,
+        tk.Label(inner, text=f"{self.section_icon} 语音播报", font=font_manager.get("body_bold"),
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w", pady=(0, 12))
         # 启用开关
         self._enabled_var = tk.BooleanVar()
@@ -36,7 +37,7 @@ class VoiceSettingsPanel(BaseSettingsPanel):
             inner,
             text="启用语音播报（按键音 + 公式朗读）",
             variable=self._enabled_var,
-            font=FONT_BODY,
+            font=font_manager.get("body"),
             bg=APP_BG,
             activebackground=APP_BG,
             anchor="w",
@@ -69,16 +70,16 @@ class VoiceSettingsPanel(BaseSettingsPanel):
         try_frame.pack(fill=tk.X, pady=(20, 0))
         _make_btn(try_frame, "▶ 试播示例", self._on_preview, "secondary").pack(side=tk.LEFT)
         self._preview_text = tk.StringVar()
-        tk.Label(inner, textvariable=self._preview_text, font=FONT_SMALL,
+        tk.Label(inner, textvariable=self._preview_text, font=font_manager.get("small"),
                  bg=APP_BG, fg=TEXT_SECONDARY, justify="left",
                  wraplength=520).pack(anchor="w", pady=(8, 0))
 
     def _build_section(self, parent, title, hint, wrap=False):
         header = tk.Frame(parent, bg=APP_BG)
         header.pack(fill=tk.X, pady=(12, 2), anchor="w")
-        tk.Label(header, text=title, font=FONT_BODY_BOLD,
+        tk.Label(header, text=title, font=font_manager.get("body_bold"),
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w")
-        lbl = tk.Label(header, text=hint, font=FONT_SMALL,
+        lbl = tk.Label(header, text=hint, font=font_manager.get("small"),
                        bg=APP_BG, fg=TEXT_SECONDARY, justify="left")
         if wrap:
             lbl.config(wraplength=380)
@@ -94,7 +95,7 @@ class VoiceSettingsPanel(BaseSettingsPanel):
             showvalue=False,
         )
         scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        value_lbl = tk.Label(row, text=str(frm) + suffix, font=FONT_BODY,
+        value_lbl = tk.Label(row, text=str(frm) + suffix, font=font_manager.get("body"),
                              bg=APP_BG, fg=TEXT_PRIMARY, width=10, anchor="w")
         value_lbl.pack(side=tk.LEFT, padx=(8, 0))
         return scale, value_lbl

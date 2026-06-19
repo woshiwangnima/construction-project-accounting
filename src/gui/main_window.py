@@ -3,12 +3,13 @@ import tkinter as tk
 from tkinter import ttk
 
 from .theme import (
-    APP_BG, FONT_BODY, FONT_TREE, FONT_TREE_HEADER, SIDEBAR_BG,
+    APP_BG, SIDEBAR_BG,
 )
+from .font_manager import font_manager
 from .sidebar import Sidebar
 from .content import ContentArea
 from .editability import EditabilityPolicy
-from .widgets import DraggableSplitter
+from .widgets import DraggableSplitter, TooltipCarousel
 from ..config_loader import load_app, save_app
 from ..logger import logger
 from ..voice import get_voice
@@ -23,10 +24,13 @@ class MainInterface:
         self.root.configure(bg=APP_BG)
         self.root.minsize(1000, 650)
 
+        # Initialize font manager BEFORE any widget construction
+        font_manager.init(root)
+
         self._apply_window_geometry()
         self._apply_styles()
 
-        # ── 主布局：sidebar(fixed) | splitter | content(expand) ──
+        # ── 主布局容器 ──
         self._main_frame = tk.Frame(root, bg=APP_BG)
         self._main_frame.pack(fill=tk.BOTH, expand=True)
 
@@ -58,12 +62,28 @@ class MainInterface:
         )
         self._splitter.pack(side=tk.LEFT, fill=tk.Y)
 
+        # ── 右侧区域：content + tooltip 上下排布 ──
+        self._right_frame = tk.Frame(self._main_frame, bg=APP_BG)
+        self._right_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # 提示条（先 pack 在 right_frame 底部）
+        _tc_cfg = load_app().get("tooltips", {})
+        self._tooltip = TooltipCarousel(
+            self._right_frame,
+            messages=_tc_cfg.get("messages", ["双击行可编辑；拖表头竖条可调列宽"]),
+            prefix=_tc_cfg.get("prefix", "◆ "),
+            dwell_per_char_ms=_tc_cfg.get("dwell_per_char_ms", 80),
+            font_size=_tc_cfg.get("font_size", 13),
+            anchor="center",
+        )
+        self._tooltip.pack(side=tk.BOTTOM, fill=tk.X)
+
         self.content = ContentArea(
-            self._main_frame,
+            self._right_frame,
             on_name_change=self._on_project_name_change,
             on_status_change=self._on_project_status_change,
         )
-        self.content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.content.pack(fill=tk.BOTH, expand=True)
         logger.debug("MainInterface: ContentArea created, packed expand=True")
 
         self.editability = EditabilityPolicy(
@@ -185,28 +205,17 @@ class MainInterface:
         self.root.destroy()
 
     def _bind_shortcuts(self):
-        self.root.bind("<Control-n>", lambda e: self.sidebar._new_project())
-        self.root.bind("<Control-N>", lambda e: self.sidebar._new_project())
-        self.root.bind("<Delete>", lambda e: self._on_delete_key())
-        self.root.bind("<F2>", lambda e: self._on_edit_key())
-
-    def _on_delete_key(self):
-        if self.content.tab_var.get() == "bills" and hasattr(self.content, '_render_bills'):
-            pass
-        elif self.content.tab_var.get() == "workers":
-            self.content._delete_selected_item()
-
-    def _on_edit_key(self):
-        if self.content.tab_var.get() == "workers":
-            self.content._edit_selected_item()
+        from .shortcut_manager import shortcut_manager
+        shortcut_manager.init(self)
+        shortcut_manager.bind_all_shortcuts(self.root)
 
     def _apply_styles(self):
         s = ttk.Style()
         s.theme_use("clam")
-        s.configure("TCombobox", font=FONT_BODY)
-        s.configure("TEntry", font=FONT_BODY)
-        s.configure("Treeview", font=FONT_TREE, rowheight=44)
-        s.configure("Treeview.Heading", font=FONT_TREE_HEADER)
+        s.configure("TCombobox", font=font_manager.get("body"))
+        s.configure("TEntry", font=font_manager.get("body"))
+        s.configure("Treeview", font=font_manager.get("tree"), rowheight=44)
+        s.configure("Treeview.Heading", font=font_manager.get("tree_header"))
 
     def _on_project_select(self, uuid):
         self.content.load_project(uuid)

@@ -1,4 +1,7 @@
-"""Create release zip for PyInstaller build output."""
+"""Create release zip for PyInstaller build output.
+
+Usage: python zip_release.py <build_dir> [version] [platform]
+"""
 import os
 import sys
 import zipfile
@@ -7,15 +10,16 @@ from pathlib import Path
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python zip_release.py <build_dir> [version]")
+        print("Usage: python zip_release.py <build_dir> [version] [platform]")
         sys.exit(1)
     build_dir = Path(sys.argv[1])
     version = sys.argv[2] if len(sys.argv) > 2 else "1.0.1"
+    platform = sys.argv[3] if len(sys.argv) > 3 else "win64"
     if not build_dir.is_dir():
         print(f"Error: directory not found {build_dir}", file=sys.stderr)
         sys.exit(1)
 
-    zip_name = f"ConstructionAccounting-{version}.zip"
+    zip_name = f"ConstructionAccounting-{version}-{platform}.zip"
     zip_path = build_dir.parent / zip_name
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:

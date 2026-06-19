@@ -6,8 +6,8 @@ from datetime import datetime
 
 from ..theme import (
     APP_BG, ACCENT, ACCENT_HOVER, DANGER,
-    FONT_BODY, FONT_BUTTON, FONT_SMALL,
 )
+from ..font_manager import font_manager
 from .draggable_splitter import DraggableSplitter
 from .scrollable_frame import ScrollableFrame
 from .tooltip_carousel import TooltipCarousel
@@ -27,14 +27,19 @@ def _make_btn(parent, text, cmd, style="primary", width=None):
         "danger": (DANGER, "white"),
         "secondary": ("#4a5568", "white"),
         "ghost": ("#edf2f7", "#2d3748"),
+        "icon_btn": ("#f0f4f8", "#1a202c"),
     }
     bg, fg = colors.get(style, colors["primary"])
-    btn = tk.Button(parent, text=text, command=cmd, font=FONT_BUTTON,
-                    bg=bg, fg=fg, activebackground=ACCENT_HOVER, activeforeground="white",
+    if style == "icon_btn":
+        act_bg, act_fg = "#cbd5e0", "#1a202c"
+    else:
+        act_bg, act_fg = ACCENT_HOVER, "white"
+    btn = tk.Button(parent, text=text, command=cmd, font=font_manager.get("button"),
+                    bg=bg, fg=fg, activebackground=act_bg, activeforeground=act_fg,
                     relief="raised", bd=2, padx=20, pady=10, cursor="hand2")
     if width:
         btn.config(width=width)
-    hover_bg = ACCENT_HOVER if style == "primary" else ("#e2e8f0" if style == "ghost" else bg)
+    hover_bg = ACCENT_HOVER if style == "primary" else ("#e2e8f0" if style in ("ghost", "icon_btn") else bg)
     btn.bind("<Enter>", lambda e: btn.config(bg=hover_bg))
     btn.bind("<Leave>", lambda e: btn.config(bg=bg))
     return btn
@@ -61,7 +66,7 @@ def _set_btn_state(btn, disabled: bool) -> None:
 
 def _input_entry(parent, value="", placeholder="", width=30):
     var = tk.StringVar(value=value)
-    entry = ttk.Entry(parent, textvariable=var, font=FONT_BODY, width=width)
+    entry = ttk.Entry(parent, textvariable=var, font=font_manager.get("body"), width=width)
     if placeholder and not value:
         entry.insert(0, placeholder)
         entry.config(foreground="gray")
@@ -91,24 +96,24 @@ class DatePicker(ttk.Frame):
         years = [str(y) for y in range(now.year - 20, now.year + 21)]
         # 与「工作类型」下拉保持一致：闭合态用 FONT_BODY
         self.year_cb = ttk.Combobox(self, values=years, width=6,
-                                    font=FONT_BODY, state="readonly")
+                                    font=font_manager.get("body"), state="readonly")
         self.year_cb.set(str(now.year))
         self.year_cb.pack(side=tk.LEFT)
-        ttk.Label(self, text="年", font=FONT_BODY).pack(side=tk.LEFT, padx=2)
+        ttk.Label(self, text="年", font=font_manager.get("body")).pack(side=tk.LEFT, padx=2)
 
         months = ["--"] + [f"{m:02d}" for m in range(1, 13)]
         self.month_cb = ttk.Combobox(self, values=months, width=3,
-                                     font=FONT_BODY, state="readonly")
+                                     font=font_manager.get("body"), state="readonly")
         self.month_cb.set("--")
         self.month_cb.pack(side=tk.LEFT)
-        ttk.Label(self, text="月", font=FONT_BODY).pack(side=tk.LEFT, padx=2)
+        ttk.Label(self, text="月", font=font_manager.get("body")).pack(side=tk.LEFT, padx=2)
 
         days = ["--"] + [f"{d:02d}" for d in range(1, 32)]
         self.day_cb = ttk.Combobox(self, values=days, width=3,
-                                   font=FONT_BODY, state="readonly")
+                                   font=font_manager.get("body"), state="readonly")
         self.day_cb.set("--")
         self.day_cb.pack(side=tk.LEFT)
-        ttk.Label(self, text="日", font=FONT_BODY).pack(side=tk.LEFT, padx=2)
+        ttk.Label(self, text="日", font=font_manager.get("body")).pack(side=tk.LEFT, padx=2)
 
     def get(self):
         return f"{self.year_cb.get()}-{self.month_cb.get()}-{self.day_cb.get()}"
@@ -138,7 +143,7 @@ class DateTypeSelector(ttk.Frame):
 
         # 「时间类型」下拉：闭合态用 FONT_BODY 与「工作类型」保持一致
         self.date_type_cb = ttk.Combobox(self, values=self.DATE_TYPES,
-                                         font=FONT_BODY, state="readonly")
+                                         font=font_manager.get("body"), state="readonly")
         dt = default_type if default_type in self.DATE_TYPES else "无时间"
         self.date_type_cb.set(dt)
         self.date_type_cb.pack(fill=tk.X)
@@ -228,7 +233,7 @@ class RowActionButtons(tk.Frame):
             b = tk.Button(
                 self,
                 text=label,
-                font=font or FONT_SMALL,
+                font=font or font_manager.get("small"),
                 width=button_width,
                 command=cmd,
                 bg="white",

@@ -126,6 +126,7 @@ def create_project(
     project_date_type: str = "无时间",
     project_date_start: str = "",
     project_date_end: str = "",
+    description: str = "",
 ) -> Project:
     if created_at is None:
         created_at = datetime.now().strftime("%Y-%m-%d")
@@ -173,7 +174,7 @@ def create_project(
         status=status_value,
         created_at=created_at,
         last_modified=now_str,
-        description="",
+        description=description,
         project_date_type=project_date_type,
         project_date_start=project_date_start,
         project_date_end=project_date_end,

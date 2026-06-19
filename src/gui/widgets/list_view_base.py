@@ -31,7 +31,6 @@ from ..theme import (
     APP_BG, BORDER, TEXT_PRIMARY,
 )
 from . import RowActionButtons
-from ...config_loader import load_app
 from .scroll_anchor import (
     RowGeometry,
     ScrollAnchor,
@@ -77,6 +76,7 @@ class ListViewBase(tk.Frame):
         editable: bool = True,
         wrap_cols: tuple[str, ...] = (),
         header_click_map: dict[str, Callable[[str], None]] | None = None,
+        hidden_cols: list[str] | None = None,
         **kwargs,
     ):
         bg = kwargs.pop("bg", APP_BG)
@@ -93,6 +93,7 @@ class ListViewBase(tk.Frame):
         # wrap_cols：会随列宽调整 wraplength 的数据列名
         self._wrap_cols = tuple(wrap_cols)
         self._header_click_map = header_click_map or {}
+        self._hidden_cols = set(hidden_cols or [])
         # ── 权重（数据列；操作列固定像素宽） ──
         if default_weights:
             self._weights = {c: float(default_weights.get(c, 0)) for c in self._columns}
@@ -162,8 +163,9 @@ class ListViewBase(tk.Frame):
 
     @staticmethod
     def _action_font():
-        bfs = load_app().get("button_font_size", 16)
-        return ("Microsoft YaHei UI", max(int(bfs * 0.8), 10))
+        from ..font_manager import font_manager
+        dfs = font_manager.get_default_font_size()
+        return ("Microsoft YaHei UI", max(int(dfs * 0.8), 10))
 
     def _create_action_cell(self, row_frame, idx, col_idx) -> tk.Widget:
         """默认创建操作列：拖拽手柄 + 删除。"""
@@ -340,7 +342,17 @@ class ListViewBase(tk.Frame):
         pixels = compute_column_pixels(specs, self._weights, total_w)
         self._pixels = pixels
 
-        self._header.refresh_widths(pixels)
+        header_pixels = dict(pixels)
+        for col in self._hidden_cols:
+            header_pixels[col] = 0
+        self._header.refresh_widths(header_pixels)
+        for col in self._columns:
+            cell = self._header._cells.get(col)
+            if cell is not None:
+                if col in self._hidden_cols:
+                    cell.grid_remove()
+                else:
+                    cell.grid()
 
         for widgets in self._row_widgets:
             # 找 row_frame：取任意 cell 的 master
@@ -349,10 +361,11 @@ class ListViewBase(tk.Frame):
                 continue
             row_frame = first_cell.master
             for idx, col in enumerate(self._columns):
-                row_frame.grid_columnconfigure(idx, minsize=pixels[col])
+                px = 0 if col in self._hidden_cols else pixels[col]
+                row_frame.grid_columnconfigure(idx, minsize=px)
             for wrap_col in self._wrap_cols:
                 w = widgets.get(wrap_col)
-                if w is not None:
+                if w is not None and wrap_col not in self._hidden_cols:
                     try:
                         w.config(wraplength=max(pixels[wrap_col] - 16, 8))
                     except tk.TclError:
@@ -407,6 +420,10 @@ class ListViewBase(tk.Frame):
     def get_weights(self) -> dict:
         """返回当前权重（与 set_weights 写入的一致；可能未归一化）。"""
         return dict(self._weights)
+
+    def set_hidden_cols(self, hidden_cols: list[str]) -> None:
+        self._hidden_cols = set(hidden_cols)
+        self._render_rows()
 
     # ── 列宽拖拽 ──
 

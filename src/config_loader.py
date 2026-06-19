@@ -12,7 +12,7 @@ _DEFAULT_CONFIGS = {
     "app_config.json": {
         "app_version": APP_VERSION,
         "schema_version": CURRENT_SCHEMA_VERSION,
-        "button_font_size": 16,
+        "default_font_size": 14,
         "symbol_mapping": DEFAULT_SYMBOL_MAPPING,
         "window_sizes": {
             "settings": [900, 700],
@@ -37,6 +37,7 @@ _DEFAULT_CONFIGS = {
             "export_bg_color": "#ffffff",
             "export_strip_category": True,
             "export_show_project_date": False,
+            "export_show_project_created_at": False,
             "export_show_record_time": False,
             "export_show_export_time": False,
             "export_append_note_to_item_title": True,
@@ -48,16 +49,19 @@ _DEFAULT_CONFIGS = {
             "preview_text": "砌墙，公式，12.5 乘以 3 加 8 除以 2 减去括号 1.5 加 0.5 括号，等于 41.5",
         },
         "backup_count": 10,
-        "default_bill_column_widths": {
-            "#": 0.0526315789,
-            "工作内容": 0.1394736842,
-            "公式": 0.1263157895,
-            "单价": 0.1263157895,
-            "金额": 0.1263157895,
-            "备注": 0.1684210526,
-            "日期": 0.1263157895,
-            "操作": 0.0842105263,
-        },
+        "default_bill_column_widths_data": [
+            {"name": "#",       "weight": 0.045, "show_in_simple": True},
+            {"name": "审核",     "weight": 0.045, "show_in_simple": True},
+            {"name": "工作内容",  "weight": 0.13,  "show_in_simple": True},
+            {"name": "公式",     "weight": 0.10,  "show_in_simple": True},
+            {"name": "公式结果",  "weight": 0.09,  "show_in_simple": False},
+            {"name": "单价",     "weight": 0.09,  "show_in_simple": True},
+            {"name": "金额",     "weight": 0.09,  "show_in_simple": True},
+            {"name": "备注",     "weight": 0.14,  "show_in_simple": True},
+            {"name": "日期",     "weight": 0.07,  "show_in_simple": False},
+            {"name": "修改时间",  "weight": 0.06,  "show_in_simple": False},
+            {"name": "操作",     "weight": 0.06,  "show_in_simple": True},
+        ],
         # 工作类型表的默认列宽（被「工作类型」界面读取，与项目文件 worker_column_widths 互不冲突）
         "default_worker_column_widths": {
             "名称": 0.3571428571,    # 5/14
@@ -90,6 +94,7 @@ _DEFAULT_CONFIGS = {
                 "notes": ["新增统一符号映射设置", "新增关于页面", "优化列宽与拖拽体验"],
             }
         ],
+        "shortcut_settings": {},
     },
     "user_config.json": {
         "app_version": APP_VERSION,

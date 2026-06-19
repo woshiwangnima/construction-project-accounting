@@ -8,7 +8,8 @@ import tkinter as tk
 from tkinter import ttk, colorchooser
 
 from .base import BaseSettingsPanel, register_section
-from ...theme import APP_BG, TEXT_PRIMARY, FONT_BODY, FONT_SMALL, FONT_BODY_BOLD
+from ...theme import APP_BG, TEXT_PRIMARY
+from ...font_manager import font_manager
 from ...widgets import ScrollableFrame, _make_btn
 from ....config_loader import load_user, save_user, load_app
 from ....export_config import ExportDefaults, PriceListSettings, TextColors
@@ -26,13 +27,13 @@ class ExportSettingsPanel(BaseSettingsPanel):
         sf.pack(fill=tk.BOTH, expand=True)
         inner = sf.inner
 
-        tk.Label(inner, text=f"{self.section_icon} 导出图片", font=FONT_BODY_BOLD,
+        tk.Label(inner, text=f"{self.section_icon} 导出图片", font=font_manager.get("body_bold"),
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w", pady=(0, 12))
 
         # ── 价目表 ──────────────────────────────────────────────
         pl_frame = tk.Frame(inner, bg=APP_BG)
         pl_frame.pack(fill=tk.X, pady=(0, 8))
-        tk.Label(pl_frame, text="📋 价目表导出设置", font=FONT_BODY_BOLD,
+        tk.Label(pl_frame, text="📋 价目表导出设置", font=font_manager.get("body_bold"),
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w")
 
         self._show_trade = tk.BooleanVar()
@@ -51,7 +52,7 @@ class ExportSettingsPanel(BaseSettingsPanel):
         # ── 文字颜色 ────────────────────────────────────────────
         tc_frame = tk.Frame(inner, bg=APP_BG)
         tc_frame.pack(fill=tk.X, pady=(8, 0))
-        tk.Label(tc_frame, text="🎨 文字颜色", font=FONT_BODY_BOLD,
+        tk.Label(tc_frame, text="🎨 文字颜色", font=font_manager.get("body_bold"),
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w")
 
         self._normal_color = tk.StringVar(value=TextColors().normal)
@@ -63,22 +64,31 @@ class ExportSettingsPanel(BaseSettingsPanel):
         self._color_row(tc_frame, "公式", self._formula_color)
         self._color_row(tc_frame, "金额", self._amount_color)
 
+        # ── 日期显示 ────────────────────────────────────────────
+        date_frame = tk.Frame(inner, bg=APP_BG)
+        date_frame.pack(fill=tk.X, pady=(8, 0))
+        tk.Label(date_frame, text="📅 日期显示", font=font_manager.get("body_bold"),
+                 bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w")
+
+        self._show_date = tk.BooleanVar()
+        self._show_project_created_at = tk.BooleanVar()
+        self._show_record_time = tk.BooleanVar()
+        self._show_export_time = tk.BooleanVar()
+        self._checkbox(date_frame, "显示项目日期", self._show_date)
+        self._checkbox(date_frame, "显示项目存档创建日期", self._show_project_created_at)
+        self._checkbox(date_frame, "显示每条账单记录的录入时间", self._show_record_time)
+        self._checkbox(date_frame, "显示导出图片的时间", self._show_export_time)
+
         # ── 其他设置 ────────────────────────────────────────────
         other_frame = tk.Frame(inner, bg=APP_BG)
         other_frame.pack(fill=tk.X, pady=(8, 0))
-        tk.Label(other_frame, text="⚙ 其他设置", font=FONT_BODY_BOLD,
+        tk.Label(other_frame, text="⚙ 其他设置", font=font_manager.get("body_bold"),
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w")
 
         self._strip_cat = tk.BooleanVar()
-        self._show_date = tk.BooleanVar()
-        self._show_record_time = tk.BooleanVar()
-        self._show_export_time = tk.BooleanVar()
         self._append_note_to_title = tk.BooleanVar()
         self._bg_color = tk.StringVar(value=ExportDefaults().bg_color)
         self._checkbox(other_frame, "精简分类信息", self._strip_cat)
-        self._checkbox(other_frame, "显示项目日期", self._show_date)
-        self._checkbox(other_frame, "显示每条记录的录入时间", self._show_record_time)
-        self._checkbox(other_frame, "显示导出图片时间", self._show_export_time)
         self._checkbox(other_frame, "备注追加到条目标题", self._append_note_to_title)
         self._color_row(other_frame, "背景颜色", self._bg_color)
 
@@ -94,8 +104,9 @@ class ExportSettingsPanel(BaseSettingsPanel):
             self._price_name_width, self._price_value_width,
             self._normal_color, self._muted_color,
             self._formula_color, self._amount_color,
-            self._strip_cat, self._show_date,
+            self._show_date, self._show_project_created_at,
             self._show_record_time, self._show_export_time,
+            self._strip_cat,
             self._append_note_to_title,
             self._bg_color,
         ]
@@ -108,7 +119,9 @@ class ExportSettingsPanel(BaseSettingsPanel):
 
     def _load(self):
         cfg = load_user()
-        ec = ExportDefaults.from_dict(cfg.get("export_defaults", {}))
+        app_export_cfg = load_app().get("export_defaults", {})
+        merged_export = {**app_export_cfg, **cfg.get("export_defaults", {})}
+        ec = ExportDefaults.from_dict(merged_export)
         self._show_trade.set(ec.price_list_settings.visible)
         self._show_no_unit.set(ec.price_list_settings.show_no_unit_items)
         self._show_empty_cats.set(ec.price_list_settings.show_empty_categories)
@@ -119,10 +132,11 @@ class ExportSettingsPanel(BaseSettingsPanel):
         self._muted_color.set(ec.text_colors.muted)
         self._formula_color.set(ec.text_colors.formula)
         self._amount_color.set(ec.text_colors.amount)
-        self._strip_cat.set(ec.strip_category)
         self._show_date.set(ec.show_project_date)
+        self._show_project_created_at.set(ec.show_project_created_at)
         self._show_record_time.set(ec.show_record_time)
         self._show_export_time.set(ec.show_export_time)
+        self._strip_cat.set(ec.strip_category)
         self._append_note_to_title.set(ec.append_note_to_item_title)
         self._bg_color.set(ec.bg_color)
         self._sync_price_list_deps()
@@ -146,6 +160,7 @@ class ExportSettingsPanel(BaseSettingsPanel):
             bg_color=self._bg_color.get(),
             strip_category=self._strip_cat.get(),
             show_project_date=self._show_date.get(),
+            show_project_created_at=self._show_project_created_at.get(),
             show_record_time=self._show_record_time.get(),
             show_export_time=self._show_export_time.get(),
             append_note_to_item_title=self._append_note_to_title.get(),
@@ -169,10 +184,11 @@ class ExportSettingsPanel(BaseSettingsPanel):
         self._muted_color.set(d.text_colors.muted)
         self._formula_color.set(d.text_colors.formula)
         self._amount_color.set(d.text_colors.amount)
-        self._strip_cat.set(d.strip_category)
         self._show_date.set(d.show_project_date)
+        self._show_project_created_at.set(d.show_project_created_at)
         self._show_record_time.set(d.show_record_time)
         self._show_export_time.set(d.show_export_time)
+        self._strip_cat.set(d.strip_category)
         self._append_note_to_title.set(d.append_note_to_item_title)
         self._bg_color.set(d.bg_color)
         self.flush_pending()
@@ -198,7 +214,7 @@ class ExportSettingsPanel(BaseSettingsPanel):
     # ── widgets ──────────────────────────────────────────────────
 
     def _checkbox(self, parent, text, var):
-        cb = tk.Checkbutton(parent, text=text, variable=var, font=FONT_BODY,
+        cb = tk.Checkbutton(parent, text=text, variable=var, font=font_manager.get("body"),
                             bg=APP_BG, activebackground=APP_BG, anchor="w")
         cb.pack(fill=tk.X, pady=2)
         return cb
@@ -206,7 +222,7 @@ class ExportSettingsPanel(BaseSettingsPanel):
     def _number_row(self, parent, label, var, from_, to):
         row_f = tk.Frame(parent, bg=APP_BG)
         row_f.pack(fill=tk.X, pady=3)
-        tk.Label(row_f, text=label, font=FONT_BODY, bg=APP_BG, fg=TEXT_PRIMARY,
+        tk.Label(row_f, text=label, font=font_manager.get("body"), bg=APP_BG, fg=TEXT_PRIMARY,
                  width=10, anchor="w").pack(side=tk.LEFT)
         spin = ttk.Spinbox(row_f, from_=from_, to=to, textvariable=var, width=6)
         spin.pack(side=tk.LEFT)
@@ -215,13 +231,13 @@ class ExportSettingsPanel(BaseSettingsPanel):
     def _color_row(self, parent, label, var):
         row_f = tk.Frame(parent, bg=APP_BG)
         row_f.pack(fill=tk.X, pady=3)
-        tk.Label(row_f, text=label, font=FONT_BODY, bg=APP_BG, fg=TEXT_PRIMARY,
+        tk.Label(row_f, text=label, font=font_manager.get("body"), bg=APP_BG, fg=TEXT_PRIMARY,
                  width=10, anchor="w").pack(side=tk.LEFT)
 
-        entry = ttk.Entry(row_f, textvariable=var, font=FONT_SMALL, width=12)
+        entry = ttk.Entry(row_f, textvariable=var, font=font_manager.get("small"), width=12)
         entry.pack(side=tk.LEFT, padx=(0, 6))
 
-        swatch = tk.Label(row_f, text="  ●  ", font=FONT_BODY, bg=var.get(),
+        swatch = tk.Label(row_f, text="  ●  ", font=font_manager.get("body"), bg=var.get(),
                           fg="white" if self._is_dark(var.get()) else "black",
                           cursor="hand2", relief="groove", bd=1)
         swatch.pack(side=tk.LEFT, padx=(0, 6))

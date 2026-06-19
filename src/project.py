@@ -24,9 +24,10 @@ class Project:
     category_order: list[Category] = field(default_factory=list)
     trade_items: list[TradeItem] = field(default_factory=list)
     bills: list[Bill] = field(default_factory=list)
-    bill_column_widths: dict = field(default_factory=dict)
+    bill_column_widths: list = field(default_factory=list)
     worker_column_widths: dict = field(default_factory=dict)
     view_state: dict = field(default_factory=dict)
+    bill_display_mode: str = "complex"
     app_version: str = APP_VERSION
     schema_version: int = CURRENT_SCHEMA_VERSION
 
@@ -62,9 +63,10 @@ class Project:
             category_order=categories,
             trade_items=trade_items,
             bills=[Bill.from_dict(b) for b in d.get("bills", [])],
-            bill_column_widths=dict(d.get("bill_column_widths", {})),
+            bill_column_widths=list(d.get("bill_column_widths", [])),
             worker_column_widths=dict(d.get("worker_column_widths", {})),
             view_state=dict(d.get("view_state", {})),
+            bill_display_mode=d.get("bill_display_mode", "complex"),
             app_version=str(d.get("app_version", APP_VERSION)),
             schema_version=schema_version_of(d),
         )
@@ -88,9 +90,10 @@ class Project:
             "category_order": [c.to_dict() for c in self.category_order],
             "trade_items": [self._trade_item_to_dict(t) for t in self.trade_items],
             "bills": [b.to_dict() if hasattr(b, "to_dict") else dict(b) for b in self.bills],
-            "bill_column_widths": dict(self.bill_column_widths),
+            "bill_column_widths": list(self.bill_column_widths),
             "worker_column_widths": dict(self.worker_column_widths),
             "view_state": dict(self.view_state),
+            "bill_display_mode": self.bill_display_mode,
         }
 
     def _category_names(self) -> list[str]:

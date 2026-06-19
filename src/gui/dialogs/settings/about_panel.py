@@ -4,7 +4,8 @@ import tkinter as tk
 import webbrowser
 
 from .base import BaseSettingsPanel, register_section
-from ...theme import APP_BG, TEXT_PRIMARY, FONT_BODY, FONT_SMALL, FONT_BODY_BOLD
+from ...theme import APP_BG, TEXT_PRIMARY
+from ...font_manager import font_manager
 from ...widgets import ScrollableFrame, _make_btn
 from ....config_loader import load_app
 from ....versioning import APP_VERSION
@@ -22,28 +23,28 @@ class AboutSettingsPanel(BaseSettingsPanel):
         sf.pack(fill=tk.BOTH, expand=True)
         inner = sf.inner
 
-        tk.Label(inner, text=f"{self.section_icon} 关于", font=FONT_BODY_BOLD,
+        tk.Label(inner, text=f"{self.section_icon} 关于", font=font_manager.get("body_bold"),
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w")
         self._version_var = tk.StringVar()
-        tk.Label(inner, textvariable=self._version_var, font=FONT_BODY,
+        tk.Label(inner, textvariable=self._version_var, font=font_manager.get("body"),
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w", pady=(8, 16))
 
         REPO_URL = "https://github.com/woshiwangnima/construction-project-accounting"
         github_link = tk.Label(
             inner, text=f"GitHub: {REPO_URL}",
-            font=FONT_SMALL, bg=APP_BG, fg="#2b6cb0", cursor="hand2",
+            font=font_manager.get("small"), bg=APP_BG, fg="#2b6cb0", cursor="hand2",
         )
         github_link.pack(anchor="w", pady=(4, 8))
         github_link.bind("<Button-1>", lambda e: webbrowser.open(REPO_URL))
 
         _make_btn(inner, "\u21bb 检查更新", self._check_update, "secondary").pack(anchor="w", pady=(4, 8))
 
-        tk.Label(inner, text="版本更新说明", font=FONT_BODY_BOLD,
+        tk.Label(inner, text="版本更新说明", font=font_manager.get("body_bold"),
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w")
         notes_frame = tk.Frame(inner, bg=APP_BG)
         notes_frame.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
         self._notes_scrollbar = tk.Scrollbar(notes_frame, orient=tk.VERTICAL)
-        self._notes = tk.Text(notes_frame, height=20, font=FONT_SMALL, wrap="word",
+        self._notes = tk.Text(notes_frame, height=20, font=font_manager.get("small"), wrap="word",
                               bg="white", fg=TEXT_PRIMARY, relief="solid", bd=1,
                               yscrollcommand=self._notes_scrollbar.set)
         self._notes_scrollbar.config(command=self._notes.yview)

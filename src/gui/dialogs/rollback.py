@@ -12,8 +12,8 @@ from tkinter import ttk, messagebox
 from ..editability import EditabilityPolicy
 from ..theme import (
     APP_BG, TEXT_PRIMARY, TEXT_SECONDARY, BORDER,
-    FONT_BODY, FONT_HEADING,
 )
+from ..font_manager import font_manager
 from ..widgets import _make_btn
 from ..widgets.status_badge import StatusBadge
 from ..widgets.rollback_list_view import RollbackListView
@@ -111,13 +111,13 @@ class RollbackDialog:
 
         tk.Label(
             header, text="回滚存档",
-            font=FONT_HEADING, bg=APP_BG, fg=TEXT_PRIMARY,
+            font=font_manager.get("heading"), bg=APP_BG, fg=TEXT_PRIMARY,
         ).pack(anchor="w")
 
         info_row = tk.Frame(header, bg=APP_BG)
         info_row.pack(anchor="w", pady=(4, 0))
         tk.Label(info_row, text=f"项目：{project_name}  ",
-                 font=FONT_BODY, bg=APP_BG, fg=TEXT_SECONDARY).pack(side=tk.LEFT)
+                 font=font_manager.get("body"), bg=APP_BG, fg=TEXT_SECONDARY).pack(side=tk.LEFT)
         if project_status:
             StatusBadge(info_row, status=project_status, font_size=11, bg=APP_BG).pack(side=tk.LEFT)
 
@@ -254,7 +254,7 @@ class RollbackDialog:
         popup.configure(bg=APP_BG)
         popup.resizable(False, False)
 
-        tk.Label(popup, text="确认回滚到所选存档？", font=FONT_HEADING,
+        tk.Label(popup, text="确认回滚到所选存档？", font=font_manager.get("heading"),
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w", padx=20, pady=(16, 8))
         body = (
             f"备份文件：{selected.path.name}\n"
@@ -262,7 +262,7 @@ class RollbackDialog:
             f"存档有效性：{_VALIDITY_LABELS.get(selected.validity, '未知')}\n\n"
             "当前项目会先自动备份，然后再用所选存档覆盖。"
         )
-        tk.Label(popup, text=body, font=FONT_BODY, bg=APP_BG, fg=TEXT_SECONDARY,
+        tk.Label(popup, text=body, font=font_manager.get("body"), bg=APP_BG, fg=TEXT_SECONDARY,
                  justify="left", wraplength=420).pack(anchor="w", padx=20, pady=(0, 12))
 
         btn_frame = tk.Frame(popup, bg=APP_BG)

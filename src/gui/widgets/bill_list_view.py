@@ -9,19 +9,21 @@ import tkinter as tk
 
 from ..theme import (
     APP_BG, TEXT_SECONDARY,
-    FONT_BODY, FONT_BODY_BOLD, FONT_SMALL,
 )
+from ..font_manager import font_manager
 from .list_view_base import ListViewBase
 from ..content import (
-    BILLS_COLUMNS, BILLS_MIN_WIDTH, BILLS_DEFAULT_WEIGHTS,
+    BILLS_MIN_WIDTH,
     _format_formula, _format_bill_date,
 )
+from ...calculator import to_canonical, evaluate_canonical, MathParseError
 from ...billing import read_billing
 from ...billing_resolver import (
     resolve_trade_item, resolve_billing, resolve_label, is_orphan,
 )
 from ...bill_recompute import recompute_bill_total
 from ...bill_review import is_bill_reviewed
+from ..shortcut_manager import shortcut_manager as sm
 
 # 孤儿账单行的文字色（红）+ 前缀图标
 ORPHAN_FG = "#c0392b"
@@ -46,31 +48,34 @@ class BillListView(ListViewBase):
         on_review_toggle=None,
         on_review_header_toggle=None,
         on_sort_by_modified=None,
+        columns=None,
         weights=None,
+        hidden_cols=None,
         editable: bool = True,
         selection_bg: str = "#90cdf4",
         reviewed_bg: str = "#e6fffa",
+        mode: str = "complex",
         **kwargs,
     ):
-        # bills 字段名跟 _items 同名（只是 _items 存的是 references），
-        # 权重用 BILLS_DEFAULT_WEIGHTS，传给基类的 default_weights 会被基类
-        # 自动过滤掉 "操作" 列。
         self._op_map = op_map
         self._trade_items = trade_items or []
         self._on_edit = on_edit
         self._on_review_toggle = on_review_toggle
         self._reviewed_bg = reviewed_bg
+        self._mode = mode
+        all_cols = columns or []
+        hidden_set = set(hidden_cols or [])
 
         header_click_map = {}
-        if on_review_header_toggle is not None and "审核" in BILLS_COLUMNS:
+        if on_review_header_toggle is not None and "审核" in all_cols:
             header_click_map["审核"] = lambda col: on_review_header_toggle()
-        if on_sort_by_modified is not None and "修改时间" in BILLS_COLUMNS:
+        if on_sort_by_modified is not None and "修改时间" in all_cols:
             header_click_map["修改时间"] = lambda col: on_sort_by_modified()
 
         super().__init__(
             parent,
-            columns=BILLS_COLUMNS,
-            default_weights=weights or BILLS_DEFAULT_WEIGHTS,
+            columns=all_cols,
+            default_weights=weights or {},
             min_width=BILLS_MIN_WIDTH,
             action_col="操作",
             action_col_width=104,
@@ -86,6 +91,7 @@ class BillListView(ListViewBase):
             editable=editable,
             wrap_cols=("工作内容", "公式", "备注", "修改时间"),
             header_click_map=header_click_map,
+            hidden_cols=hidden_set,
             **kwargs,
         )
         # 存数据（基类 set_items 走 _render_rows，已经会读 self._items）
@@ -108,6 +114,12 @@ class BillListView(ListViewBase):
         self._items = list(bills)
         self._render_rows()
 
+    def set_mode(self, mode: str, columns: list[str], weights: dict, hidden_cols: list[str]) -> None:
+        self._mode = mode
+        self._columns = list(columns)
+        self.set_weights(weights)
+        self.set_hidden_cols(hidden_cols)
+
     def _on_row_right_click(self, event, idx) -> None:
         """账单行 / 空白处右键：弹「复制 / 粘贴」菜单。"""
         if event is None:
@@ -124,7 +136,11 @@ class BillListView(ListViewBase):
         """构造右键菜单（与 _on_row_right_click 分离，方便测试断言）。返回 None 表示无可弹项。"""
         menu = tk.Menu(self, tearoff=0)
         if idx is not None and self._on_copy:
-            menu.add_command(label="\U0001f4cb 复制此账单", command=lambda i=idx: self._on_copy(i))
+            menu.add_command(
+                label="\U0001f4cb 复制此账单",
+                command=lambda i=idx: self._on_copy(i),
+                accelerator=sm.get_accel("copy"),
+            )
         if self._on_paste and (self._paste_enabled is None or self._paste_enabled()):
             # 「粘贴」是否可点：项目已完成时灰显
             allowed = self._paste_allowed is None or self._paste_allowed()
@@ -132,6 +148,7 @@ class BillListView(ListViewBase):
             menu.add_command(
                 label=label, command=lambda i=idx: self._on_paste(i),
                 state="normal" if allowed else "disabled",
+                accelerator=sm.get_accel("paste"),
             )
         if menu.index("end") is None:
             return None
@@ -149,6 +166,19 @@ class BillListView(ListViewBase):
         billing = resolve_billing(b, self._trade_items)
         # 合计：实时重算
         total_val = recompute_bill_total(b, self._trade_items, self._op_map)
+
+        # Formula result (raw number, before multiplying by unit price)
+        content_raw = b.get("content", "")
+        formula_result_str = ""
+        if content_raw:
+            try:
+                canonical = to_canonical(content_raw, self._op_map)
+                fr = evaluate_canonical(canonical)
+                formula_result_str = f"{fr:.10f}".rstrip("0").rstrip(".")
+                if formula_result_str == "":
+                    formula_result_str = "0"
+            except MathParseError:
+                formula_result_str = ""
 
         if billing.is_per_unit:
             qty_str = _format_formula(content, self._op_map)
@@ -174,37 +204,43 @@ class BillListView(ListViewBase):
         name_fg = ORPHAN_FG if orphan else TEXT_PRIMARY if False else None
 
         cells: dict = {
-            "#": tk.Label(row_frame, text=str(idx + 1), font=FONT_BODY, anchor="center", padx=4),
+            "#": tk.Label(row_frame, text=str(idx + 1), font=font_manager.get("body"), anchor="center", padx=4),
             "审核": tk.Button(
                 row_frame,
                 text="☑" if is_bill_reviewed(b) else "☐",
-                font=FONT_BODY_BOLD,
+                font=font_manager.get("body_bold"),
                 relief="flat",
                 bd=0,
                 cursor="hand2" if self._editable else "arrow",
                 command=(lambda i=idx, value=not is_bill_reviewed(b): self._on_review_toggle and self._on_review_toggle(i, value))
                 if self._editable else None,
             ),
-            "工作内容": tk.Label(row_frame, text=display_name, font=FONT_BODY, anchor="w", padx=6,
+            "工作内容": tk.Label(row_frame, text=display_name, font=font_manager.get("body"), anchor="w", padx=6,
                                  wraplength=80, justify="left",
                                  fg=ORPHAN_FG if orphan else "#000000"),
-            "公式": tk.Label(row_frame, text=qty_str, font=FONT_BODY, anchor="w", padx=6,
+            "公式": tk.Label(row_frame, text=qty_str, font=font_manager.get("body"), anchor="w", padx=6,
                              wraplength=80, justify="left", fg=TEXT_SECONDARY),
-            "单价": tk.Label(row_frame, text=price_str, font=FONT_BODY, anchor="w", padx=6,
+            "公式结果": tk.Label(row_frame, text=formula_result_str, font=font_manager.get("body"), anchor="e", padx=6,
+                                fg=TEXT_SECONDARY),
+            "单价": tk.Label(row_frame, text=price_str, font=font_manager.get("body"), anchor="w", padx=6,
                              fg=ORPHAN_FG if orphan else "#000000"),
-            "金额": tk.Label(row_frame, text=total_str, font=FONT_BODY_BOLD, anchor="e", padx=6,
+            "金额": tk.Label(row_frame, text=total_str, font=font_manager.get("body_bold"), anchor="e", padx=6,
                              fg=total_color),
-            "备注": tk.Label(row_frame, text=note, font=FONT_BODY, anchor="w", padx=6,
+            "备注": tk.Label(row_frame, text=note, font=font_manager.get("body"), anchor="w", padx=6,
                              wraplength=80, justify="left", fg=TEXT_SECONDARY),
-            "日期": tk.Label(row_frame, text=date, font=FONT_SMALL, anchor="w", padx=6,
+            "日期": tk.Label(row_frame, text=date, font=font_manager.get("small"), anchor="w", padx=6,
                              fg=TEXT_SECONDARY),
-            "修改时间": tk.Label(row_frame, text=b.get("record_time", "-"), font=FONT_SMALL,
+            "修改时间": tk.Label(row_frame, text=b.get("record_time", "-"), font=font_manager.get("small"),
                                anchor="w", padx=6, fg=TEXT_SECONDARY),
         }
         # 数据列 grid 配置
-        for col_idx, col in enumerate(self._data_cols):
-            row_frame.grid_columnconfigure(col_idx, minsize=80, weight=0)
-            cells[col].grid(row=0, column=col_idx, sticky="nsew", padx=2, pady=8)
+        for col in self._data_cols:
+            col_idx = self._columns.index(col)
+            if col in self._hidden_cols:
+                row_frame.grid_columnconfigure(col_idx, minsize=0, weight=0)
+            else:
+                row_frame.grid_columnconfigure(col_idx, minsize=80, weight=0)
+                cells[col].grid(row=0, column=col_idx, sticky="nsew", padx=2, pady=8)
 
         # 选中行：所有模式都允许（点数据单元 = 选中，点操作按钮 = 触发动作）
         for col_key, w in cells.items():

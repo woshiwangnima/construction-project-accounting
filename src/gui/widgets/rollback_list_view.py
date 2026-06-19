@@ -7,7 +7,8 @@
 """
 import tkinter as tk
 
-from ..theme import APP_BG, FONT_BODY
+from ..theme import APP_BG
+from ..font_manager import font_manager
 from .list_view_base import ListViewBase
 from ...backup_inspector import VALIDITY_OK, VALIDITY_HAS_ORPHANS, VALIDITY_INVALID_JSON
 from ...config_loader import load_app, save_app
@@ -83,7 +84,7 @@ class RollbackListView(ListViewBase):
         for col_idx, col_key in enumerate(ROLLBACK_COLUMNS):
             cell = tk.Label(
                 row_frame, text=item.get(col_key, ""),
-                font=FONT_BODY, anchor="w", padx=6,
+                font=font_manager.get("body"), anchor="w", padx=6,
                 wraplength=80, justify="left",
             )
             row_frame.grid_columnconfigure(col_idx, minsize=60, weight=0)
