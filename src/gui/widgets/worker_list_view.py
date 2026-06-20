@@ -49,7 +49,7 @@ class WorkerListView(ListViewBase):
         super().__init__(
             parent,
             columns=WORKER_FULL_COLUMNS,
-            default_weights=default_weights,
+            default_weights=default_weights or None,
             min_width=60,
             action_col="操作",
             action_col_width=104,
@@ -64,6 +64,7 @@ class WorkerListView(ListViewBase):
             editable=editable,
             wrap_cols=("名称",),
             header_click_map=header_click_map,
+            action_delete=False,
             **kwargs,
         )
         self._items = list(items)
@@ -137,20 +138,39 @@ class WorkerListView(ListViewBase):
     def _build_row_right_click_menu(self, idx):
         """构造右键菜单（与 _on_row_right_click 分离，方便测试断言）。返回 None 表示无可弹项。"""
         menu = tk.Menu(self, tearoff=0)
+        has_items = False
+        # 复制
         if idx is not None and self._on_copy:
             menu.add_command(
-                label="\U0001f4cb 复制此工作",
+                label="\U0001f4cb 复制",
                 command=lambda i=idx: self._on_copy(i),
                 accelerator=sm.get_accel("copy"),
             )
-        if self._on_paste and (self._paste_enabled is None or self._paste_enabled()):
-            allowed = self._paste_allowed is None or self._paste_allowed()
-            label = "\U0001f4ce 粘贴工作类型" if idx is None else "粘贴到末尾"
+            has_items = True
+        if has_items:
+            menu.add_separator()
+        # 粘贴
+        paste_enabled = self._paste_enabled is None or self._paste_enabled()
+        paste_allowed = self._paste_allowed is None or self._paste_allowed()
+        if self._on_paste and paste_enabled:
             menu.add_command(
-                label=label, command=lambda i=idx: self._on_paste(i),
-                state="normal" if allowed else "disabled",
+                label="\U0001f4dd 粘贴",
+                command=lambda i=idx: self._on_paste(i),
+                state="normal" if paste_allowed else "disabled",
                 accelerator=sm.get_accel("paste"),
             )
-        if menu.index("end") is None:
+            has_items = True
+            menu.add_separator()
+        # 删除
+        del_allowed = self._paste_allowed is None or self._paste_allowed()
+        if idx is not None and self._on_delete:
+            menu.add_command(
+                label="\U0001f5d1\ufe0f 删除",
+                command=lambda i=idx: self._on_delete(i),
+                state="normal" if del_allowed else "disabled",
+                accelerator=sm.get_accel("delete_item"),
+            )
+            has_items = True
+        if not has_items:
             return None
         return menu

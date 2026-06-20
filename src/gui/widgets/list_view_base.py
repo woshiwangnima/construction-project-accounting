@@ -77,6 +77,7 @@ class ListViewBase(tk.Frame):
         wrap_cols: tuple[str, ...] = (),
         header_click_map: dict[str, Callable[[str], None]] | None = None,
         hidden_cols: list[str] | None = None,
+        action_delete: bool = True,
         **kwargs,
     ):
         bg = kwargs.pop("bg", APP_BG)
@@ -117,6 +118,7 @@ class ListViewBase(tk.Frame):
         self._scroll_id_getter = scroll_id_getter
         self._paste_enabled = paste_enabled
         self._paste_allowed = paste_allowed
+        self._action_delete = action_delete
         # ── 状态 ──
         self._selection_bg = selection_bg
         self._row_bg_getter = row_bg_getter
@@ -168,7 +170,7 @@ class ListViewBase(tk.Frame):
         return ("Microsoft YaHei UI", max(int(dfs * 0.8), 10))
 
     def _create_action_cell(self, row_frame, idx, col_idx) -> tk.Widget:
-        """默认创建操作列：拖拽手柄 + 删除。"""
+        """默认创建操作列：拖拽手柄 + 可选删除按钮。"""
         action_frame = tk.Frame(row_frame, bg=row_frame.cget("bg"))
         action_frame.grid(row=0, column=col_idx, sticky="ns", padx=4, pady=4)
         row_frame.grid_columnconfigure(col_idx, minsize=self._action_col_width)
@@ -184,23 +186,26 @@ class ListViewBase(tk.Frame):
                 handle.bind("<ButtonPress-1>", lambda e, i=idx: self._on_row_drag_start(i, e))
                 handle.bind("<B1-Motion>", self._on_row_drag_motion)
                 handle.bind("<ButtonRelease-1>", self._on_row_drag_release)
-            delete_btn = self._make_action_button(
-                action_frame, text="🗑 删除", fg="#c0392b", font=ft,
-                command=(lambda i=idx: self._on_delete and self._on_delete(i)) if self._editable else None,
-            )
-            delete_btn.config(state=tk.NORMAL if self._editable else tk.DISABLED)
-            delete_btn.pack(side=tk.LEFT, expand=False)
+            if self._action_delete:
+                delete_btn = self._make_action_button(
+                    action_frame, text="🗑 删除", fg="#c0392b", font=ft,
+                    command=(lambda i=idx: self._on_delete and self._on_delete(i)) if self._editable else None,
+                )
+                delete_btn.config(state=tk.NORMAL if self._editable else tk.DISABLED)
+                delete_btn.pack(side=tk.LEFT, expand=False)
             return action_frame
-        btns = RowActionButtons(
-            action_frame, labels=("", "", "删除"), button_width=4, font=ft,
-            on_delete=(lambda i=idx: self._on_delete and self._on_delete(i))
-            if self._editable else None,
-        )
-        for key in ("up", "down"):
-            btns._buttons[key].pack_forget()
-        btns.set_enabled(move_up=False, move_down=False, delete=self._editable)
-        btns.pack(side=tk.LEFT, expand=False)
-        return btns
+        if self._action_delete:
+            btns = RowActionButtons(
+                action_frame, labels=("", "", "删除"), button_width=4, font=ft,
+                on_delete=(lambda i=idx: self._on_delete and self._on_delete(i))
+                if self._editable else None,
+            )
+            for key in ("up", "down"):
+                btns._buttons[key].pack_forget()
+            btns.set_enabled(move_up=False, move_down=False, delete=self._editable)
+            btns.pack(side=tk.LEFT, expand=False)
+            return btns
+        return action_frame
 
     def _make_action_button(self, parent, text: str, fg: str, font, command=None, cursor: str = "hand2") -> tk.Button:
         return tk.Button(
@@ -667,8 +672,9 @@ class ListViewBase(tk.Frame):
             self._header.set_sort_indicator(col, direction)
 
     def _on_row_click(self, idx: int) -> None:
-        """用户点数据单元 → 选中并高亮，并让行获焦以便后续 ↑/↓ 切选中。"""
+        """用户点数据单元 → 选中并高亮，再次点击取消选中。"""
         if self._selected_idx == idx:
+            self.set_selected_index(None)
             return
         prev = self._selected_idx
         self._selected_idx = idx

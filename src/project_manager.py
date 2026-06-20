@@ -227,7 +227,7 @@ def list_projects() -> list[Project]:
             projects.append(project)
         except (json.JSONDecodeError, OSError) as e:
             logger.warning("Failed to load project %s: %s", f, e)
-    projects.sort(key=lambda p: p.last_modified, reverse=True)
+    projects.sort(key=lambda p: (not p.is_pinned, p.last_modified), reverse=True)
 
     _list_cache = projects
     _list_cache_dir_mtime = current_mtime
@@ -264,6 +264,29 @@ def get_project(uuid: str) -> Project | None:
         data = json.load(f)
     data.setdefault("project_uuid", uuid)
     return Project.from_dict(data)
+
+
+def toggle_pin(uuid: str) -> None:
+    """Toggle pinned state. Does NOT trigger backup."""
+    uuid = _validate_uuid(uuid)
+    file_path = project_file_path(uuid)
+    if not file_path.is_file():
+        old_path = Path(_safe_path(PROJECTS_DIR, f"{uuid}.json"))
+        if old_path.is_file():
+            file_path = old_path
+        else:
+            existing = _find_project_file(uuid)
+            if existing is not None:
+                file_path = existing
+            else:
+                return
+    with open(file_path, encoding="utf-8") as f:
+        data = json.load(f)
+    data.setdefault("project_uuid", uuid)
+    data["is_pinned"] = not data.get("is_pinned", False)
+    data["last_modified"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    atomic_write_json(str(file_path), data)
+    _invalidate_list_cache()
 
 
 def _find_project_file(uuid: str) -> Path | None:

@@ -23,6 +23,7 @@ from . import shortcut_panel  # noqa: F401
 from . import voice_panel  # noqa: F401
 from . import export_panel  # noqa: F401
 from . import about_panel  # noqa: F401
+from . import notification_panel  # noqa: F401
 from .basic_panel import BasicSettingsPanel  # noqa: F401
 from .font_panel import FontSettingsPanel  # noqa: F401
 from .shortcut_panel import ShortcutSettingsPanel  # noqa: F401

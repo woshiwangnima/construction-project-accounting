@@ -94,6 +94,12 @@ _DEFAULT_CONFIGS = {
                 "notes": ["新增统一符号映射设置", "新增关于页面", "优化列宽与拖拽体验"],
             }
         ],
+        "toast_settings": {
+            "duration_ms": 5000,
+            "fade_in_ms": 300,
+            "float_ms": 700,
+            "queue_interval_ms": 1000,
+        },
         "shortcut_settings": {},
     },
     "user_config.json": {

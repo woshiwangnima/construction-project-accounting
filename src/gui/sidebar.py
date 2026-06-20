@@ -34,7 +34,6 @@ def _project_list_weights():
 
 
 class Sidebar(ttk.Frame):
-    ROLLBACK_MENU_LABEL = "\U0001f504\ufe0f 回滚存档"
 
     def __init__(self, parent, on_select, editability=None, on_settings_closed=None):
         super().__init__(parent)
@@ -252,28 +251,36 @@ class Sidebar(ttk.Frame):
         project = self._project_for_context_menu(uuid, project)
         if project is None:
             return
+        is_pinned = project.get("is_pinned", False)
+        pin_label = "\U0001f4cc 取消置顶" if is_pinned else "\U0001f4cc 置顶固定"
         menu = tk.Menu(self, tearoff=0)
-        # 新增：回滚存档入口（与导出/删除等并列）
+        # Group 1: 置顶固定 + 打开文件位置 (不修改存档)
         menu.add_command(
-            label=self.ROLLBACK_MENU_LABEL,
-            command=lambda: self._open_rollback_dialog(uuid),
-            state=self._project_rollback_menu_state(project),
-            accelerator=sm.get_accel("rollback"),
+            label=pin_label,
+            command=lambda: self._toggle_pin_project(uuid),
+            accelerator=sm.get_accel("pin_project"),
         )
+        menu.add_command(
+            label="\U0001f4c2 打开文件位置",
+            command=lambda: self._open_file_location(uuid),
+            accelerator=sm.get_accel("open_location"),
+        )
+        menu.add_separator()
+        # Group 2: 编辑项目 + 回滚项目 (修改存档)
         menu.add_command(
             label="\u270f\ufe0f 编辑项目",
             command=lambda: self._edit_project(uuid),
             state=self._project_edit_menu_state(project),
             accelerator=sm.get_accel("edit_project"),
         )
-        menu.add_separator()
         menu.add_command(
-            label="\U0001f5c2\ufe0f 打开文件位置",
-            command=lambda: self._open_file_location(uuid),
-            accelerator=sm.get_accel("open_location"),
+            label="\u23ea 回滚项目",
+            command=lambda: self._open_rollback_dialog(uuid),
+            state=self._project_rollback_menu_state(project),
+            accelerator=sm.get_accel("rollback"),
         )
         menu.add_separator()
-        # 已完成项目禁止删除（与 EditabilityPolicy 联动）
+        # Group 3: 删除项目 (删除存档)
         delete_state = self._project_delete_menu_state(project)
         menu.add_command(
             label="\U0001f5d1\ufe0f 删除项目",
@@ -281,7 +288,10 @@ class Sidebar(ttk.Frame):
             state=delete_state,
             accelerator=sm.get_accel("delete_project"),
         )
-        menu.tk_popup(event.x_root, event.y_root)
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
 
     def _project_for_context_menu(self, uuid, project=None):
         if project is None:
@@ -298,6 +308,19 @@ class Sidebar(ttk.Frame):
         result = project.to_dict() if hasattr(project, "to_dict") else dict(project)
         result["status"] = ProjectStatus.from_value(live_status).value
         return result
+
+    def _toggle_pin_project(self, uuid=None):
+        if uuid is None:
+            uuid = self._selected_uuid if hasattr(self, '_selected_uuid') else None
+        if not uuid:
+            return
+        from ..project_manager import toggle_pin, get_project
+        toggle_pin(uuid)
+        self.refresh()
+        if hasattr(self, '_toast_mgr'):
+            p = get_project(uuid)
+            is_pinned = p.is_pinned if hasattr(p, 'is_pinned') else (p or {}).get("is_pinned", False)
+            self._toast_mgr.show(("已置顶" if is_pinned else "已取消置顶") + "（Ctrl+Shift+P）")
 
     def _project_delete_menu_state(self, project: dict) -> str:
         project_status = ProjectStatus.from_value((project or {}).get("status"))

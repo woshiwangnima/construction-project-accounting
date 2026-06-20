@@ -37,12 +37,13 @@ DEFAULT_SHORTCUTS = {
     "delete_item":     {"label": "删除条目",     "event": "<Delete>",           "accel": "Delete"},
     "copy":            {"label": "复制",         "event": "<Control-c>",        "accel": "Ctrl+C"},
     "paste":           {"label": "粘贴",         "event": "<Control-v>",        "accel": "Ctrl+V"},
+    "pin_project":     {"label": "置顶固定",     "event": "<Control-Shift-p>",  "accel": "Ctrl+Shift+P"},
 }
 
 # Action IDs grouped by context (for settings panel grouping)
 ACTION_GROUPS = [
     ("通用", ("new_project", "add_record", "save_image", "toggle_display")),
-    ("项目", ("edit_project", "rollback", "open_location", "delete_project")),
+    ("项目", ("edit_project", "rollback", "open_location", "delete_project", "pin_project")),
     ("分类", ("edit_category", "move_up", "move_down", "delete_category")),
     ("列表", ("edit_trade", "delete_item", "copy", "paste")),
 ]
@@ -167,6 +168,10 @@ class ShortcutManager:
             if c.tab_var.get() == "bills" and c.current_uuid:
                 c._toggle_bill_display_mode()
 
+        elif action_id == "pin_project":
+            if hasattr(s, '_toggle_pin_project'):
+                s._toggle_pin_project()
+
         elif action_id == "rollback":
             uuid = s._selected_uuid if hasattr(s, '_selected_uuid') else None
             if uuid:
@@ -190,50 +195,46 @@ class ShortcutManager:
                     s._delete_project(uuid, project)
 
         elif action_id == "edit_category":
-            if c.tab_var.get() == "workers" and c.current_uuid:
-                cat = c._get_selected_category() if hasattr(c, '_get_selected_category') else None
-                if cat:
-                    c._edit_category_dialog(cat)
+            if c.tab_var.get() == "workers" and c.current_uuid and c._selected_category:
+                c._edit_category_dialog(c._selected_category)
 
         elif action_id == "move_up":
-            if c.tab_var.get() == "workers" and c.current_uuid:
-                cat = c._get_selected_category() if hasattr(c, '_get_selected_category') else None
-                if cat:
-                    c._move_category_up(cat)
+            if c.tab_var.get() == "workers" and c.current_uuid and c._selected_category:
+                c._move_category_up(c._selected_category)
 
         elif action_id == "move_down":
-            if c.tab_var.get() == "workers" and c.current_uuid:
-                cat = c._get_selected_category() if hasattr(c, '_get_selected_category') else None
-                if cat:
-                    c._move_category_down(cat)
+            if c.tab_var.get() == "workers" and c.current_uuid and c._selected_category:
+                c._move_category_down(c._selected_category)
 
         elif action_id == "delete_category":
-            if c.tab_var.get() == "workers" and c.current_uuid:
-                cat = c._get_selected_category() if hasattr(c, '_get_selected_category') else None
-                if cat:
-                    c._delete_category(cat)
+            if c.tab_var.get() == "workers" and c.current_uuid and c._selected_category:
+                c._delete_category(c._selected_category)
 
         elif action_id == "edit_trade":
             if c.tab_var.get() == "workers":
-                c._edit_selected_item()
+                idx = c._worker_list._selected_idx if hasattr(c, '_worker_list') else None
+                if idx is not None:
+                    c._edit_trade_item_at(idx)
 
         elif action_id == "delete_item":
             if c.tab_var.get() == "workers":
-                c._delete_selected_item()
+                idx = c._worker_list._selected_idx if hasattr(c, '_worker_list') else None
+                if idx is not None:
+                    c._delete_trade_item(idx)
 
         elif action_id == "copy":
             tab = c.tab_var.get()
             if tab == "bills" and hasattr(c, '_bill_list'):
-                c._bill_list._on_copy_focused()
+                c._bill_list._on_copy(c._bill_list._selected_idx)
             elif tab == "workers" and hasattr(c, '_worker_list'):
-                c._worker_list._on_copy_focused()
+                c._worker_list._on_copy(c._worker_list._selected_idx)
 
         elif action_id == "paste":
             tab = c.tab_var.get()
             if tab == "bills" and hasattr(c, '_bill_list'):
-                c._bill_list._on_paste_focused()
+                c._bill_list._on_paste(c._bill_list._selected_idx)
             elif tab == "workers" and hasattr(c, '_worker_list'):
-                c._worker_list._on_paste_focused()
+                c._worker_list._on_paste(c._worker_list._selected_idx)
 
     # ── Config API ────────────────────────────────────────────────────────────
 

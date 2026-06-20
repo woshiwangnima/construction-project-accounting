@@ -43,6 +43,13 @@ class ShortcutSettingsPanel(BaseSettingsPanel):
                     continue
                 self._build_action_row(inner, action_id)
 
+        # ── Mouse operation hints ────────────────────────────────────────
+        tk.Frame(inner, bg="#e2e8f0", height=1).pack(fill=tk.X, pady=12)
+        tk.Label(inner, text="鼠标操作", font=FONT_BODY_BOLD,
+                 bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w")
+        tk.Label(inner, text="  点击已选中行 → 取消选中",
+                 font=FONT_SMALL, bg=APP_BG, fg=TEXT_SECONDARY).pack(anchor="w", padx=8, pady=(2, 4))
+
         # ── Bottom: reset button ─────────────────────────────────────────
         tk.Frame(inner, bg="#e2e8f0", height=1).pack(fill=tk.X, pady=12)
         btn_frame = tk.Frame(inner, bg=APP_BG)

@@ -353,6 +353,79 @@
       ]
     }
   ],
+  "toast_settings": {
+    "duration_ms": 5000,
+    "fade_in_ms": 300,
+    "float_ms": 700,
+    "queue_interval_ms": 1000,
+    "persistent": false
+  },
+  "shortcut_settings": {
+    "new_project": {
+      "event": "<Control-n>",
+      "accel": "Ctrl+N"
+    },
+    "add_record": {
+      "event": "<Control-Return>",
+      "accel": "Ctrl+Enter"
+    },
+    "save_image": {
+      "event": "<Control-Shift-S>",
+      "accel": "Ctrl+Shift+S"
+    },
+    "toggle_display": {
+      "event": "<Alt-d>",
+      "accel": "Alt+D"
+    },
+    "rollback": {
+      "event": "<F4>",
+      "accel": "F4"
+    },
+    "edit_project": {
+      "event": "<Alt-e>",
+      "accel": "Alt+E"
+    },
+    "open_location": {
+      "event": "<Alt-f>",
+      "accel": "Alt+F"
+    },
+    "delete_project": {
+      "event": "<Alt-Delete>",
+      "accel": "Alt+Del"
+    },
+    "edit_category": {
+      "event": "<Alt-c>",
+      "accel": "Alt+C"
+    },
+    "move_up": {
+      "event": "<Alt-Up>",
+      "accel": "Alt+↑"
+    },
+    "move_down": {
+      "event": "<Alt-Down>",
+      "accel": "Alt+↓"
+    },
+    "delete_category": {
+      "event": "<Alt-Shift-Delete>",
+      "accel": "Alt+Shift+Del"
+    },
+    "edit_trade": {
+      "event": "<F2>",
+      "accel": "F2"
+    },
+    "delete_item": {
+      "event": "<Delete>",
+      "accel": "Delete"
+    },
+    "copy": {
+      "event": "<Control-c>",
+      "accel": "Ctrl+C"
+    },
+    "paste": {
+      "event": "<Control-v>",
+      "accel": "Ctrl+V"
+    }
+  },
   "bill_display_mode": "complex",
   "bill_display_modes": {
     "complex": {
@@ -406,33 +479,15 @@
   "tooltips": {
     "prefix": "◆ ",
     "messages": [
-      "双击行可编辑",
+      "单击行选中、按住Ctrl单击已选中行则取消选中、双击行编辑",
       "长按拖动按钮以排序",
       "拖动表头竖条可以调整列宽",
       "点击蓝色链接样式的表头列可以排序",
       "右键项目列表展示的项目可以展开扩展菜单选项",
       "右键【账单管理】按钮可以切换繁简显示模式"
     ],
-    "dwell_per_char_ms": 300,
+    "dwell_per_char_ms": 500,
     "font_size": 13
-  },
-  "shortcut_settings": {
-    "new_project": {"event": "<Control-n>", "accel": "Ctrl+N"},
-    "add_record": {"event": "<Control-Return>", "accel": "Ctrl+Enter"},
-    "save_image": {"event": "<Control-Shift-S>", "accel": "Ctrl+Shift+S"},
-    "toggle_display": {"event": "<Alt-d>", "accel": "Alt+D"},
-    "rollback": {"event": "<F4>", "accel": "F4"},
-    "edit_project": {"event": "<Alt-e>", "accel": "Alt+E"},
-    "open_location": {"event": "<Alt-f>", "accel": "Alt+F"},
-    "delete_project": {"event": "<Alt-Delete>", "accel": "Alt+Del"},
-    "edit_category": {"event": "<Alt-c>", "accel": "Alt+C"},
-    "move_up": {"event": "<Alt-Up>", "accel": "Alt+↑"},
-    "move_down": {"event": "<Alt-Down>", "accel": "Alt+↓"},
-    "delete_category": {"event": "<Alt-Shift-Delete>", "accel": "Alt+Shift+Del"},
-    "edit_trade": {"event": "<F2>", "accel": "F2"},
-    "delete_item": {"event": "<Delete>", "accel": "Delete"},
-    "copy": {"event": "<Control-c>", "accel": "Ctrl+C"},
-    "paste": {"event": "<Control-v>", "accel": "Ctrl+V"}
   },
   "list_column_weights": {
     "project_list": {

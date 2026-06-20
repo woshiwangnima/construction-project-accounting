@@ -10,6 +10,7 @@ from .sidebar import Sidebar
 from .content import ContentArea
 from .editability import EditabilityPolicy
 from .widgets import DraggableSplitter, TooltipCarousel
+from .widgets.toast import ToastNotification
 from ..config_loader import load_app, save_app
 from ..logger import logger
 from ..voice import get_voice
@@ -85,6 +86,10 @@ class MainInterface:
         )
         self.content.pack(fill=tk.BOTH, expand=True)
         logger.debug("MainInterface: ContentArea created, packed expand=True")
+
+        self._toast_mgr = ToastNotification(self.root)
+        self.content._toast_mgr = self._toast_mgr
+        self.sidebar._toast_mgr = self._toast_mgr
 
         self.editability = EditabilityPolicy(
             get_current_status=self.content.get_project_status,

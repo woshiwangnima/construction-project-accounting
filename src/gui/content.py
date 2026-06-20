@@ -35,6 +35,7 @@ from ..paste_actions import (
     paste_bill, paste_trade_item, unique_category_after_paste,
 )
 from .clipboard import AppClipboard
+from .widgets.toast import ToastNotification
 
 
 def _category_name(category) -> str:
@@ -580,6 +581,7 @@ class ContentArea(tk.Frame):
         self._reviewed_bg = load_app().get("bill_reviewed_row_color", "#e6fffa")
         # 应用内剪贴板：单槽结构，跨项目持久（实例由 ContentArea 持有，切换项目不丢失）
         self._clipboard = AppClipboard()
+        self._toast_mgr = ToastNotification(self.winfo_toplevel())
         self._bill_sort_descending = False
         self._worker_price_sort_descending = False
         self._worker_billing_sort_descending = False
@@ -690,6 +692,7 @@ class ContentArea(tk.Frame):
             rb.pack(side=tk.LEFT, padx=(0, 6))
             self._tab_buttons[val] = rb
         self._tab_buttons["bills"].bind("<Button-3>", self._show_bill_mode_menu)
+        self._tab_buttons["workers"].bind("<Button-3>", self._show_worker_mode_menu)
 
         self.content_frame = tk.Frame(self, bg=APP_BG)
         self.content_frame.pack(fill=tk.BOTH, expand=True, padx=24, pady=(8, 16))
@@ -1105,14 +1108,11 @@ class ContentArea(tk.Frame):
             if bill.get(k) is not None and bill.get(k) != "":
                 payload[k] = bill[k]
         self._clipboard.set_bill(payload, source_ref=self.current_uuid or "")
-        self._toast(f"已复制账单 #{idx + 1}")
+        self._toast_mgr.show(f"已复制账单 #{idx + 1}（Ctrl+C）")
 
     def _paste_bill_at(self, idx: int | None) -> None:
-        """账单行 / 空白处右键 → 粘贴到末尾。
-
-        已完成项目下菜单项已灰显，正常路径走不到这里。
-        """
-        if not self.project_data:
+        """账单行 / 空白处右键 → 粘贴到末尾。"""
+        if not self.project_data or not self._editable:
             return
         if not self._clipboard.has_bill():
             return
@@ -1129,9 +1129,23 @@ class ContentArea(tk.Frame):
         update_project(self.current_uuid, self.project_data)
         self._render_bills()
         if new_bill.get("trade_item_id"):
-            self._toast(f"已粘贴账单到末尾（新行 #{len(bills)}）")
+            self._toast_mgr.show(f"已粘贴账单到末尾（新行 #{len(bills)}）（Ctrl+V）")
         else:
-            self._toast(f"已粘贴为孤儿账单（目标项目无对应工作项目）")
+            self._toast_mgr.show("已粘贴为孤儿账单（目标项目无对应工作项目）（Ctrl+V）")
+
+    def _delete_bill_at(self, idx: int) -> None:
+        """账单行右键 -> 删除。"""
+        if not self.project_data or not self._editable:
+            return
+        bills = self.project_data.get("bills", [])
+        if idx < 0 or idx >= len(bills):
+            return
+        if not self._confirm_delete("确认删除", f"确定删除账单 #{idx + 1}？"):
+            return
+        bills.pop(idx)
+        update_project(self.current_uuid, self.project_data)
+        self._render_bills()
+        self._toast_mgr.show(f"已删除账单 #{idx + 1}（删除）")
 
     def _bill_name_fallback(self, bill: dict) -> str:
         """账单在剪贴板里需要一个「名称兜底」，孤儿账单也能粘。
@@ -1194,19 +1208,6 @@ class ContentArea(tk.Frame):
 
         for cat in cats:
             self._add_category_item(cat)
-
-        # 左侧底部按钮
-        left_btn_frame = tk.Frame(left_frame, bg=APP_BG, pady=8)
-        left_btn_frame.pack(fill=tk.X, padx=8)
-        left_btns = [
-            _make_btn(left_btn_frame, "\u2795 添加分类", self._add_category, "primary"),
-            _make_btn(left_btn_frame, "\U0001f504 恢复默认", self._restore_defaults, "ghost"),
-        ]
-        for b in left_btns:
-            b.pack(fill=tk.X, pady=2)
-        if self._editability is not None:
-            for b in left_btns:
-                self._editability.manage(b, normally_enabled=True)
 
         # ── 拖拽分隔条 ──
         cat_splitter = DraggableSplitter(
@@ -1274,15 +1275,6 @@ class ContentArea(tk.Frame):
         self._worker_list.pack(fill=tk.BOTH, expand=True, pady=(4, 8))
         self._restore_workers_scroll()
 
-        # 右侧底部按钮（编辑/删除/删除分类 三个已移除：用户可双击行编辑、行内删、右键分类删）
-        right_btn_frame = tk.Frame(right_frame, bg=APP_BG, pady=4)
-        right_btn_frame.pack(fill=tk.X)
-        add_trade_btn = _make_btn(right_btn_frame, "\u2795 添加工作", self._add_trade_item_for_selected, "primary")
-        add_trade_btn.pack(side=tk.LEFT, padx=4)
-        if self._editability is not None:
-            self._editability.manage(add_trade_btn, normally_enabled=True)
-        elif not self._editable:
-            _set_btn_state(add_trade_btn, True)
     def _on_category_resize(self, width: int) -> None:
         """DraggableSplitter 释放时回调：保存归一化宽度比例到 app_config。"""
         try:
@@ -1827,14 +1819,11 @@ class ContentArea(tk.Frame):
             "unit": billing.unit,
         }
         self._clipboard.set_trade_item(payload, source_ref=self.current_uuid or "")
-        self._toast(f"已复制工作「{payload['name']}」")
+        self._toast_mgr.show(f"已复制工作「{payload['name']}」（Ctrl+C）")
 
     def _paste_trade_item_at(self, idx: int | None) -> None:
-        """工种行 / 空白处右键 → 粘贴到末尾。
-
-        已完成项目下菜单项已灰显，正常路径走不到这里。
-        """
-        if not self.project_data:
+        """工种行 / 空白处右键 → 粘贴到选中分类末尾；有选中行时询问是否替换。"""
+        if not self.project_data or not self._editable:
             return
         if not self._clipboard.has_trade_item():
             return
@@ -1846,6 +1835,31 @@ class ContentArea(tk.Frame):
         payload = entry["payload"]
         items = self.project_data.get("trade_items", [])
         cat_order = self.project_data.get("category_order", [])
+
+        # idx 是当前分类过滤列表的索引 → 转为全局索引
+        cat_indices = self._get_cat_indices()
+        if idx is not None and 0 <= idx < len(cat_indices):
+            global_idx = cat_indices[idx]
+            target = items[global_idx]
+            if messagebox.askyesno(
+                "确认替换",
+                f"确认用剪贴板内容「{payload.get('name', '')}」替换当前行「{target['name']}」？",
+            ):
+                new_ti = paste_trade_item(payload, items, cat_order)
+                new_ti["id"] = target["id"]
+                new_ti["category"] = target["category"]
+                new_ti["category_id"] = target.get("category_id", "")
+                items[global_idx] = new_ti
+                update_project(self.current_uuid, self.project_data)
+                self._render()
+                self._toast_mgr.show(f"已替换工作「{new_ti['name']}」")
+            return  # 否也不做任何操作
+
+        # 追加到选中分类尾部
+        cat = self._selected_category
+        if not cat or cat not in cat_order:
+            cat = cat_order[0] if cat_order else payload.get("category", "")
+        payload["category"] = cat
         new_ti = paste_trade_item(payload, items, cat_order)
         items.append(new_ti)
         if unique_category_after_paste(new_ti["category"], cat_order):
@@ -1853,7 +1867,7 @@ class ContentArea(tk.Frame):
             self.project_data["category_order"] = cat_order
         update_project(self.current_uuid, self.project_data)
         self._render()
-        self._toast(f"已粘贴工作「{new_ti['name']}」")
+        self._toast_mgr.show(f"已粘贴工作「{new_ti['name']}」（Ctrl+V）")
 
     def _delete_category(self, cat: str) -> None:
         """删除指定分类（右键菜单触发的入口）。所有受影响账单软删除为孤儿。"""
@@ -1940,41 +1954,89 @@ class ContentArea(tk.Frame):
         update_project(self.current_uuid, self.project_data)
         self._refresh_workers_only()
 
+    def _move_category_top(self, cat: str) -> None:
+        """把分类置顶。"""
+        if self._editability is not None and not self._editability.is_editable:
+            return
+        cats = self._build_category_list()
+        if cat not in cats:
+            return
+        idx = cats.index(cat)
+        if idx <= 0:
+            return
+        cats.remove(cat)
+        cats.insert(0, cat)
+        self.project_data["category_order"] = _category_order_for_names(self.project_data, cats)
+        update_project(self.current_uuid, self.project_data)
+        self._selected_category = cat
+        self._refresh_workers_only()
+
+    def _move_category_bottom(self, cat: str) -> None:
+        """把分类沉底。"""
+        if self._editability is not None and not self._editability.is_editable:
+            return
+        cats = self._build_category_list()
+        if cat not in cats:
+            return
+        idx = cats.index(cat)
+        if idx >= len(cats) - 1:
+            return
+        cats.remove(cat)
+        cats.append(cat)
+        self.project_data["category_order"] = _category_order_for_names(self.project_data, cats)
+        update_project(self.current_uuid, self.project_data)
+        self._selected_category = cat
+        self._refresh_workers_only()
+
+    def _add_trade_item_for_category(self, cat: str) -> None:
+        """右键菜单添加工作：先切到该分类再调已有方法。"""
+        self._selected_category = cat
+        self._refresh_category_highlight()
+        self._add_trade_item_for_selected()
+
     def _build_category_list(self) -> list[str]:
         """构造完整的分类列表（cat_order 在前，trade_items 里未列出的追加到末尾）。"""
         return _project_category_names(self.project_data)
 
     def _show_category_context_menu(self, event, cat: str) -> None:
-        """分类列表的右键菜单：编辑 / 上移 / 下移 / 删除分类。已完成状态不提供。"""
+        """分类列表的右键菜单。已完成状态不提供。"""
         if not self._category_context_menu_allowed(cat):
             return
         from .shortcut_manager import shortcut_manager as sm
         cats = self._build_category_list()
         idx = cats.index(cat)
         menu = tk.Menu(self, tearoff=0)
-        # 编辑分类（最优先）
-        menu.add_command(
-            label="\u270f\ufe0f 编辑分类",
-            command=lambda: self._edit_category_dialog(cat),
-            accelerator=sm.get_accel("edit_category"),
-        )
-        menu.add_separator()
-        # 上移：非最顶
-        up_state = "normal" if idx > 0 else "disabled"
+        base_state = "normal" if self._editable else "disabled"
+        # 置顶 / 上移 / 下移 / 沉底
+        menu.add_command(label="\U0001f4cc 置顶",
+                         command=lambda: self._move_category_top(cat),
+                         state="normal" if idx > 0 and self._editable else "disabled")
         menu.add_command(label="\u2b06\ufe0f 上移",
                          command=lambda: self._move_category_up(cat),
-                         state=up_state,
+                         state="normal" if idx > 0 and self._editable else "disabled",
                          accelerator=sm.get_accel("move_up"))
-        # 下移：非最底
-        down_state = "normal" if idx < len(cats) - 1 else "disabled"
         menu.add_command(label="\u2b07\ufe0f 下移",
                          command=lambda: self._move_category_down(cat),
-                         state=down_state,
+                         state="normal" if idx < len(cats) - 1 and self._editable else "disabled",
                          accelerator=sm.get_accel("move_down"))
+        menu.add_command(label="\u2b0b 沉底",
+                         command=lambda: self._move_category_bottom(cat),
+                         state="normal" if idx < len(cats) - 1 and self._editable else "disabled")
+        menu.add_separator()
+        edit_state = base_state
+        menu.add_command(label="\u270f\ufe0f 编辑分类",
+                         command=lambda: self._edit_category_dialog(cat),
+                         accelerator=sm.get_accel("edit_category"),
+                         state=edit_state)
+        menu.add_separator()
+        menu.add_command(label="\u2795 添加工作",
+                         command=lambda: self._add_trade_item_for_category(cat),
+                         state=edit_state)
         menu.add_separator()
         menu.add_command(label="\U0001f5d1\ufe0f 删除分类",
                          command=lambda: self._delete_category(cat),
-                         accelerator=sm.get_accel("delete_category"))
+                         accelerator=sm.get_accel("delete_category"),
+                         state=edit_state)
         try:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
@@ -1984,23 +2046,44 @@ class ContentArea(tk.Frame):
         cats = self._build_category_list()
         if cat not in cats:
             return False
-        status = ProjectStatus.from_value((self.project_data or {}).get("status"))
-        if status == ProjectStatus.DONE:
-            return False
-        if self._editability is not None:
-            return self._editability.is_editable
-        return self._editable
+        return True
 
     def _show_bill_mode_menu(self, event):
         from .shortcut_manager import shortcut_manager as sm
         menu = tk.Menu(self, tearoff=0)
-        menu.add_command(label="➕ 添加记录", command=self._add_bill,
-                         accelerator=sm.get_accel("add_record"))
-        menu.add_command(label="💾 保存为图片", command=self._export_image,
+        # 上半部分：不修改存档的操作
+        menu.add_command(label="\U0001f313 繁简切换",
+                         command=self._toggle_bill_display_mode,
+                         accelerator=sm.get_accel("toggle_display"))
+        menu.add_command(label="\U0001f5bc\ufe0f 导出图片",
+                         command=self._export_image,
                          accelerator=sm.get_accel("save_image"))
         menu.add_separator()
-        menu.add_command(label="繁简切换", command=self._toggle_bill_display_mode,
-                         accelerator=sm.get_accel("toggle_display"))
+        # 下半部分：修改存档的操作（DONE 时禁用）
+        add_state = "normal" if self._editable else "disabled"
+        menu.add_command(label="\u2795 添加记录",
+                         command=self._add_bill,
+                         state=add_state,
+                         accelerator=sm.get_accel("add_record"))
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _show_worker_mode_menu(self, event):
+        menu = tk.Menu(self, tearoff=0)
+        edit_state = "normal" if self._editable else "disabled"
+        menu.add_command(label="\u2795 添加分类",
+                         command=self._add_category,
+                         state=edit_state)
+        menu.add_separator()
+        menu.add_command(label="\U0001f504 恢复默认",
+                         command=self._restore_defaults,
+                         state=edit_state)
+        menu.add_separator()
+        menu.add_command(label="\U0001f9f9 清空分类",
+                         command=self._clear_all_categories,
+                         state=edit_state)
         try:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
@@ -2035,34 +2118,20 @@ class ContentArea(tk.Frame):
         update_project(self.current_uuid, self.project_data)
         self._render()
 
+    def _clear_all_categories(self):
+        if not self._editable:
+            return
+        if not self._confirm_delete("确认清空", "确定清空所有分类及其工作数据？此操作不可撤销。"):
+            return
+        self.project_data["category_order"] = []
+        self.project_data["trade_items"] = []
+        update_project(self.current_uuid, self.project_data)
+        self._selected_category = None
+        self._render()
+
     def _refresh_view(self):
         if self.current_uuid:
             self.project_data = get_project(self.current_uuid)
             self._render()
 
-    def _toast(self, msg: str, ms: int = 1500) -> None:
-        """屏幕底部轻量提示（1.5s 自动消失）。不阻塞用户。"""
-        try:
-            top = self.winfo_toplevel()
-        except Exception:
-            return
-        try:
-            tw = tk.Toplevel(top)
-            tw.wm_overrideredirect(True)
-            tw.configure(bg="#2d3748")
-            lbl = tk.Label(tw, text=msg, bg="#2d3748", fg="white",
-                           font=font_manager.get("body"), padx=14, pady=6)
-            lbl.pack()
-            # 定位：屏幕底部居中
-            top.update_idletasks()
-            sx = top.winfo_screenwidth()
-            sy = top.winfo_screenheight()
-            tw.update_idletasks()
-            w = tw.winfo_reqwidth()
-            h = tw.winfo_reqheight()
-            x = (sx - w) // 2
-            y = sy - h - 60
-            tw.geometry(f"{w}x{h}+{x}+{y}")
-            tw.after(ms, tw.destroy)
-        except Exception:
-            pass
+

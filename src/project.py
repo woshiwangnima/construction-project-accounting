@@ -28,6 +28,7 @@ class Project:
     worker_column_widths: dict = field(default_factory=dict)
     view_state: dict = field(default_factory=dict)
     bill_display_mode: str = "complex"
+    is_pinned: bool = False
     app_version: str = APP_VERSION
     schema_version: int = CURRENT_SCHEMA_VERSION
 
@@ -67,6 +68,7 @@ class Project:
             worker_column_widths=dict(d.get("worker_column_widths", {})),
             view_state=dict(d.get("view_state", {})),
             bill_display_mode=d.get("bill_display_mode", "complex"),
+            is_pinned=d.get("is_pinned", False),
             app_version=str(d.get("app_version", APP_VERSION)),
             schema_version=schema_version_of(d),
         )
@@ -94,6 +96,7 @@ class Project:
             "worker_column_widths": dict(self.worker_column_widths),
             "view_state": dict(self.view_state),
             "bill_display_mode": self.bill_display_mode,
+            "is_pinned": self.is_pinned,
         }
 
     def _category_names(self) -> list[str]:

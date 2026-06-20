@@ -92,6 +92,7 @@ class BillListView(ListViewBase):
             wrap_cols=("工作内容", "公式", "备注", "修改时间"),
             header_click_map=header_click_map,
             hidden_cols=hidden_set,
+            action_delete=False,
             **kwargs,
         )
         # 存数据（基类 set_items 走 _render_rows，已经会读 self._items）
@@ -135,22 +136,41 @@ class BillListView(ListViewBase):
     def _build_row_right_click_menu(self, idx):
         """构造右键菜单（与 _on_row_right_click 分离，方便测试断言）。返回 None 表示无可弹项。"""
         menu = tk.Menu(self, tearoff=0)
+        has_items = False
+        # 复制
         if idx is not None and self._on_copy:
             menu.add_command(
-                label="\U0001f4cb 复制此账单",
+                label="\U0001f4cb 复制",
                 command=lambda i=idx: self._on_copy(i),
                 accelerator=sm.get_accel("copy"),
             )
-        if self._on_paste and (self._paste_enabled is None or self._paste_enabled()):
-            # 「粘贴」是否可点：项目已完成时灰显
-            allowed = self._paste_allowed is None or self._paste_allowed()
-            label = "\U0001f4ce 粘贴账单" if idx is None else "粘贴到末尾"
+            has_items = True
+        # 分隔线
+        if has_items:
+            menu.add_separator()
+        # 粘贴
+        paste_enabled = self._paste_enabled is None or self._paste_enabled()
+        paste_allowed = self._paste_allowed is None or self._paste_allowed()
+        if self._on_paste and paste_enabled:
             menu.add_command(
-                label=label, command=lambda i=idx: self._on_paste(i),
-                state="normal" if allowed else "disabled",
+                label="\U0001f4dd 粘贴",
+                command=lambda i=idx: self._on_paste(i),
+                state="normal" if paste_allowed else "disabled",
                 accelerator=sm.get_accel("paste"),
             )
-        if menu.index("end") is None:
+            has_items = True
+            menu.add_separator()
+        # 删除
+        del_allowed = self._paste_allowed is None or self._paste_allowed()
+        if idx is not None and self._on_delete:
+            menu.add_command(
+                label="\U0001f5d1\ufe0f 删除",
+                command=lambda i=idx: self._on_delete(i),
+                state="normal" if del_allowed else "disabled",
+                accelerator=sm.get_accel("delete_item"),
+            )
+            has_items = True
+        if not has_items:
             return None
         return menu
 
