@@ -142,7 +142,7 @@ class WorkerListView(ListViewBase):
         # 复制
         if idx is not None and self._on_copy:
             menu.add_command(
-                label="\U0001f4cb 复制",
+                label="\U0001f4cb\ufe0f 复制",
                 command=lambda i=idx: self._on_copy(i),
                 accelerator=sm.get_accel("copy"),
             )
@@ -154,7 +154,7 @@ class WorkerListView(ListViewBase):
         paste_allowed = self._paste_allowed is None or self._paste_allowed()
         if self._on_paste and paste_enabled:
             menu.add_command(
-                label="\U0001f4dd 粘贴",
+                label="\U0001f4dd\ufe0f 粘贴",
                 command=lambda i=idx: self._on_paste(i),
                 state="normal" if paste_allowed else "disabled",
                 accelerator=sm.get_accel("paste"),

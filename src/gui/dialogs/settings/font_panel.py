@@ -1,5 +1,7 @@
 """Font settings panel: global default_font_size + per-role font customization."""
 
+_PREVIEW_TEXT = "预览 Ab 123"
+
 import tkinter as tk
 from tkinter import ttk, colorchooser, font as tkfont
 
@@ -53,41 +55,36 @@ class FontSettingsPanel(BaseSettingsPanel):
         _make_btn(btn_frame, "恢复默认", self._on_reset, "secondary").pack(side=tk.LEFT)
 
     def _build_header(self, parent):
-        """Build the top section with title, radio buttons, and scale slider."""
+        """Build the top section with slider + inline preview."""
         tk.Label(parent, text=f"{self.section_icon} 字体设置", font=FONT_BODY_BOLD,
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w")
         tk.Label(parent, text="全局基础字号决定所有角色的默认大小。",
                  font=FONT_SMALL, bg=APP_BG, fg=TEXT_SECONDARY).pack(anchor="w", pady=(2, 8))
 
-        # Radio buttons row
-        radio_frame = tk.Frame(parent, bg=APP_BG)
-        radio_frame.pack(anchor="w", pady=(0, 4))
-
-        self._size_radio = tk.IntVar(value=_DEFAULT_FONT_SIZE)
-        for label, val in [("小号 (12)", 12), ("中号 (14)", 14), ("大号 (16)", 16)]:
-            tk.Radiobutton(
-                radio_frame, text=label, variable=self._size_radio, value=val,
-                command=self._on_radio_change,
-                bg=APP_BG, fg=TEXT_PRIMARY, activebackground=APP_BG,
-                selectcolor=APP_BG, font=FONT_BODY,
-            ).pack(side=tk.LEFT, padx=(0, 12))
-
-        # Scale / slider row
         scale_frame = tk.Frame(parent, bg=APP_BG)
         scale_frame.pack(fill=tk.X, pady=(0, 4))
 
-        self._size_scale = tk.IntVar(value=_DEFAULT_FONT_SIZE)
-        self._scale_widget = ttk.Scale(
-            scale_frame, from_=10, to=30, variable=self._size_scale,
-            command=self._on_scale_change,
+        self._size_scale_var = tk.IntVar(value=_DEFAULT_FONT_SIZE)
+        self._size_scale = tk.Scale(
+            scale_frame, from_=10, to=30, orient=tk.HORIZONTAL,
+            variable=self._size_scale_var,
+            bg=APP_BG, fg=TEXT_PRIMARY, troughcolor="#e2e8f0",
+            highlightthickness=0, sliderrelief="raised", length=300,
+            showvalue=False,
         )
-        self._scale_widget.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+        self._size_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self._size_scale.config(command=self._on_scale_change)
 
-        self._scale_value_label = tk.Label(
-            scale_frame, text=f"当前值: {_DEFAULT_FONT_SIZE}",
-            font=FONT_BODY, bg=APP_BG, fg=TEXT_PRIMARY, width=12, anchor="w",
-        )
-        self._scale_value_label.pack(side=tk.LEFT)
+        self._scale_value_lbl = tk.Label(scale_frame, text=f"当前值: {_DEFAULT_FONT_SIZE}",
+                                         font=FONT_BODY, bg=APP_BG, fg=TEXT_PRIMARY,
+                                         width=10, anchor="w")
+        self._scale_value_lbl.pack(side=tk.LEFT, padx=(8, 0))
+
+        self._preview_font = tkfont.Font(family="Microsoft YaHei UI", size=_DEFAULT_FONT_SIZE)
+        self._preview_lbl = tk.Label(scale_frame, text=_PREVIEW_TEXT, bg="white", fg="black",
+                                     font=self._preview_font, padx=8, pady=4,
+                                     relief="solid", bd=1)
+        self._preview_lbl.pack(side=tk.LEFT, padx=(12, 0))
 
         tk.Frame(parent, bg=APP_BG, height=4).pack()
 
@@ -178,32 +175,19 @@ class FontSettingsPanel(BaseSettingsPanel):
 
     # ── Event handlers ─────────────────────────────────────────────────────
 
-    def _on_radio_change(self):
-        """Radio button clicked — sync scale and apply."""
-        size = self._size_radio.get()
-        self._size_scale.set(size)
-        self._on_size_change()
-
     def _on_scale_change(self, value):
-        """Scale dragged — sync radio if value matches a preset, then apply."""
+        """Scale dragged — apply immediately."""
         size = int(float(value))
-        self._size_scale.set(size)
-        if size in (12, 14, 16):
-            self._size_radio.set(size)
+        self._size_scale_var.set(size)
         self._on_size_change()
 
     def _on_size_change(self):
-        """Called when default_font_size changes (radio or scale)."""
-        size = self._size_scale.get()
-        # Sync radio if value matches a preset
-        if size in (12, 14, 16):
-            self._size_radio.set(size)
-        # Update the value label
-        self._scale_value_label.config(text=f"当前值: {size}")
-        # Save immediately (not debounced) since this affects all roles
+        """Called when default_font_size changes via scale."""
+        size = self._size_scale_var.get()
+        self._scale_value_lbl.config(text=f"当前值: {size}")
+        self._preview_font.configure(size=size)
         if not self._loading:
             font_manager.save_default_font_size(size)
-        # Update all preview labels with new computed sizes
         self._update_all_previews()
 
     def _on_var_change(self, role: str):
@@ -247,9 +231,9 @@ class FontSettingsPanel(BaseSettingsPanel):
             dfs = int(app_cfg.get("default_font_size", _DEFAULT_FONT_SIZE))
         except Exception:
             dfs = _DEFAULT_FONT_SIZE
-        self._size_radio.set(dfs)
-        self._size_scale.set(dfs)
-        self._scale_value_label.config(text=f"当前值: {dfs}")
+        self._size_scale_var.set(dfs)
+        self._scale_value_lbl.config(text=f"当前值: {dfs}")
+        self._preview_font.configure(size=dfs)
 
         # Load per-role font_settings from user_config
         cfg = load_user().get("font_settings", {})
@@ -297,7 +281,6 @@ class FontSettingsPanel(BaseSettingsPanel):
         """Reset both default_font_size and all per-role settings."""
         font_manager.reset_all()
         font_manager.save_default_font_size(_DEFAULT_FONT_SIZE)
-        # Reload UI from defaults
         self._loading = True
         try:
             self._load()

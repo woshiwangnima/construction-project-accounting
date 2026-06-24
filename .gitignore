@@ -136,3 +136,6 @@ migration_backups/
 
 # Opencode config (do not commit)
 AGENTS.md
+
+# Opencode
+.opencode/

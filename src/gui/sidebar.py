@@ -252,7 +252,7 @@ class Sidebar(ttk.Frame):
         if project is None:
             return
         is_pinned = project.get("is_pinned", False)
-        pin_label = "\U0001f4cc 取消置顶" if is_pinned else "\U0001f4cc 置顶固定"
+        pin_label = "\U0001f4cc\ufe0f 取消置顶" if is_pinned else "\U0001f4cc\ufe0f 置顶固定"
         menu = tk.Menu(self, tearoff=0)
         # Group 1: 置顶固定 + 打开文件位置 (不修改存档)
         menu.add_command(
@@ -261,20 +261,20 @@ class Sidebar(ttk.Frame):
             accelerator=sm.get_accel("pin_project"),
         )
         menu.add_command(
-            label="\U0001f4c2 打开文件位置",
+            label="\U0001f4c2\ufe0f 打开文件位置",
             command=lambda: self._open_file_location(uuid),
             accelerator=sm.get_accel("open_location"),
         )
         menu.add_separator()
         # Group 2: 编辑项目 + 回滚项目 (修改存档)
         menu.add_command(
-            label="\u270f\ufe0f 编辑项目",
+            label="\U0001f58a\ufe0f 编辑项目",
             command=lambda: self._edit_project(uuid),
             state=self._project_edit_menu_state(project),
             accelerator=sm.get_accel("edit_project"),
         )
         menu.add_command(
-            label="\u23ea 回滚项目",
+            label="\U0001f519\ufe0f 回滚项目",
             command=lambda: self._open_rollback_dialog(uuid),
             state=self._project_rollback_menu_state(project),
             accelerator=sm.get_accel("rollback"),

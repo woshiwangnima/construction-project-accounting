@@ -2008,28 +2008,28 @@ class ContentArea(tk.Frame):
         menu = tk.Menu(self, tearoff=0)
         base_state = "normal" if self._editable else "disabled"
         # 置顶 / 上移 / 下移 / 沉底
-        menu.add_command(label="\U0001f4cc 置顶",
+        menu.add_command(label="\U0001f4cc\ufe0f 置顶",
                          command=lambda: self._move_category_top(cat),
                          state="normal" if idx > 0 and self._editable else "disabled")
-        menu.add_command(label="\u2b06\ufe0f 上移",
+        menu.add_command(label="\U0001f53c\ufe0f 上移",
                          command=lambda: self._move_category_up(cat),
                          state="normal" if idx > 0 and self._editable else "disabled",
                          accelerator=sm.get_accel("move_up"))
-        menu.add_command(label="\u2b07\ufe0f 下移",
+        menu.add_command(label="\U0001f53d\ufe0f 下移",
                          command=lambda: self._move_category_down(cat),
                          state="normal" if idx < len(cats) - 1 and self._editable else "disabled",
                          accelerator=sm.get_accel("move_down"))
-        menu.add_command(label="\u2b0b 沉底",
+        menu.add_command(label="\U0001f51a\ufe0f 沉底",
                          command=lambda: self._move_category_bottom(cat),
                          state="normal" if idx < len(cats) - 1 and self._editable else "disabled")
         menu.add_separator()
         edit_state = base_state
-        menu.add_command(label="\u270f\ufe0f 编辑分类",
+        menu.add_command(label="\U0001f58a\ufe0f 编辑分类",
                          command=lambda: self._edit_category_dialog(cat),
                          accelerator=sm.get_accel("edit_category"),
                          state=edit_state)
         menu.add_separator()
-        menu.add_command(label="\u2795 添加工作",
+        menu.add_command(label="\U0001f527\ufe0f 添加工作",
                          command=lambda: self._add_trade_item_for_category(cat),
                          state=edit_state)
         menu.add_separator()
@@ -2052,7 +2052,7 @@ class ContentArea(tk.Frame):
         from .shortcut_manager import shortcut_manager as sm
         menu = tk.Menu(self, tearoff=0)
         # 上半部分：不修改存档的操作
-        menu.add_command(label="\U0001f313 繁简切换",
+        menu.add_command(label="\U0001f313\ufe0f 繁简切换",
                          command=self._toggle_bill_display_mode,
                          accelerator=sm.get_accel("toggle_display"))
         menu.add_command(label="\U0001f5bc\ufe0f 导出图片",
@@ -2061,7 +2061,7 @@ class ContentArea(tk.Frame):
         menu.add_separator()
         # 下半部分：修改存档的操作（DONE 时禁用）
         add_state = "normal" if self._editable else "disabled"
-        menu.add_command(label="\u2795 添加记录",
+        menu.add_command(label="\U0001f4c4\ufe0f 添加记录",
                          command=self._add_bill,
                          state=add_state,
                          accelerator=sm.get_accel("add_record"))
@@ -2073,15 +2073,15 @@ class ContentArea(tk.Frame):
     def _show_worker_mode_menu(self, event):
         menu = tk.Menu(self, tearoff=0)
         edit_state = "normal" if self._editable else "disabled"
-        menu.add_command(label="\u2795 添加分类",
+        menu.add_command(label="\U0001f4c1\ufe0f 添加分类",
                          command=self._add_category,
                          state=edit_state)
         menu.add_separator()
-        menu.add_command(label="\U0001f504 恢复默认",
+        menu.add_command(label="\U0001f504\ufe0f 恢复默认",
                          command=self._restore_defaults,
                          state=edit_state)
         menu.add_separator()
-        menu.add_command(label="\U0001f9f9 清空分类",
+        menu.add_command(label="\U0001f9f9\ufe0f 清空分类",
                          command=self._clear_all_categories,
                          state=edit_state)
         try:
