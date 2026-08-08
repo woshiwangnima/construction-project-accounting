@@ -187,11 +187,10 @@ construction-project-accounting/
 │   ├── backup_inspector.py    # 存档检视（孤儿检测）
 │   ├── logger.py              # 日志模块
 │   └── utils.py               # 工具函数（atomic_write_json）
+│   ├── paths.py               # 资源目录与用户数据目录
+│   └── single_instance.py     # 单实例锁
 ├── assets/                    # 资源文件
 │   └── audio/                 # 语音播报音频文件（数字 + 运算符 WAV）
-├── projects/                  # 项目账本数据存储目录
-├── backups/                   # 自动备份文件目录
-├── logs/                      # 日志文件目录
 └── scripts/                   # 构建工具脚本
     ├── generate_manifest.py   # 生成 SHA256 file_manifest.json
     └── ziprelease.bat         # 打包 release zip
@@ -208,11 +207,12 @@ construction-project-accounting/
 1. 克隆或下载项目文件
 2. 安装依赖包：
    ```bash
-   pip install -r config/requirements.txt
+   python -m venv .venv
+   .venv\Scripts\python.exe -m pip install -r requirements.txt
    ```
 3. 运行应用程序：
    ```bash
-   python main.py
+   .venv\Scripts\python.exe main.py
    ```
 
 ### 一键启动
@@ -223,6 +223,10 @@ Windows 用户可以直接双击 `start.bat` 文件启动应用程序。
 build.bat
 ```
 输出：`dist/ConstructionAccounting/` 目录 + `dist/ConstructionAccounting-{版本号}.zip` 发布包。
+打包前请安装开发依赖：
+```bash
+.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+```
 
 ## 使用说明
 
@@ -236,8 +240,8 @@ build.bat
 
 ### 项目状态管理
 - 项目默认状态为「编辑中」
-- 点击顶部状态标签可切换：编辑中 → 进行中 → 编辑中
-- 已结账项目显示为灰色，数据只读
+- 点击顶部状态标签可切换：编辑中 ↔ 已完成
+- 已完成项目显示为灰色，数据只读
 
 ### 导入 / 导出项目
 - **导出**：选中项目后点击「导出项目」按钮，保存为 JSON 文件
@@ -364,9 +368,12 @@ build.bat
 - `recent_projects`：最近项目
 
 ### 环境变量
-- `CPA_PROJECTS_DIR`：项目数据目录（默认：./projects）
-- `CPA_BACKUPS_DIR`：备份文件目录（默认：./backups）
-- `CPA_CONFIG_DIR`：配置文件目录（默认：./config）
+- `CPA_DATA_DIR`：统一用户数据目录（Windows 默认：`%APPDATA%\ConstructionAccounting`）
+- `CPA_PROJECTS_DIR`：项目数据目录（默认：用户数据目录/projects）
+- `CPA_BACKUPS_DIR`：备份文件目录（默认：用户数据目录/backups）
+- `CPA_CONFIG_DIR`：可写配置目录（默认：用户数据目录/config）
+- `CPA_MIGRATION_BACKUPS_DIR`：迁移备份目录
+- `CPA_LOG_DIR`：日志目录（默认：用户数据目录/logs）
 - `CPA_LOG_LEVEL`：日志级别（DEBUG/INFO/WARNING/ERROR）
 
 ## 自动更新
@@ -378,18 +385,20 @@ build.bat
 4. 启动 apply_update.bat 完成替换和重启
 5. 更新源配置在 `src/updater.py` 中 `GITHUB_OWNER` / `GITHUB_REPO`
 
+源码运行模式不会执行自动更新；自动更新仅用于 PyInstaller 打包后的 Windows exe。
+
 ## 数据备份
 
-- 系统自动在 `backups/` 目录中创建项目备份
+- 系统自动在用户数据目录的 `backups/` 中创建项目备份
 - 备份策略：智能指纹比对，仅内容变化时备份
 - 序列化文件名：`p_{uuid}.{seq}.json`
 - 保留最近 10 个备份
 - 修改前自动备份当前状态
-- 迁移前自动备份到 `migration_backups/`
+- 迁移前自动备份到用户数据目录的 `migration_backups/`
 
 ## 日志文件
 
-应用程序运行日志保存在 `logs/app.log` 文件中，包含调试信息和操作记录。
+应用程序运行日志保存在用户数据目录的 `logs/app.log` 文件中，最多保留 3 个轮转文件。
 
 ## 许可证
 

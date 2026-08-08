@@ -21,6 +21,9 @@
 """
 
 
+from decimal import Decimal, InvalidOperation
+
+
 class MathParseError(Exception):
     pass
 
@@ -140,8 +143,8 @@ def _parse_factor(tokens: list, pos: int):
     if tok == "+":
         return _parse_factor(tokens, pos + 1)
     try:
-        return float(tok), pos + 1
-    except ValueError:
+        return Decimal(tok), pos + 1
+    except InvalidOperation:
         raise MathParseError(f"非法标记: {tok}")
 
 
@@ -171,7 +174,7 @@ def _parse_expr(tokens: list, pos: int = 0):
     return val, pos
 
 
-def evaluate_canonical(canonical: str) -> float:
+def evaluate_decimal(canonical: str) -> Decimal:
     """计算标准化公式的数值。"""
     tokens = _tokenize(canonical)
     if not tokens:
@@ -180,6 +183,11 @@ def evaluate_canonical(canonical: str) -> float:
     if pos != len(tokens):
         raise MathParseError(f"位置 {pos} 处意外标记: {tokens[pos]}")
     return val
+
+
+def evaluate_canonical(canonical: str) -> float:
+    """Evaluate a canonical expression, preserving the historical float API."""
+    return float(evaluate_decimal(canonical))
 
 
 def evaluate(user_input: str, mapping: dict | None = None) -> float:

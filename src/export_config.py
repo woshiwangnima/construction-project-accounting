@@ -17,8 +17,8 @@ class PriceListSettings:
 class TextColors:
     normal: str = "#000000"
     muted: str = "#888888"
-    formula: str = "#2b6cb0"
-    amount: str = "#c0392b"
+    formula: str = "#007aff"
+    amount: str = "#ff3b30"
 
 
 @dataclass
@@ -69,8 +69,8 @@ class ExportDefaults:
             text_colors=TextColors(
                 normal=tc.get("normal", "#000000"),
                 muted=tc.get("muted", "#888888"),
-                formula=tc.get("formula", "#2b6cb0"),
-                amount=tc.get("amount", "#c0392b"),
+                formula=tc.get("formula", "#007aff"),
+                amount=tc.get("amount", "#ff3b30"),
             ),
             bg_color=data.get("export_bg_color", "#ffffff"),
             strip_category=data.get("export_strip_category", True),

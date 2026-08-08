@@ -21,6 +21,16 @@ class MainInterface:
 
     def __init__(self, root):
         self.root = root
+        self._closed = False
+        # Nested update dialogs can reuse the same bounded shutdown path.
+        self.root._app_close_callback = self._on_close
+        self._save_after_id = None
+        self._layout_after_id = None
+        self._update_check_after_id = None
+        self._update_poll_after_id = None
+        self._update_checker = None
+        self._update_check_running = False
+        self._configure_bind_id = None
         self.root.title("施工项目记账程序")
         self.root.configure(bg=APP_BG)
         self.root.minsize(1000, 650)
@@ -47,6 +57,7 @@ class MainInterface:
             self._main_frame, self._on_project_select,
             editability=None,
             on_settings_closed=self._on_settings_closed,
+            on_app_close=self._on_close,
         )
         self.sidebar.configure(width=self._sidebar_width)
         self.sidebar.pack(side=tk.LEFT, fill=tk.Y)
@@ -86,8 +97,13 @@ class MainInterface:
         )
         self.content.pack(fill=tk.BOTH, expand=True)
         logger.debug("MainInterface: ContentArea created, packed expand=True")
+        self.sidebar._flush_saves = self.content.flush_project_save
 
-        self._toast_mgr = ToastNotification(self.root)
+        # ContentArea already owns a ToastNotification for this root. Reuse it
+        # instead of adding a second root <Destroy> binding.
+        self._toast_mgr = getattr(self.content, "_toast_mgr", None)
+        if self._toast_mgr is None:
+            self._toast_mgr = ToastNotification(self.root)
         self.content._toast_mgr = self._toast_mgr
         self.sidebar._toast_mgr = self._toast_mgr
 
@@ -101,10 +117,13 @@ class MainInterface:
         self._bind_shortcuts()
         self._bind_window_events()
         self._schedule_update_check()
-        self.root.after_idle(self._log_layout_state)
+        self._layout_after_id = self.root.after_idle(self._log_layout_state)
 
     def _log_layout_state(self) -> None:
         """启动后输出布局实测数据，用于排查宽度问题。"""
+        self._layout_after_id = None
+        if self._closed:
+            return
         try:
             win_w = self.root.winfo_width()
             frame_w = self._main_frame.winfo_width()
@@ -163,12 +182,11 @@ class MainInterface:
                 self.root.geometry(f"{w}x{h}+{x}+{y}")
                 self.root.update_idletasks()
 
-        cur = [self.root.winfo_width(), self.root.winfo_height()]
-        if cur[0] > 0 and cur[1] > 0 and sizes.get(self.WINDOW_KEY) != cur:
-            sizes[self.WINDOW_KEY] = cur
-            save_app(cfg)
+        # 不在此处写盘：启动时用户尚未调整窗口，<Configure> 的 200ms 去抖
+        # 处理器（_on_configure → _save_window_geometry）会在实际变化时保存。
 
     def _save_window_geometry(self):
+        self._save_after_id = None
         try:
             self.root.update_idletasks()
         except tk.TclError:
@@ -191,23 +209,104 @@ class MainInterface:
 
     def _bind_window_events(self):
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
-        self.root.bind("<Configure>", self._on_configure)
+        self._configure_bind_id = self.root.bind("<Configure>", self._on_configure)
 
     def _on_configure(self, event):
-        if event.widget is not self.root:
+        if self._closed or event.widget is not self.root:
             return
         logger.debug("[win_geom] Configure event: %dx%d, debounce 200ms",
                      event.width, event.height)
-        if getattr(self, "_save_after_id", None):
+        if self._save_after_id is not None:
             try:
                 self.root.after_cancel(self._save_after_id)
-            except tk.TclError:
+            except (tk.TclError, RuntimeError):
                 pass
         self._save_after_id = self.root.after(200, self._save_window_geometry)
 
+    def _cancel_after(self, attr_name: str) -> None:
+        callback_id = getattr(self, attr_name, None)
+        if callback_id is None:
+            return
+        try:
+            self.root.after_cancel(callback_id)
+        except (tk.TclError, RuntimeError):
+            pass
+        setattr(self, attr_name, None)
+
+    def _cleanup_window_bindings(self) -> None:
+        if self._configure_bind_id is not None:
+            try:
+                self.root.unbind("<Configure>", self._configure_bind_id)
+            except (tk.TclError, RuntimeError):
+                pass
+            self._configure_bind_id = None
+        try:
+            from .shortcut_manager import shortcut_manager
+            shortcut_manager._unbind_all()
+            if getattr(shortcut_manager, "_main", None) is self:
+                shortcut_manager._main = None
+            if getattr(shortcut_manager, "_root", None) is self.root:
+                shortcut_manager._root = None
+        except (AttributeError, tk.TclError, RuntimeError):
+            pass
+
     def _on_close(self):
-        self._save_window_geometry()
-        self.root.destroy()
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            for attr_name in (
+                "_save_after_id",
+                "_layout_after_id",
+                "_update_check_after_id",
+                "_update_poll_after_id",
+            ):
+                self._cancel_after(attr_name)
+            self._update_check_running = False
+            self._update_checker = None
+            self._cleanup_window_bindings()
+
+            content = getattr(self, "content", None)
+            if content is not None:
+                try:
+                    content.flush_project_save()
+                except Exception as exc:
+                    # Closing must not be held hostage by a failed or slow
+                    # persistence/cleanup hook.  The save queue has already
+                    # been given its bounded flush window.
+                    logger.warning("关闭前刷新项目保存队列失败: %s", exc)
+
+            try:
+                self._save_window_geometry()
+            except Exception as exc:
+                logger.warning("关闭时保存窗口尺寸失败: %s", exc)
+
+            for widget in (getattr(self, "_tooltip", None),
+                           getattr(self, "_toast_mgr", None)):
+                if widget is not None:
+                    try:
+                        widget.destroy()
+                    except (tk.TclError, RuntimeError) as exc:
+                        logger.debug("关闭提示组件时忽略异常: %s", exc)
+            try:
+                from ..voice import VoiceEngine
+                if VoiceEngine._instance is not None:
+                    VoiceEngine._instance.shutdown()
+            except Exception as exc:
+                logger.debug("关闭语音引擎时忽略异常: %s", exc)
+        except Exception:
+            # pythonw.exe has no console.  Log unexpected cleanup failures so
+            # they remain diagnosable, but never leave the window alive.
+            logger.exception("主窗口关闭清理出现异常")
+        finally:
+            try:
+                self.root.quit()
+            except Exception:
+                pass
+            try:
+                self.root.destroy()
+            except Exception as exc:
+                logger.exception("销毁主窗口时出现异常: %s", exc)
 
     def _bind_shortcuts(self):
         from .shortcut_manager import shortcut_manager
@@ -217,10 +316,8 @@ class MainInterface:
     def _apply_styles(self):
         s = ttk.Style()
         s.theme_use("clam")
-        s.configure("TCombobox", font=font_manager.get("body"))
-        s.configure("TEntry", font=font_manager.get("body"))
-        s.configure("Treeview", font=font_manager.get("tree"), rowheight=44)
-        s.configure("Treeview.Heading", font=font_manager.get("tree_header"))
+        from .ttk_theme import apply_ttk_theme
+        apply_ttk_theme()
 
     def _on_project_select(self, uuid):
         self.content.load_project(uuid)
@@ -236,23 +333,39 @@ class MainInterface:
         self.content.refresh_app_settings()
 
     def _schedule_update_check(self):
-        self.root.after(3000, self._do_update_check)
+        if self._closed or self._update_check_running:
+            return
+        if self._update_check_after_id is not None:
+            return
+        self._update_check_after_id = self.root.after(3000, self._do_update_check)
 
     def _do_update_check(self):
+        self._update_check_after_id = None
+        if self._closed or self._update_check_running:
+            return
+        self._update_check_running = True
         try:
             from .dialogs.update_dialog import UpdateDialog
             from ..updater import UpdateChecker
             checker = UpdateChecker()
+            self._update_checker = checker
             checker.run_async()
 
             def _poll():
+                self._update_poll_after_id = None
+                if self._closed or checker is not self._update_checker:
+                    return
                 if checker.is_done:
+                    self._update_check_running = False
+                    self._update_checker = None
                     if checker.result:
-                        UpdateDialog(self.root, checker.result)
+                        UpdateDialog(self.root, checker.result, on_close=self._on_close)
                 else:
-                    self.root.after(500, _poll)
-            self.root.after(500, _poll)
+                    self._update_poll_after_id = self.root.after(500, _poll)
+            self._update_poll_after_id = self.root.after(500, _poll)
         except Exception as e:
+            self._update_check_running = False
+            self._update_checker = None
             from ..logger import logger
             logger.warning("启动时检查更新失败: %s", e)
 

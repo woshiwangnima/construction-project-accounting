@@ -5,7 +5,9 @@ from tkinter import ttk
 from datetime import datetime
 
 from ..theme import (
-    APP_BG, ACCENT, ACCENT_HOVER, DANGER,
+    APP_BG, ACCENT, ACCENT_HOVER, DANGER, BORDER, HIGHLIGHT_BG,
+    ICON_BTN_BG, ICON_BTN_HOVER, ICON_BTN_ACTIVE, ROW_STRIPE,
+    SYSTEM_RED, TEXT_PRIMARY,
 )
 from ..font_manager import font_manager
 from .draggable_splitter import DraggableSplitter
@@ -25,21 +27,28 @@ def _make_btn(parent, text, cmd, style="primary", width=None):
     colors = {
         "primary": (ACCENT, "white"),
         "danger": (DANGER, "white"),
-        "secondary": ("#4a5568", "white"),
-        "ghost": ("#edf2f7", "#2d3748"),
-        "icon_btn": ("#f0f4f8", "#1a202c"),
+        "secondary": (APP_BG, TEXT_PRIMARY),
+        "ghost": (ROW_STRIPE, TEXT_PRIMARY),
+        "icon_btn": (ICON_BTN_BG, TEXT_PRIMARY),
     }
     bg, fg = colors.get(style, colors["primary"])
     if style == "icon_btn":
-        act_bg, act_fg = "#cbd5e0", "#1a202c"
+        act_bg, act_fg = ICON_BTN_ACTIVE, TEXT_PRIMARY
+    elif style in ("secondary", "ghost"):
+        act_bg, act_fg = ICON_BTN_HOVER, TEXT_PRIMARY
     else:
         act_bg, act_fg = ACCENT_HOVER, "white"
     btn = tk.Button(parent, text=text, command=cmd, font=font_manager.get("button"),
                     bg=bg, fg=fg, activebackground=act_bg, activeforeground=act_fg,
-                    relief="raised", bd=2, padx=20, pady=10, cursor="hand2")
+                    relief="flat", bd=0,
+                    padx=12 if style == "icon_btn" else 20,
+                    pady=10, cursor="hand2")
+    if style == "secondary":
+        btn.config(relief="flat", bd=0, highlightthickness=1,
+                   highlightbackground=BORDER, highlightcolor=BORDER)
     if width:
         btn.config(width=width)
-    hover_bg = ACCENT_HOVER if style == "primary" else ("#e2e8f0" if style in ("ghost", "icon_btn") else bg)
+    hover_bg = ACCENT_HOVER if style == "primary" else (ICON_BTN_HOVER if style in ("ghost", "icon_btn") else bg)
     btn.bind("<Enter>", lambda e: btn.config(bg=hover_bg))
     btn.bind("<Leave>", lambda e: btn.config(bg=bg))
     return btn
@@ -229,7 +238,7 @@ class RowActionButtons(tk.Frame):
             ("down", labels[1], on_move_down),
             ("delete", labels[2], on_delete),
         ):
-            fg = "#c0392b" if key == "delete" else "#2d3748"
+            fg = SYSTEM_RED if key == "delete" else TEXT_PRIMARY
             b = tk.Button(
                 self,
                 text=label,
@@ -238,14 +247,17 @@ class RowActionButtons(tk.Frame):
                 command=cmd,
                 bg="white",
                 fg=fg,
-                activebackground="#edf2f7",
+                activebackground=HIGHLIGHT_BG,
                 activeforeground=fg,
-                relief="groove",
-                bd=1,
+                relief="flat",
+                bd=0,
                 cursor="hand2",
                 padx=2,
                 pady=0,
             )
+            b.bind("<Enter>", lambda e, btn=b: btn.config(bg=ICON_BTN_HOVER)
+                   if str(btn["state"]) == "normal" else None)
+            b.bind("<Leave>", lambda e, btn=b: btn.config(bg="white"))
             b.pack(side=tk.LEFT, padx=1)
             self._buttons[key] = b
 

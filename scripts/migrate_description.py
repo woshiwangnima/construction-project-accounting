@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from src.utils import atomic_write_json
 from src.project_uuid import get_projects_dir, get_backups_dir
-from src.logger import logger
+from src.logger import logger, setup_logger
 
 
 def _ensure_description(filepath: str) -> bool:
@@ -28,6 +28,7 @@ def _ensure_description(filepath: str) -> bool:
 
 
 def main():
+    setup_logger()
     count = 0
     for base_dir in (get_projects_dir(), get_backups_dir()):
         if not os.path.isdir(base_dir):

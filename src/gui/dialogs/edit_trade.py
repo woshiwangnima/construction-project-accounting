@@ -32,11 +32,23 @@ def _save_edit_trade_size(w: int, h: int) -> None:
 
 
 class EditTradeItemDialog:
-    def __init__(self, parent, item, categories, units, project, ref, on_done, editable=True):
+    def __init__(
+        self,
+        parent,
+        item,
+        categories,
+        units,
+        project,
+        ref,
+        on_done,
+        editable=True,
+        persist=None,
+    ):
         self.item = item
         self.project = project
         self.ref = ref
         self.on_done = on_done
+        self._persist = persist
         self._editable = editable
 
         dialog = tk.Toplevel(parent)
@@ -45,7 +57,7 @@ class EditTradeItemDialog:
         dialog.grab_set()
         dialog.configure(bg=APP_BG)
         # 统一所有下拉框弹层（Listbox）字号：需在所有 Combobox 创建前设置才生效
-        dialog.option_add("*TCombobox*Listbox.font", ("Microsoft YaHei UI", 14))
+        dialog.option_add("*TCombobox*Listbox.font", font_manager.get_tuple("body"))
 
         cfg = load_app()
         sizes = (cfg.get("window_sizes") or {})
@@ -234,7 +246,10 @@ class EditTradeItemDialog:
         if self.item not in self.project.get("trade_items", []):
             self.project.setdefault("trade_items", []).append(self.item)
 
-        update_project(self.ref, self.project)
+        if self._persist is not None:
+            self._persist()
+        else:
+            update_project(self.ref, self.project)
         self._save_size_now()
         dialog.destroy()
         if self.on_done:

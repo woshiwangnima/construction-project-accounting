@@ -16,6 +16,14 @@ from ...logger import logger
 
 ROLLBACK_COLUMNS = ("序号", "上次修改时间", "有效性", "工作数量情况", "账单数")
 ROLLBACK_FULL_COLUMNS = ROLLBACK_COLUMNS + ("操作",)
+ROLLBACK_COLUMN_MIN_WIDTHS = {
+    "序号": 56,
+    "上次修改时间": 120,
+    "有效性": 110,
+    "工作数量情况": 120,
+    "账单数": 72,
+    "操作": 80,
+}
 
 
 def load_rollback_weights() -> dict:
@@ -51,10 +59,10 @@ class RollbackListView(ListViewBase):
             on_delete=on_delete_backup,
             bg=APP_BG,
             wrap_cols=ROLLBACK_COLUMNS,
+            initial_items=items,
+            column_min_widths=ROLLBACK_COLUMN_MIN_WIDTHS,
             **kwargs,
         )
-        self._items = items
-        self._render_rows()
 
     _VALIDITY_MAP = {
         VALIDITY_OK: "✔ 有效",
@@ -85,7 +93,7 @@ class RollbackListView(ListViewBase):
             cell = tk.Label(
                 row_frame, text=item.get(col_key, ""),
                 font=font_manager.get("body"), anchor="w", padx=6,
-                wraplength=80, justify="left",
+                wraplength=0, justify="left",
             )
             row_frame.grid_columnconfigure(col_idx, minsize=60, weight=0)
             cell.grid(row=0, column=col_idx, sticky="nsew", padx=2, pady=6)

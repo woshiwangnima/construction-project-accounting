@@ -3,8 +3,8 @@
 import tkinter as tk
 import webbrowser
 
-from .base import BaseSettingsPanel, register_section
-from ...theme import APP_BG, TEXT_PRIMARY
+from .base import BaseSettingsPanel, bind_responsive_wrap, register_section
+from ...theme import APP_BG, ACCENT, TEXT_PRIMARY
 from ...font_manager import font_manager
 from ...widgets import ScrollableFrame, _make_btn
 from ....config_loader import load_app
@@ -32,9 +32,11 @@ class AboutSettingsPanel(BaseSettingsPanel):
         REPO_URL = "https://github.com/woshiwangnima/construction-project-accounting"
         github_link = tk.Label(
             inner, text=f"GitHub: {REPO_URL}",
-            font=font_manager.get("small"), bg=APP_BG, fg="#2b6cb0", cursor="hand2",
+            font=font_manager.get("small"), bg=APP_BG, fg=ACCENT, cursor="hand2",
+            justify="left",
         )
-        github_link.pack(anchor="w", pady=(4, 8))
+        github_link.pack(anchor="w", fill=tk.X, pady=(4, 8))
+        bind_responsive_wrap(github_link, inner, padding=4)
         github_link.bind("<Button-1>", lambda e: webbrowser.open(REPO_URL))
 
         _make_btn(inner, "\u21bb 检查更新", self._check_update, "secondary").pack(anchor="w", pady=(4, 8))

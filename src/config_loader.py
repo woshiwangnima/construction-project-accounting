@@ -1,12 +1,13 @@
 import json
 import os
+import copy
+from pathlib import Path
 
 from .logger import logger
+from .paths import get_config_dir, get_resource_config_dir
 from .utils import atomic_write_json
 from .versioning import APP_VERSION, CURRENT_SCHEMA_VERSION
 from .symbol_mapping import DEFAULT_SYMBOL_MAPPING
-
-CONFIG_DIR = os.environ.get("CPA_CONFIG_DIR", os.path.join(os.path.dirname(os.path.dirname(__file__)), "config"))
 
 _DEFAULT_CONFIGS = {
     "app_config.json": {
@@ -31,8 +32,8 @@ _DEFAULT_CONFIGS = {
             "text_colors": {
                 "normal": "#000000",
                 "muted": "#888888",
-                "formula": "#2b6cb0",
-                "amount": "#c0392b",
+                "formula": "#007aff",
+                "amount": "#ff3b30",
             },
             "export_bg_color": "#ffffff",
             "export_strip_category": True,
@@ -72,9 +73,9 @@ _DEFAULT_CONFIGS = {
         },
         # 列表中单条数据选中后的高亮底色。
         # 覆盖范围：账单管理（BillListView）+ 工作类型（worker Treeview）。
-        # 选 "#90cdf4" 是 Tailwind blue-300，明显但 #1a202c 黑字仍清晰可读。
-        "selection_highlight_color": "#90cdf4",
-        "bill_reviewed_row_color": "#e6fffa",
+        # Apple 风格系统蓝 #007aff 淡底变体。
+        "selection_highlight_color": "#007aff",
+        "bill_reviewed_row_color": "#e8f8ee",
         "rollback_column_widths": {
             "序号": 0.07,
             "上次修改时间": 0.17,
@@ -113,23 +114,34 @@ _DEFAULT_CONFIGS = {
 def _safe_path(filename: str) -> str:
     if os.sep in filename or "/" in filename or ".." in filename:
         raise ValueError(f"Invalid config filename: {filename}")
-    return os.path.join(CONFIG_DIR, filename)
+    return str(get_config_dir() / filename)
 
 
 def load_json(filename: str) -> dict:
     path = _safe_path(filename)
+    if not os.path.isfile(path) and filename == "app_config.json":
+        resource_path = get_resource_config_dir() / filename
+        if resource_path.is_file():
+            path = str(resource_path)
     try:
         with open(path, encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+        if not isinstance(data, dict):
+            raise ValueError("JSON 根节点必须是对象")
+        return data
     except FileNotFoundError:
-        logger.warning("Config file not found: %s, using defaults", filename)
-        return _DEFAULT_CONFIGS.get(filename, {})
-    except json.JSONDecodeError as e:
+        log = logger.debug if filename == "user_config.json" else logger.warning
+        log("Config file not found: %s, using defaults", filename)
+        return copy.deepcopy(_DEFAULT_CONFIGS.get(filename, {}))
+    except (json.JSONDecodeError, ValueError) as e:
         logger.error("Invalid JSON in %s: %s", filename, e)
-        return _DEFAULT_CONFIGS.get(filename, {})
+        return copy.deepcopy(_DEFAULT_CONFIGS.get(filename, {}))
     except OSError as e:
         logger.error("Failed to read config %s: %s", filename, e)
-        return _DEFAULT_CONFIGS.get(filename, {})
+        return copy.deepcopy(_DEFAULT_CONFIGS.get(filename, {}))
+
+
+_app_cache: dict | None = None
 
 
 def load_app():
@@ -137,15 +149,19 @@ def load_app():
 
     这样既保证所有默认键都存在，又保留用户自定义值；
     调用 save_app() 时不会丢失 _DEFAULT_CONFIGS 里的字段。
+    结果缓存；save_app() 会使缓存失效。
     """
-    defaults = _DEFAULT_CONFIGS.get("app_config.json", {}).copy()
-    file_data = load_json("app_config.json")
-    return _deep_merge(defaults, file_data)
+    global _app_cache
+    if _app_cache is None:
+        defaults = copy.deepcopy(_DEFAULT_CONFIGS.get("app_config.json", {}))
+        file_data = load_json("app_config.json")
+        _app_cache = _deep_merge(defaults, file_data)
+    return copy.deepcopy(_app_cache)
 
 
 def _deep_merge(base: dict, overlay: dict) -> dict:
     """递归合并两个 dict：overlay 的值覆盖 base，嵌套 dict 递归合并。"""
-    result = base.copy()
+    result = copy.deepcopy(base)
     for key, val in overlay.items():
         if key in result and isinstance(result[key], dict) and isinstance(val, dict):
             result[key] = _deep_merge(result[key], val)
@@ -155,7 +171,8 @@ def _deep_merge(base: dict, overlay: dict) -> dict:
 
 
 def load_user():
-    return load_json("user_config.json")
+    defaults = copy.deepcopy(_DEFAULT_CONFIGS.get("user_config.json", {}))
+    return _deep_merge(defaults, load_json("user_config.json"))
 
 
 def save_user(data: dict):
@@ -164,15 +181,7 @@ def save_user(data: dict):
 
 
 def save_app(data: dict):
+    global _app_cache
+    _app_cache = None
     path = _safe_path("app_config.json")
-    try:
-        import traceback
-        caller = traceback.extract_stack(limit=2)[0]
-        fname = caller.filename.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
-        logger.debug("[save_app] %s:%s cat=%s side=%s",
-                     fname, caller.lineno,
-                     data.get("category_list_width_ratio", "-"),
-                     data.get("sidebar_width_ratio", "-"))
-    except Exception:
-        pass
     atomic_write_json(path, data)

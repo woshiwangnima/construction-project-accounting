@@ -6,8 +6,8 @@
 
 import tkinter as tk
 
-from .base import BaseSettingsPanel, register_section
-from ...theme import APP_BG, TEXT_PRIMARY, TEXT_SECONDARY
+from .base import BaseSettingsPanel, bind_responsive_wrap, register_section
+from ...theme import APP_BG, SEPARATOR, TEXT_PRIMARY, TEXT_SECONDARY
 from ...font_manager import font_manager
 from ...widgets import ScrollableFrame, _make_btn
 from ....config_loader import load_app, save_app
@@ -33,7 +33,7 @@ class VoiceSettingsPanel(BaseSettingsPanel):
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w", pady=(0, 12))
         # 启用开关
         self._enabled_var = tk.BooleanVar()
-        tk.Checkbutton(
+        enabled_cb = tk.Checkbutton(
             inner,
             text="启用语音播报（按键音 + 公式朗读）",
             variable=self._enabled_var,
@@ -42,7 +42,9 @@ class VoiceSettingsPanel(BaseSettingsPanel):
             activebackground=APP_BG,
             anchor="w",
             command=self._on_enabled_change,
-        ).pack(anchor="w", pady=(0, 12), fill=tk.X)
+        )
+        enabled_cb.pack(anchor="w", pady=(0, 12), fill=tk.X)
+        bind_responsive_wrap(enabled_cb, inner, padding=4)
 
         # 音量
         self._build_section(
@@ -70,9 +72,12 @@ class VoiceSettingsPanel(BaseSettingsPanel):
         try_frame.pack(fill=tk.X, pady=(20, 0))
         _make_btn(try_frame, "▶ 试播示例", self._on_preview, "secondary").pack(side=tk.LEFT)
         self._preview_text = tk.StringVar()
-        tk.Label(inner, textvariable=self._preview_text, font=font_manager.get("small"),
-                 bg=APP_BG, fg=TEXT_SECONDARY, justify="left",
-                 wraplength=520).pack(anchor="w", pady=(8, 0))
+        self._preview_text_label = tk.Label(
+            inner, textvariable=self._preview_text, font=font_manager.get("small"),
+            bg=APP_BG, fg=TEXT_SECONDARY, justify="left",
+        )
+        self._preview_text_label.pack(anchor="w", pady=(8, 0), fill=tk.X)
+        bind_responsive_wrap(self._preview_text_label, inner, padding=4)
 
     def _build_section(self, parent, title, hint, wrap=False):
         header = tk.Frame(parent, bg=APP_BG)
@@ -81,17 +86,16 @@ class VoiceSettingsPanel(BaseSettingsPanel):
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w")
         lbl = tk.Label(header, text=hint, font=font_manager.get("small"),
                        bg=APP_BG, fg=TEXT_SECONDARY, justify="left")
-        if wrap:
-            lbl.config(wraplength=380)
-        lbl.pack(anchor="w")
+        lbl.pack(anchor="w", fill=tk.X)
+        bind_responsive_wrap(lbl, header, padding=4, minimum=180)
 
     def _make_scale_row(self, container, frm, to, suffix=""):
         row = tk.Frame(container, bg=APP_BG)
         row.pack(fill=tk.X, pady=(2, 0))
         scale = tk.Scale(
             row, from_=frm, to=to, orient=tk.HORIZONTAL,
-            bg=APP_BG, fg=TEXT_PRIMARY, troughcolor="#e2e8f0",
-            highlightthickness=0, sliderrelief="raised", length=300,
+            bg=APP_BG, fg=TEXT_PRIMARY, troughcolor=SEPARATOR,
+            highlightthickness=0, sliderrelief="flat", length=180,
             showvalue=False,
         )
         scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -137,6 +141,11 @@ class VoiceSettingsPanel(BaseSettingsPanel):
     def flush_pending(self) -> None:
         get_voice().stop()
         super().flush_pending()
+
+    def on_hide(self) -> None:
+        # Leaving the panel should stop a preview, but must not force a disk
+        # write in the navigation callback.
+        get_voice().stop()
 
     def _on_preview(self):
         get_voice().stop()

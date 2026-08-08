@@ -3,8 +3,8 @@
 import tkinter as tk
 from tkinter import ttk
 
-from .base import BaseSettingsPanel, register_section
-from ...theme import APP_BG, TEXT_PRIMARY, TEXT_SECONDARY, FONT_BODY, FONT_SMALL, FONT_BODY_BOLD
+from .base import BaseSettingsPanel, bind_responsive_wrap, register_section
+from ...theme import APP_BG, ROW_STRIPE, SEPARATOR, TEXT_PRIMARY, TEXT_SECONDARY, FONT_BODY, FONT_SMALL, FONT_BODY_BOLD
 from ...widgets import ScrollableFrame, _make_btn
 from ...shortcut_manager import shortcut_manager, DEFAULT_SHORTCUTS, ACTION_GROUPS
 from ....logger import logger
@@ -29,12 +29,15 @@ class ShortcutSettingsPanel(BaseSettingsPanel):
         # ── Title + subtitle ─────────────────────────────────────────────
         tk.Label(inner, text=f"{self.section_icon} 快捷键设置", font=FONT_BODY_BOLD,
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w")
-        tk.Label(inner, text="修改后自动保存，立即生效。",
-                 font=FONT_SMALL, bg=APP_BG, fg=TEXT_SECONDARY).pack(anchor="w", pady=(2, 8))
+        hint = tk.Label(inner, text="修改后自动保存，立即生效。",
+                        font=FONT_SMALL, bg=APP_BG, fg=TEXT_SECONDARY,
+                        justify="left")
+        hint.pack(anchor="w", fill=tk.X, pady=(2, 8))
+        bind_responsive_wrap(hint, inner, padding=4)
 
         # ── Action groups ────────────────────────────────────────────────
         for group_name, action_ids in ACTION_GROUPS:
-            tk.Frame(inner, bg="#e2e8f0", height=1).pack(fill=tk.X, pady=12)
+            tk.Frame(inner, bg=SEPARATOR, height=1).pack(fill=tk.X, pady=12)
             tk.Label(inner, text=group_name, font=FONT_BODY_BOLD,
                      bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w")
 
@@ -44,14 +47,17 @@ class ShortcutSettingsPanel(BaseSettingsPanel):
                 self._build_action_row(inner, action_id)
 
         # ── Mouse operation hints ────────────────────────────────────────
-        tk.Frame(inner, bg="#e2e8f0", height=1).pack(fill=tk.X, pady=12)
+        tk.Frame(inner, bg=SEPARATOR, height=1).pack(fill=tk.X, pady=12)
         tk.Label(inner, text="鼠标操作", font=FONT_BODY_BOLD,
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w")
-        tk.Label(inner, text="  点击已选中行 → 取消选中",
-                 font=FONT_SMALL, bg=APP_BG, fg=TEXT_SECONDARY).pack(anchor="w", padx=8, pady=(2, 4))
+        mouse_hint = tk.Label(inner, text="  点击已选中行 → 取消选中",
+                              font=FONT_SMALL, bg=APP_BG, fg=TEXT_SECONDARY,
+                              justify="left")
+        mouse_hint.pack(anchor="w", fill=tk.X, padx=8, pady=(2, 4))
+        bind_responsive_wrap(mouse_hint, inner, padding=20)
 
         # ── Bottom: reset button ─────────────────────────────────────────
-        tk.Frame(inner, bg="#e2e8f0", height=1).pack(fill=tk.X, pady=12)
+        tk.Frame(inner, bg=SEPARATOR, height=1).pack(fill=tk.X, pady=12)
         btn_frame = tk.Frame(inner, bg=APP_BG)
         btn_frame.pack(fill=tk.X, pady=(4, 8))
         _make_btn(btn_frame, "恢复默认", self._on_reset, "secondary").pack(side=tk.LEFT)
@@ -63,19 +69,25 @@ class ShortcutSettingsPanel(BaseSettingsPanel):
         row = tk.Frame(parent, bg=APP_BG)
         row.pack(fill=tk.X, padx=8, pady=(4, 2))
 
-        # Action name (left)
-        tk.Label(row, text=f"  {defaults['label']}", font=FONT_BODY,
-                 bg=APP_BG, fg=TEXT_SECONDARY, width=12, anchor="w").pack(side=tk.LEFT)
+        # Keep the action name on its own line so narrow windows do not clip it.
+        action_label = tk.Label(row, text=f"  {defaults['label']}", font=FONT_BODY,
+                                bg=APP_BG, fg=TEXT_SECONDARY, anchor="w",
+                                justify="left")
+        action_label.pack(fill=tk.X, anchor="w")
+        bind_responsive_wrap(action_label, row, padding=16)
+
+        controls = tk.Frame(row, bg=APP_BG)
+        controls.pack(fill=tk.X, pady=(2, 0))
 
         # Accelerator display (center)
-        accel_label = tk.Label(row, text=defaults["accel"], font=FONT_BODY,
-                               bg="#f7fafc", fg=TEXT_PRIMARY, width=18, anchor="center",
-                               relief="groove", bd=1, padx=6, pady=2)
-        accel_label.pack(side=tk.LEFT, padx=(8, 8))
+        accel_label = tk.Label(controls, text=defaults["accel"], font=FONT_BODY,
+                               bg=ROW_STRIPE, fg=TEXT_PRIMARY, width=18, anchor="center",
+                               relief="flat", bd=0, padx=6, pady=2)
+        accel_label.pack(side=tk.LEFT, padx=(0, 8))
         self._accel_labels[action_id] = accel_label
 
         # Rebind button (right)
-        _make_btn(row, "重新绑定", lambda aid=action_id: self._rebind(aid),
+        _make_btn(controls, "重新绑定", lambda aid=action_id: self._rebind(aid),
                   "ghost").pack(side=tk.LEFT)
 
     # ── Rebind dialog ────────────────────────────────────────────────────
@@ -89,8 +101,11 @@ class ShortcutSettingsPanel(BaseSettingsPanel):
         dlg.configure(bg=APP_BG)
         dlg.geometry("320x120")
 
-        tk.Label(dlg, text=f"为「{shortcut_manager.get_label(action_id)}」设置新快捷键",
-                 font=FONT_BODY, bg=APP_BG, fg=TEXT_PRIMARY).pack(pady=(16, 8))
+        title = tk.Label(dlg, text=f"为「{shortcut_manager.get_label(action_id)}」设置新快捷键",
+                         font=FONT_BODY, bg=APP_BG, fg=TEXT_PRIMARY,
+                         justify="left")
+        title.pack(fill=tk.X, padx=16, pady=(16, 8))
+        bind_responsive_wrap(title, dlg, padding=32, minimum=240)
         hint = tk.Label(dlg, text="请按下新的快捷键组合...",
                         font=FONT_SMALL, bg=APP_BG, fg=TEXT_SECONDARY)
         hint.pack()

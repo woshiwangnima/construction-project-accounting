@@ -1,114 +1,196 @@
-"""批量更新 user_config、项目文件、备份文件中的 app_version 字段。
+"""Update the canonical application version and optional runtime JSON data.
 
-用法：
-    python scripts/bump_app_version.py <新版本号>
+Usage:
+    python scripts/bump_app_version.py 1.0.2
+    python scripts/bump_app_version.py 1.0.2 --include-data --data-dir C:\\Users\\me\\AppData
 
-示例：
-    python scripts/bump_app_version.py 1.0.1
+The source constant and bundled app configuration are always updated. Runtime
+projects, backups, and user configuration are changed only when explicitly
+requested with ``--include-data``.
 """
+from __future__ import annotations
+
+import argparse
 import json
 import os
+import re
 import sys
+import tempfile
 from pathlib import Path
 
-# 项目根目录（scripts/ 的上一级）
-ROOT = Path(__file__).resolve().parent.parent
 
-CONFIG_DIR = ROOT / "config"
-PROJECTS_DIR = ROOT / "projects"
-BACKUPS_DIR = ROOT / "backups"
+ROOT = Path(__file__).resolve().parent.parent
+VERSION_FILE = ROOT / "src" / "versioning.py"
+RESOURCE_CONFIG = ROOT / "config" / "app_config.json"
+VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$")
+SOURCE_VERSION_RE = re.compile(
+    r"(?m)^(?P<prefix>APP_VERSION\s*=\s*)(?P<quote>[\"'])(?P<version>[^\"']+)(?P=quote)(?P<suffix>\s*)$"
+)
+
+
+def validate_version(version: str) -> None:
+    if not VERSION_RE.fullmatch(version):
+        raise ValueError(f"invalid semantic version: {version!r}")
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        temporary = None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def update_source_version(new_version: str) -> tuple[str, str] | None:
+    text = VERSION_FILE.read_text(encoding="utf-8")
+    matches = list(SOURCE_VERSION_RE.finditer(text))
+    if len(matches) != 1:
+        raise RuntimeError(f"expected one APP_VERSION assignment in {VERSION_FILE}")
+
+    match = matches[0]
+    old_version = match.group("version")
+    if old_version == new_version:
+        return None
+
+    replacement = (
+        f"{match.group('prefix')}\"{new_version}\"{match.group('suffix')}"
+    )
+    _atomic_write_text(VERSION_FILE, text[:match.start()] + replacement + text[match.end():])
+    return old_version, new_version
 
 
 def update_version_in_file(path: Path, new_version: str) -> tuple[str, str] | None:
-    """读取 JSON 文件，更新 app_version 字段，写回。
-
-    返回 (old_version, new_version) 或 None（无 app_version 字段时）。
-    """
-    with path.open(encoding="utf-8") as f:
-        data = json.load(f)
-
-    if not isinstance(data, dict):
+    with path.open(encoding="utf-8") as handle:
+        data = json.load(handle)
+    if not isinstance(data, dict) or "app_version" not in data:
         return None
 
-    old = data.get("app_version")
-    if old is None:
-        return None
-
-    if old == new_version:
+    old_version = str(data["app_version"])
+    if old_version == new_version:
         return None
 
     data["app_version"] = new_version
-
-    # 写回（先 tmp 再 rename，保证原子性）
-    tmp = path.with_suffix(".tmp")
-    with tmp.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-        f.write("\n")
-    os.replace(str(tmp), str(path))
-
-    return (str(old), new_version)
+    serialized = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+    _atomic_write_text(path, serialized)
+    return old_version, new_version
 
 
 def scan_directory(directory: Path, new_version: str, label: str) -> int:
-    """扫描目录下所有 .json 文件，更新 app_version。返回更新数量。"""
     if not directory.is_dir():
-        print(f"  [跳过] {label} 目录不存在: {directory}")
+        print(f"  [skip] {label}: directory does not exist: {directory}")
         return 0
 
     count = 0
     for path in sorted(directory.glob("*.json")):
         if not path.is_file():
             continue
-        result = update_version_in_file(path, new_version)
+        try:
+            result = update_version_in_file(path, new_version)
+        except (OSError, json.JSONDecodeError, UnicodeError) as exc:
+            print(f"  [error] {path}: {exc}", file=sys.stderr)
+            continue
         if result is None:
             continue
-        old, new = result
-        print(f"  [更新] {path.relative_to(ROOT)}  {old} -> {new}")
+        old_version, _ = result
+        print(f"  [updated] {path}: {old_version} -> {new_version}")
         count += 1
-
     return count
 
 
-def main():
-    if len(sys.argv) < 2:
-        print("用法: python scripts/bump_app_version.py <新版本号>")
-        print("示例: python scripts/bump_app_version.py 1.0.1")
-        sys.exit(1)
+def _default_data_dir() -> Path:
+    configured = os.environ.get("CPA_DATA_DIR", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    if os.name == "nt":
+        root = os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA")
+        if root:
+            return Path(root) / "ConstructionAccounting"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "ConstructionAccounting"
+    return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "ConstructionAccounting"
 
-    new_version = sys.argv[1]
-    print(f"目标版本: {new_version}")
-    print(f"项目根目录: {ROOT}")
-    print()
 
+def update_runtime_data(new_version: str, data_dir: Path) -> int:
     total = 0
+    config_dir = Path(os.environ.get("CPA_CONFIG_DIR", data_dir / "config"))
+    projects_dir = Path(os.environ.get("CPA_PROJECTS_DIR", data_dir / "projects"))
+    backups_dir = Path(os.environ.get("CPA_BACKUPS_DIR", data_dir / "backups"))
 
-    # 1. user_config.json
-    print("── user_config ──")
-    uc = CONFIG_DIR / "user_config.json"
-    if uc.is_file():
-        result = update_version_in_file(uc, new_version)
-        if result:
-            old, new = result
-            print(f"  [更新] config/user_config.json  {old} -> {new}")
-            total += 1
+    user_config = config_dir / "user_config.json"
+    if user_config.is_file():
+        try:
+            result = update_version_in_file(user_config, new_version)
+        except (OSError, json.JSONDecodeError, UnicodeError) as exc:
+            print(f"  [error] {user_config}: {exc}", file=sys.stderr)
         else:
-            print(f"  [跳过] config/user_config.json  已是 {new_version} 或无 app_version 字段")
+            if result:
+                print(f"  [updated] {user_config}: {result[0]} -> {new_version}")
+                total += 1
+
+    total += scan_directory(projects_dir, new_version, "projects")
+    total += scan_directory(backups_dir, new_version, "backups")
+    return total
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("version", help="new semantic version, for example 1.0.2")
+    parser.add_argument(
+        "--include-data",
+        action="store_true",
+        help="also update user config, projects, and backups in the runtime data directory",
+    )
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        help="runtime data directory used with --include-data (defaults to CPA_DATA_DIR/OS default)",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    try:
+        validate_version(args.version)
+        source_result = update_source_version(args.version)
+        resource_result = update_version_in_file(RESOURCE_CONFIG, args.version)
+    except (OSError, UnicodeError, json.JSONDecodeError, RuntimeError, ValueError) as exc:
+        print(f"Version update failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Target version: {args.version}")
+    if source_result:
+        print(f"  [updated] {VERSION_FILE}: {source_result[0]} -> {args.version}")
     else:
-        print(f"  [跳过] config/user_config.json  文件不存在")
-    print()
+        print(f"  [skip] {VERSION_FILE}: already {args.version}")
+    if resource_result:
+        print(f"  [updated] {RESOURCE_CONFIG}: {resource_result[0]} -> {args.version}")
+    else:
+        print(f"  [skip] {RESOURCE_CONFIG}: already {args.version}")
 
-    # 2. projects/
-    print("── projects ──")
-    total += scan_directory(PROJECTS_DIR, new_version, "projects")
-    print()
-
-    # 3. backups/
-    print("── backups ──")
-    total += scan_directory(BACKUPS_DIR, new_version, "backups")
-    print()
-
-    print(f"完成，共更新 {total} 个文件。")
+    if args.include_data:
+        data_dir = args.data_dir.expanduser() if args.data_dir else _default_data_dir()
+        print(f"Runtime data: {data_dir}")
+        total = update_runtime_data(args.version, data_dir)
+        print(f"Updated runtime files: {total}")
+    else:
+        print("Runtime data skipped; pass --include-data to update it.")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

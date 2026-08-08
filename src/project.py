@@ -28,6 +28,7 @@ class Project:
     worker_column_widths: dict = field(default_factory=dict)
     view_state: dict = field(default_factory=dict)
     bill_display_mode: str = "complex"
+    bill_visible_columns: list = field(default_factory=list)
     is_pinned: bool = False
     app_version: str = APP_VERSION
     schema_version: int = CURRENT_SCHEMA_VERSION
@@ -68,6 +69,7 @@ class Project:
             worker_column_widths=dict(d.get("worker_column_widths", {})),
             view_state=dict(d.get("view_state", {})),
             bill_display_mode=d.get("bill_display_mode", "complex"),
+            bill_visible_columns=list(d.get("bill_visible_columns", [])),
             is_pinned=d.get("is_pinned", False),
             app_version=str(d.get("app_version", APP_VERSION)),
             schema_version=schema_version_of(d),
@@ -77,6 +79,17 @@ class Project:
         self.category_order = self._coerce_category_order(self.category_order)
         self._ensure_categories_for_trade_items()
         self._sync_trade_item_category_ids()
+        bills = []
+        for b in self.bills:
+            if b is None:
+                continue
+            if hasattr(b, "to_dict"):
+                bills.append(b.to_dict())
+            elif isinstance(b, dict):
+                bills.append(b)
+            else:
+                # 结构未知的非法账单：跳过而非让保存崩溃，避免整条编辑丢失
+                self.bills_serialization_skipped = getattr(self, "bills_serialization_skipped", 0) + 1
         return {
             "app_version": APP_VERSION,
             "schema_version": self.schema_version,
@@ -91,11 +104,12 @@ class Project:
             "project_date_end": self.project_date_end,
             "category_order": [c.to_dict() for c in self.category_order],
             "trade_items": [self._trade_item_to_dict(t) for t in self.trade_items],
-            "bills": [b.to_dict() if hasattr(b, "to_dict") else dict(b) for b in self.bills],
+            "bills": bills,
             "bill_column_widths": list(self.bill_column_widths),
             "worker_column_widths": dict(self.worker_column_widths),
             "view_state": dict(self.view_state),
             "bill_display_mode": self.bill_display_mode,
+            "bill_visible_columns": list(self.bill_visible_columns),
             "is_pinned": self.is_pinned,
         }
 

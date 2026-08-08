@@ -2,23 +2,24 @@
 
 import tkinter as tk
 
-from ..theme import TEXT_PRIMARY, ACCENT
+from ..theme import TABLE_HEADER_BG, TABLE_HEADER_FG, TEXT_SECONDARY, TEXT_TERTIARY, ACCENT
 from ..font_manager import font_manager
 from ...logger import logger
 
 
 class TableHeader(tk.Frame):
     HANDLE_WIDTH = 4
-    HANDLE_BG = "#a0aec0"
-    HANDLE_HOVER_BG = "#4a5568"
+    HANDLE_BG = TEXT_TERTIARY
+    HANDLE_HOVER_BG = TEXT_SECONDARY
 
     def __init__(self, parent, columns, pixels, header_click_map=None,
-                 on_drag_start=None):
-        super().__init__(parent, bg="#e8e8e8")
+                 on_drag_start=None, display_names=None):
+        super().__init__(parent, bg=TABLE_HEADER_BG)
         self._columns = columns
         self._pixels = pixels
         self._header_click_map = header_click_map or {}
         self._on_drag_start = on_drag_start
+        self._display_names = display_names or {}
         self._cells: dict[str, tk.Frame] = {}
         self._labels: dict[str, tk.Label] = {}
         self._build()
@@ -27,9 +28,9 @@ class TableHeader(tk.Frame):
     def _build(self):
         for idx, col in enumerate(self._columns):
             self.grid_columnconfigure(idx, minsize=self._pixels.get(col, 80))
-            cell = tk.Frame(self, bg="#e8e8e8")
-            lbl = tk.Label(cell, text=col, font=font_manager.get("body_bold"), bg="#e8e8e8",
-                           fg=TEXT_PRIMARY, anchor="w", padx=8, wraplength=0)
+            cell = tk.Frame(self, bg=TABLE_HEADER_BG)
+            lbl = tk.Label(cell, text=self._display_names.get(col, col), font=font_manager.get("body_bold"), bg=TABLE_HEADER_BG,
+                           fg=TABLE_HEADER_FG, anchor="w", padx=8, wraplength=0)
             lbl.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             if idx < len(self._columns) - 1:
                 handle = tk.Frame(cell, bg=self.HANDLE_BG,
@@ -61,11 +62,11 @@ class TableHeader(tk.Frame):
         lbl = self._labels.get(col)
         if not lbl:
             return
-        text = col
+        text = self._display_names.get(col, col)
         if direction == "asc":
-            text = "▲ " + col
+            text = "▲ " + text
         elif direction == "desc":
-            text = "▼ " + col
+            text = "▼ " + text
         lbl.config(text=text)
 
     def refresh_widths(self, pixels: dict[str, int]):

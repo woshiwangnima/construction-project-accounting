@@ -7,8 +7,13 @@ UI 来自原 ExportSettingsDialog，重构为 ttk.Frame 面板。
 import tkinter as tk
 from tkinter import ttk, colorchooser
 
-from .base import BaseSettingsPanel, register_section
-from ...theme import APP_BG, TEXT_PRIMARY
+from .base import (
+    BaseSettingsPanel,
+    bind_responsive_wrap,
+    normalize_hex_color,
+    register_section,
+)
+from ...theme import APP_BG, ROW_STRIPE, TEXT_PRIMARY
 from ...font_manager import font_manager
 from ...widgets import ScrollableFrame, _make_btn
 from ....config_loader import load_user, save_user, load_app
@@ -128,17 +133,18 @@ class ExportSettingsPanel(BaseSettingsPanel):
         self._align_price_list.set(ec.price_list_settings.align_columns)
         self._price_name_width.set(ec.price_list_settings.name_width)
         self._price_value_width.set(ec.price_list_settings.price_width)
-        self._normal_color.set(ec.text_colors.normal)
-        self._muted_color.set(ec.text_colors.muted)
-        self._formula_color.set(ec.text_colors.formula)
-        self._amount_color.set(ec.text_colors.amount)
+        defaults = ExportDefaults()
+        self._normal_color.set(normalize_hex_color(ec.text_colors.normal, defaults.text_colors.normal))
+        self._muted_color.set(normalize_hex_color(ec.text_colors.muted, defaults.text_colors.muted))
+        self._formula_color.set(normalize_hex_color(ec.text_colors.formula, defaults.text_colors.formula))
+        self._amount_color.set(normalize_hex_color(ec.text_colors.amount, defaults.text_colors.amount))
         self._show_date.set(ec.show_project_date)
         self._show_project_created_at.set(ec.show_project_created_at)
         self._show_record_time.set(ec.show_record_time)
         self._show_export_time.set(ec.show_export_time)
         self._strip_cat.set(ec.strip_category)
         self._append_note_to_title.set(ec.append_note_to_item_title)
-        self._bg_color.set(ec.bg_color)
+        self._bg_color.set(normalize_hex_color(ec.bg_color, defaults.bg_color))
         self._sync_price_list_deps()
 
     def _save(self):
@@ -152,12 +158,12 @@ class ExportSettingsPanel(BaseSettingsPanel):
                 price_width=max(1, self._price_value_width.get()),
             ),
             text_colors=TextColors(
-                normal=self._normal_color.get(),
-                muted=self._muted_color.get(),
-                formula=self._formula_color.get(),
-                amount=self._amount_color.get(),
+                normal=normalize_hex_color(self._normal_color.get(), TextColors().normal),
+                muted=normalize_hex_color(self._muted_color.get(), TextColors().muted),
+                formula=normalize_hex_color(self._formula_color.get(), TextColors().formula),
+                amount=normalize_hex_color(self._amount_color.get(), TextColors().amount),
             ),
-            bg_color=self._bg_color.get(),
+            bg_color=normalize_hex_color(self._bg_color.get(), ExportDefaults().bg_color),
             strip_category=self._strip_cat.get(),
             show_project_date=self._show_date.get(),
             show_project_created_at=self._show_project_created_at.get(),
@@ -180,17 +186,17 @@ class ExportSettingsPanel(BaseSettingsPanel):
         self._align_price_list.set(d.price_list_settings.align_columns)
         self._price_name_width.set(d.price_list_settings.name_width)
         self._price_value_width.set(d.price_list_settings.price_width)
-        self._normal_color.set(d.text_colors.normal)
-        self._muted_color.set(d.text_colors.muted)
-        self._formula_color.set(d.text_colors.formula)
-        self._amount_color.set(d.text_colors.amount)
+        self._normal_color.set(normalize_hex_color(d.text_colors.normal, TextColors().normal))
+        self._muted_color.set(normalize_hex_color(d.text_colors.muted, TextColors().muted))
+        self._formula_color.set(normalize_hex_color(d.text_colors.formula, TextColors().formula))
+        self._amount_color.set(normalize_hex_color(d.text_colors.amount, TextColors().amount))
         self._show_date.set(d.show_project_date)
         self._show_project_created_at.set(d.show_project_created_at)
         self._show_record_time.set(d.show_record_time)
         self._show_export_time.set(d.show_export_time)
         self._strip_cat.set(d.strip_category)
         self._append_note_to_title.set(d.append_note_to_item_title)
-        self._bg_color.set(d.bg_color)
+        self._bg_color.set(normalize_hex_color(d.bg_color, ExportDefaults().bg_color))
         self.flush_pending()
 
     # ── deps ─────────────────────────────────────────────────────
@@ -215,8 +221,10 @@ class ExportSettingsPanel(BaseSettingsPanel):
 
     def _checkbox(self, parent, text, var):
         cb = tk.Checkbutton(parent, text=text, variable=var, font=font_manager.get("body"),
-                            bg=APP_BG, activebackground=APP_BG, anchor="w")
+                            bg=APP_BG, activebackground=APP_BG, anchor="w",
+                            justify="left")
         cb.pack(fill=tk.X, pady=2)
+        bind_responsive_wrap(cb, parent, padding=8)
         return cb
 
     def _number_row(self, parent, label, var, from_, to):
@@ -239,22 +247,22 @@ class ExportSettingsPanel(BaseSettingsPanel):
 
         swatch = tk.Label(row_f, text="  ●  ", font=font_manager.get("body"), bg=var.get(),
                           fg="white" if self._is_dark(var.get()) else "black",
-                          cursor="hand2", relief="groove", bd=1)
+                          cursor="hand2", relief="flat", bd=0)
         swatch.pack(side=tk.LEFT, padx=(0, 6))
 
         def pick():
             code, color = colorchooser.askcolor(
                 title="选择颜色",
                 parent=self.winfo_toplevel(),
-                initialcolor=var.get(),
+                initialcolor=normalize_hex_color(var.get(), "#ffffff"),
             )
             if color:
                 var.set(color)
 
         def update_swatch(*_):
-            c = var.get()
+            c = normalize_hex_color(var.get(), "")
             try:
-                swatch.config(bg=c, fg="white" if self._is_dark(c) else "black")
+                swatch.config(bg=c or ROW_STRIPE, fg="white" if c and self._is_dark(c) else "black")
             except tk.TclError:
                 pass
 

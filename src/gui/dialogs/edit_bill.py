@@ -54,9 +54,10 @@ def _save_edit_bill_size(w: int, h: int) -> None:
 
 
 class EditBillDialog:
-    def __init__(self, parent, project, on_done, bill=None, editable=True):
+    def __init__(self, parent, project, on_done, bill=None, editable=True, persist=None):
         self.project = project
         self.on_done = on_done
+        self._persist = persist
         self.result = None
         self._trade_items = project.get("trade_items", [])
         self._existing_bill = bill  # 编辑模式时保存原记录引用
@@ -70,7 +71,7 @@ class EditBillDialog:
         dialog.grab_set()
         dialog.configure(bg=APP_BG)
         # 统一所有下拉框弹层（Listbox）字号：需在所有 Combobox 创建前设置才生效
-        dialog.option_add("*TCombobox*Listbox.font", ("Microsoft YaHei UI", 14))
+        dialog.option_add("*TCombobox*Listbox.font", font_manager.get_tuple("body"))
 
         cfg = load_app()
         op_map = cfg.get("symbol_mapping", {})
@@ -151,7 +152,7 @@ class EditBillDialog:
 
         self.content_var = tk.StringVar(value=bill.get("content", "") if bill else "")
         entry = ttk.Entry(content_frame, textvariable=self.content_var,
-                          font=("Microsoft YaHei UI", 18))
+                          font=font_manager.get("body"))
         entry.pack(fill=tk.X, padx=20, pady=(0, 6), ipady=6)
         self._entry = entry
 
@@ -211,7 +212,7 @@ class EditBillDialog:
                 else:
                     cmd = (lambda t=text: _ins(t))
                 b = tk.Button(calc_frame, text=text, font=font_manager.get("calc_btn"), bg=color, fg=TEXT_PRIMARY,
-                              bd=2, relief="raised", cursor="hand2",
+                              bd=0, relief="flat", cursor="hand2",
                               command=cmd)
                 b.grid(row=r, column=c, padx=3, pady=2, sticky="nsew")
         # 5 列等宽
@@ -239,9 +240,24 @@ class EditBillDialog:
         tk.Label(disp_header, textvariable=self.formula_result_var, font=font_manager.get("small"),
                  bg=APP_BG, fg=DANGER).pack(side=tk.RIGHT)
         self.display_var = tk.StringVar()
-        tk.Label(content_frame, textvariable=self.display_var, font=font_manager.get("body"),
-                 bg=APP_BG, fg=TEXT_PRIMARY, wraplength=520, justify="left",
-                 anchor="w").pack(pady=(0, 4), padx=20, fill=tk.X)
+        display_label = tk.Label(
+            content_frame,
+            textvariable=self.display_var,
+            font=font_manager.get("body"),
+            bg=APP_BG,
+            fg=TEXT_PRIMARY,
+            wraplength=520,
+            justify="left",
+            anchor="w",
+        )
+        display_label.pack(pady=(0, 4), padx=20, fill=tk.X)
+
+        def _refresh_display_wrap(_event=None):
+            available = content_frame.winfo_width()
+            if available > 0:
+                display_label.config(wraplength=max(220, available - 40))
+
+        content_frame.bind("<Configure>", _refresh_display_wrap, add="+")
 
         # 金额（红色：标签 + 数字同行）
         amount_row = tk.Frame(content_frame, bg=APP_BG)
@@ -461,7 +477,10 @@ class EditBillDialog:
             ensure_bill_id(bill)
             bills.append(bill)
 
-        update_project(self.project["_path"], self.project)
+        if self._persist is not None:
+            self._persist()
+        else:
+            update_project(self.project["_path"], self.project)
         self._save_size_now()
         voice.stop()
         dialog.destroy()

@@ -8,7 +8,7 @@ Usage:
 
     # In widgets:
     font=font_manager.get("body")          # → tk.font.Font object
-    fg=font_manager.get_color("body")      # → "#1a202c"
+    fg=font_manager.get_color("body")      # → theme.TEXT_PRIMARY
 
     # Settings panel triggers refresh after save:
     font_manager.refresh()
@@ -18,6 +18,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 
 from ..logger import logger
+from .theme import TEXT_PRIMARY, TEXT_SECONDARY
 
 # ── 角色定义 ──────────────────────────────────────────────────────────────────
 # 每个角色对应一组 theme.py 常量，可独立配置字体族/字号/加粗/斜体/下划线/删除线/颜色。
@@ -54,37 +55,37 @@ ROLE_GROUPS = [
 
 # 字号乘数：effective_size = round(default_font_size * multiplier)
 _ROLE_SIZE_MULTIPLIERS = {
-    "icon_btn":    1.2,
+    "icon_btn":    1.07,
     "dialog_btn":  0.8,
-    "entry_item":  1.0,
-    "button":      1.07,
-    "calc_btn":    1.43,
-    "title":       2.14,
-    "heading":     1.29,
-    "subheading":  1.14,
-    "body":        1.07,
-    "body_bold":   1.07,
-    "tree":        1.0,
-    "tree_header": 1.0,
-    "small":       0.93,
+    "entry_item":  0.93,
+    "button":      0.93,
+    "calc_btn":    1.29,
+    "title":       1.57,
+    "heading":     1.14,
+    "subheading":  1.0,
+    "body":        0.93,
+    "body_bold":   0.93,
+    "tree":        0.93,
+    "tree_header": 0.93,
+    "small":       0.79,
 }
 
 _DEFAULT_FONT_SIZE = 14
 
 _ROLE_DEFAULTS = {
-    "icon_btn":    {"family": "Microsoft YaHei UI", "size": 17, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": "#1a202c"},
-    "dialog_btn":  {"family": "Microsoft YaHei UI", "size": 11, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": "#1a202c"},
-    "entry_item":  {"family": "Microsoft YaHei UI", "size": 14, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": "#1a202c"},
-    "title":       {"family": "Microsoft YaHei UI", "size": 30, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": "#1a202c"},
-    "heading":     {"family": "Microsoft YaHei UI", "size": 18, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": "#1a202c"},
-    "subheading":  {"family": "Microsoft YaHei UI", "size": 16, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": "#1a202c"},
-    "body":        {"family": "Microsoft YaHei UI", "size": 15, "bold": False, "italic": False, "underline": False, "overstrike": False, "color": "#1a202c"},
-    "body_bold":   {"family": "Microsoft YaHei UI", "size": 15, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": "#1a202c"},
-    "button":      {"family": "Microsoft YaHei UI", "size": 15, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": "#ffffff"},
-    "calc_btn":    {"family": "Microsoft YaHei UI", "size": 20, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": "#1a202c"},
-    "tree":        {"family": "Microsoft YaHei UI", "size": 14, "bold": False, "italic": False, "underline": False, "overstrike": False, "color": "#1a202c"},
-    "tree_header": {"family": "Microsoft YaHei UI", "size": 14, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": "#1a202c"},
-    "small":       {"family": "Microsoft YaHei UI", "size": 13, "bold": False, "italic": False, "underline": False, "overstrike": False, "color": "#4a5568"},
+    "icon_btn":    {"family": "Microsoft YaHei UI", "size": 15, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
+    "dialog_btn":  {"family": "Microsoft YaHei UI", "size": 11, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
+    "entry_item":  {"family": "Microsoft YaHei UI", "size": 13, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
+    "title":       {"family": "Microsoft YaHei UI", "size": 22, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
+    "heading":     {"family": "Microsoft YaHei UI", "size": 16, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
+    "subheading":  {"family": "Microsoft YaHei UI", "size": 14, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
+    "body":        {"family": "Microsoft YaHei UI", "size": 13, "bold": False, "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
+    "body_bold":   {"family": "Microsoft YaHei UI", "size": 13, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
+    "button":      {"family": "Microsoft YaHei UI", "size": 13, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": "#ffffff"},
+    "calc_btn":    {"family": "Microsoft YaHei UI", "size": 18, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
+    "tree":        {"family": "Microsoft YaHei UI", "size": 13, "bold": False, "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
+    "tree_header": {"family": "Microsoft YaHei UI", "size": 13, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
+    "small":       {"family": "Microsoft YaHei UI", "size": 11, "bold": False, "italic": False, "underline": False, "overstrike": False, "color": TEXT_SECONDARY},
 }
 
 
@@ -218,12 +219,8 @@ class FontManager:
     def _apply_ttk_styles(self) -> None:
         """Re-configure ttk styles to use updated fonts."""
         try:
-            from tkinter import ttk
-            s = ttk.Style()
-            s.configure("TCombobox", font=self.get("body"))
-            s.configure("TEntry", font=self.get("body"))
-            s.configure("Treeview", font=self.get("tree"), rowheight=44)
-            s.configure("Treeview.Heading", font=self.get("tree_header"))
+            from .ttk_theme import apply_ttk_theme
+            apply_ttk_theme()
         except Exception as e:
             logger.warning("[font_manager] ttk style update failed: %s", e)
 

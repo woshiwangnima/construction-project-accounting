@@ -19,8 +19,25 @@ from typing import Optional
 from .billing import Billing, read_billing
 
 
+def build_trade_item_index(trade_items: list[dict] | None) -> dict[str, object]:
+    """Build an id -> trade-item index for one render/update pass."""
+    index: dict[str, object] = {}
+    for item in trade_items or []:
+        getter = getattr(item, "get", None)
+        if callable(getter):
+            item_id = getter("id")
+        else:
+            item_id = getattr(item, "id", None)
+        if item_id:
+            # Keep the first duplicate, matching the old linear lookup.
+            index.setdefault(str(item_id), item)
+    return index
+
+
 def resolve_trade_item(
-    bill: dict, trade_items: list[dict]
+    bill: dict,
+    trade_items: list[dict],
+    trade_item_index: dict[str, dict] | None = None,
 ) -> Optional[dict]:
     """按 bill.trade_item_id 查找对应的 trade item。
 
@@ -31,13 +48,19 @@ def resolve_trade_item(
     tid = (bill or {}).get("trade_item_id", "")
     if not tid:
         return None
+    if trade_item_index is not None:
+        return trade_item_index.get(str(tid))
     for ti in trade_items or []:
         if ti.get("id") == tid:
             return ti
     return None
 
 
-def is_orphan(bill: dict, trade_items: Optional[list[dict]] = None) -> bool:
+def is_orphan(
+    bill: dict,
+    trade_items: Optional[list[dict]] = None,
+    trade_item_index: dict[str, dict] | None = None,
+) -> bool:
     """账单是否为孤儿。
 
     - 不传 trade_items：仅按 trade_item_id 是否为空判断（结构孤儿）。
@@ -49,11 +72,13 @@ def is_orphan(bill: dict, trade_items: Optional[list[dict]] = None) -> bool:
         return True
     if trade_items is None:
         return False
-    return resolve_trade_item(bill, trade_items) is None
+    return resolve_trade_item(bill, trade_items, trade_item_index) is None
 
 
 def resolve_billing(
-    bill: dict, trade_items: list[dict]
+    bill: dict,
+    trade_items: list[dict],
+    trade_item_index: dict[str, dict] | None = None,
 ) -> Billing:
     """解析账单的计费三件套。
 
@@ -61,7 +86,7 @@ def resolve_billing(
     - 孤儿：尝试从 bill.frozen_snapshot 还原 Billing。
     - 都没有：用 Billing() 兜底（has_unit=True, price=1, unit=""）。
     """
-    ti = resolve_trade_item(bill, trade_items)
+    ti = resolve_trade_item(bill, trade_items, trade_item_index)
     if ti is not None:
         return read_billing(ti)
     snap = (bill or {}).get("frozen_snapshot") or {}
@@ -71,7 +96,9 @@ def resolve_billing(
 
 
 def resolve_label(
-    bill: dict, trade_items: list[dict]
+    bill: dict,
+    trade_items: list[dict],
+    trade_item_index: dict[str, dict] | None = None,
 ) -> tuple[str, str]:
     """解析账单的 (类别, 名称) 用于显示。
 
@@ -79,7 +106,7 @@ def resolve_label(
     - 孤儿 + frozen_snapshot：返回 (snap.category, snap.name)。
     - 否则：返回 ("", "")。
     """
-    ti = resolve_trade_item(bill, trade_items)
+    ti = resolve_trade_item(bill, trade_items, trade_item_index)
     if ti is not None:
         return (ti.get("category", ""), ti.get("name", ""))
     snap = (bill or {}).get("frozen_snapshot") or {}
@@ -90,4 +117,5 @@ def resolve_label(
 
 def orphan_bills(bills: list[dict], trade_items: list[dict]) -> list[dict]:
     """筛出所有孤儿账单（结构孤儿 + tid 解析不到的）。"""
-    return [b for b in (bills or []) if is_orphan(b, trade_items)]
+    index = build_trade_item_index(trade_items)
+    return [b for b in (bills or []) if is_orphan(b, trade_items, index)]

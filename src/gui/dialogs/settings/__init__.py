@@ -10,7 +10,7 @@ To add a new settings panel:
 import tkinter as tk
 
 from ...theme import (
-    APP_BG, ACCENT, SIDEBAR_BG, SIDEBAR_FG, TEXT_PRIMARY,
+    APP_BG, ACCENT, ICON_BTN_HOVER, SEPARATOR, SIDEBAR_BG, SIDEBAR_FG, TEXT_PRIMARY,
 )
 from ...font_manager import font_manager
 from ....logger import logger
@@ -38,20 +38,34 @@ _MIN_SETTINGS_SIZE = (700, 500)
 _SAVE_RESIZE_DEBOUNCE_MS = 300
 
 
+def _clamp_settings_size(value) -> tuple[int, int] | None:
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+    try:
+        return (
+            max(_MIN_SETTINGS_SIZE[0], int(value[0])),
+            max(_MIN_SETTINGS_SIZE[1], int(value[1])),
+        )
+    except (TypeError, ValueError):
+        return None
+
+
 def _resolve_settings_size() -> tuple[int, int]:
     """读取设置窗口尺寸：user_config 优先 → app_config → 硬编码默认。"""
     try:
         from ....config_loader import load_user, load_app
         user_size = load_user().get("window_sizes", {}).get("settings")
-        if user_size and isinstance(user_size, list) and len(user_size) == 2:
-            return int(user_size[0]), int(user_size[1])
+        normalized = _clamp_settings_size(user_size)
+        if normalized:
+            return normalized
     except Exception:
         pass
     try:
         from ....config_loader import load_app
         app_size = load_app().get("window_sizes", {}).get("settings")
-        if app_size and isinstance(app_size, list) and len(app_size) == 2:
-            return int(app_size[0]), int(app_size[1])
+        normalized = _clamp_settings_size(app_size)
+        if normalized:
+            return normalized
     except Exception:
         pass
     return _DEFAULT_SETTINGS_SIZE
@@ -78,8 +92,11 @@ class SettingsDialog:
     用户调整后通过 <Configure> 防抖 + 关闭时双写回 user_config。
     """
 
-    def __init__(self, parent):
+    def __init__(self, parent, on_close=None):
         dialog = tk.Toplevel(parent)
+        self._dialog = dialog
+        self._closed = False
+        self._on_close_callback = on_close
         dialog.title("设置")
         dialog.transient(parent)
         dialog.grab_set()
@@ -92,17 +109,18 @@ class SettingsDialog:
         dialog.geometry(f"{w}x{h}+{x}+{y}")
 
         self._build_title(dialog)
-        tk.Frame(dialog, bg="#e2e8f0", height=1).pack(fill=tk.X)
+        tk.Frame(dialog, bg=SEPARATOR, height=1).pack(fill=tk.X)
         self._build_main(dialog)
         self._load_nav(dialog)
 
         # 跟踪用户调整的尺寸（防抖写回 user_config）
         self._save_size_after_id: str | None = None
         self._initial_size = (w, h)
+        self._last_saved_size = self._initial_size
+        self._last_configured_size = self._initial_size
         dialog.bind("<Configure>", self._on_configure)
 
         dialog.protocol("WM_DELETE_WINDOW", lambda: self._on_close(dialog))
-        self._dialog = dialog
 
         sections = get_sections()
         if sections:
@@ -110,8 +128,12 @@ class SettingsDialog:
 
     def _on_configure(self, event):
         """窗口尺寸变化时防抖写回 user_config（不区分根还是子 widget）。"""
-        if event.widget is not self._dialog:
+        if self._closed or event.widget is not self._dialog:
             return
+        size = (getattr(event, "width", 0), getattr(event, "height", 0))
+        if size[0] <= 0 or size[1] <= 0 or size == self._last_configured_size:
+            return
+        self._last_configured_size = size
         if self._save_size_after_id is not None:
             try:
                 self._dialog.after_cancel(self._save_size_after_id)
@@ -129,9 +151,10 @@ class SettingsDialog:
         h = self._dialog.winfo_height()
         if w < _MIN_SETTINGS_SIZE[0] or h < _MIN_SETTINGS_SIZE[1]:
             return
-        if (w, h) == self._initial_size:
+        if (w, h) == self._last_saved_size:
             return
         _save_settings_size(w, h)
+        self._last_saved_size = (w, h)
 
     def _build_title(self, dialog):
         title_bar = tk.Frame(dialog, bg=APP_BG, height=48)
@@ -155,6 +178,9 @@ class SettingsDialog:
     def _load_nav(self, dialog):
         self._sections = get_sections()
         self._current_panel: BaseSettingsPanel | None = None
+        # 设置面板首次访问时才创建；切换后保留实例，避免重复执行
+        # _build() / _load()（字体面板还会枚举系统字体并创建大量控件）。
+        self._panel_cache: dict[type[BaseSettingsPanel], BaseSettingsPanel] = {}
         self._nav_buttons: list[tk.Button] = []
         self._nav_selected_font = font_manager.get("entry_item").copy()
         self._nav_selected_font.configure(slant="italic")
@@ -166,30 +192,62 @@ class SettingsDialog:
                 text=f"  {sec.section_icon}  {sec.section_title}",
                 font=self._nav_normal_font, bg=SIDEBAR_BG, fg=SIDEBAR_FG, bd=0,
                 relief="flat", anchor="w", cursor="hand2",
-                activebackground="#e2e8f0", activeforeground=TEXT_PRIMARY,
+                activebackground=ICON_BTN_HOVER, activeforeground=TEXT_PRIMARY,
                 padx=12, pady=10,
+                justify="left", wraplength=_NAV_WIDTH - 24,
                 command=lambda s=sec: self._show_section(s),
             )
             btn.pack(fill=tk.X)
             self._nav_buttons.append(btn)
 
     def _show_section(self, section_cls):
-        if self._current_panel is not None:
-            self._current_panel.flush_pending()
-            self._current_panel.destroy()
+        current = self._current_panel
+        cached = self._panel_cache.get(section_cls)
+        if cached is current and current is not None:
+            # 重复点击当前导航项不触发保存、重排或重建。
+            return
 
+        if current is not None:
+            # Do not synchronously write config from a navigation click.  The
+            # panel is cached, so its debounced save remains alive while it is
+            # hidden; close-time flush is still the final durability boundary.
+            current.on_hide()
+            current.pack_forget()
+
+        self._update_nav_selection(section_cls)
+
+        panel = self._panel_cache.get(section_cls)
+        if panel is None:
+            panel = section_cls(self._content)
+            self._panel_cache[section_cls] = panel
+        panel.pack(fill=tk.BOTH, expand=True, padx=20, pady=16)
+        self._current_panel = panel
+
+    def _update_nav_selection(self, section_cls):
         for btn, sec in zip(self._nav_buttons, self._sections):
             if sec is section_cls:
                 btn.config(bg=ACCENT, fg="white", font=self._nav_selected_font)
             else:
                 btn.config(bg=SIDEBAR_BG, fg=SIDEBAR_FG, font=self._nav_normal_font)
 
-        self._current_panel = section_cls(self._content)
-        self._current_panel.pack(fill=tk.BOTH, expand=True, padx=20, pady=16)
-
     def _on_close(self, dialog):
-        if self._current_panel is not None:
-            self._current_panel.flush_pending()
+        if self._closed:
+            return
+        self._closed = True
+        if self._save_size_after_id is not None:
+            try:
+                dialog.after_cancel(self._save_size_after_id)
+            except tk.TclError:
+                pass
+            self._save_size_after_id = None
+        for panel in self._panel_cache.values():
+            panel.close()
         # 关闭时也存一次（防抖可能还没触发）
         self._save_size_now()
         dialog.destroy()
+        callback = getattr(self, "_on_close_callback", None)
+        if callable(callback):
+            try:
+                callback()
+            except Exception as exc:  # pragma: no cover - callback boundary
+                logger.warning("设置关闭回调执行失败: %s", exc)

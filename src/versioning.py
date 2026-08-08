@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 from dataclasses import dataclass
 from datetime import datetime
@@ -10,6 +9,12 @@ from typing import Callable
 
 from .logger import logger
 from .utils import atomic_write_json
+from .paths import (
+    get_backups_dir,
+    get_config_dir,
+    get_migration_backups_dir,
+    get_projects_dir,
+)
 
 
 APP_VERSION = "1.0.1"
@@ -158,7 +163,7 @@ def _relative_backup_path(path: Path, kind: str) -> Path:
 def migrate_json_file(path: str | Path, kind: str, *, backup_root: str | Path | None = None,
                       batch_id: str | None = None) -> MigrationResult:
     path = Path(path)
-    backup_root = Path(backup_root) if backup_root is not None else Path("migration_backups")
+    backup_root = Path(backup_root) if backup_root is not None else get_migration_backups_dir()
     batch_id = batch_id or _default_batch_id()
     try:
         with path.open(encoding="utf-8") as f:
@@ -204,11 +209,10 @@ def migrate_all_known_files(*, config_dir: str | Path | None = None,
                             backups_dir: str | Path | None = None,
                             backup_root: str | Path | None = None,
                             batch_id: str | None = None) -> list[MigrationResult]:
-    base_dir = Path(__file__).resolve().parent.parent
-    config_dir = Path(config_dir) if config_dir is not None else Path(os.environ.get("CPA_CONFIG_DIR", base_dir / "config"))
-    projects_dir = Path(projects_dir) if projects_dir is not None else Path(os.environ.get("CPA_PROJECTS_DIR", base_dir / "projects"))
-    backups_dir = Path(backups_dir) if backups_dir is not None else Path(os.environ.get("CPA_BACKUPS_DIR", base_dir / "backups"))
-    backup_root = Path(backup_root) if backup_root is not None else base_dir / "migration_backups"
+    config_dir = Path(config_dir) if config_dir is not None else get_config_dir()
+    projects_dir = Path(projects_dir) if projects_dir is not None else get_projects_dir()
+    backups_dir = Path(backups_dir) if backups_dir is not None else get_backups_dir()
+    backup_root = Path(backup_root) if backup_root is not None else get_migration_backups_dir()
     batch_id = batch_id or _default_batch_id()
 
     targets: list[tuple[Path, str]] = []
@@ -229,22 +233,37 @@ def migrate_all_known_files(*, config_dir: str | Path | None = None,
 
 
 def rollback_migration_batch(batch_id: str, *,
-                             backup_root: str | Path | None = None) -> list[str]:
+                             backup_root: str | Path | None = None,
+                             config_dir: str | Path | None = None,
+                             projects_dir: str | Path | None = None,
+                             backups_dir: str | Path | None = None) -> list[str]:
     """将指定批次迁移的所有文件恢复到迁移前的状态。
 
     返回已恢复的文件路径列表。如果没有找到批次备份，返回空列表。
     """
-    base_dir = Path(__file__).resolve().parent.parent
-    backup_root = Path(backup_root) if backup_root is not None else base_dir / "migration_backups"
+    backup_root = Path(backup_root) if backup_root is not None else get_migration_backups_dir()
     batch_dir = backup_root / batch_id
     if not batch_dir.is_dir():
         logger.warning("rollback: batch_id=%s not found at %s", batch_id, batch_dir)
         return []
 
+    target_roots = {
+        "config": Path(config_dir) if config_dir is not None else get_config_dir(),
+        "projects": Path(projects_dir) if projects_dir is not None else get_projects_dir(),
+        "backups": Path(backups_dir) if backups_dir is not None else get_backups_dir(),
+    }
+
     restored: list[str] = []
     for backup_file in sorted(batch_dir.rglob("*.json")):
         relative = backup_file.relative_to(batch_dir)
-        original = base_dir / relative
+        if len(relative.parts) != 2 or relative.parts[0] not in target_roots:
+            logger.warning("rollback: ignoring unexpected backup path %s", relative)
+            continue
+        filename = Path(relative.parts[1])
+        if filename.name != relative.parts[1] or filename.suffix.lower() != ".json":
+            logger.warning("rollback: ignoring unsafe backup path %s", relative)
+            continue
+        original = target_roots[relative.parts[0]] / filename
         try:
             original.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(backup_file, original)

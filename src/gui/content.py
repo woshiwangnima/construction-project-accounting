@@ -1,13 +1,18 @@
 """主内容区域（账单记录 + 工作类型管理）"""
 
+import copy
 import os
+import queue
+import threading
 import tkinter as tk
+from concurrent.futures import ThreadPoolExecutor
 from tkinter import ttk, messagebox, filedialog
 from datetime import datetime
 from typing import Optional
 
 from .theme import (
-    APP_BG, ACCENT, TEXT_PRIMARY, TEXT_SECONDARY, BORDER, HIGHLIGHT_BG,
+    APP_BG, ACCENT, ACCENT_HOVER, TEXT_PRIMARY, TEXT_SECONDARY, BORDER,
+    HIGHLIGHT_BG, SYSTEM_RED, ROW_HOVER, REVIEW_BG,
 )
 from .font_manager import font_manager
 from .widgets import _make_btn, _set_btn_state, _input_entry, ScrollableFrame, DraggableSplitter
@@ -29,7 +34,11 @@ from ..billing import read_billing
 from ..billing_resolver import (
     resolve_billing, resolve_label, resolve_trade_item, is_orphan, orphan_bills,
 )
-from ..bill_recompute import recompute_bill_total
+from ..bill_recompute import (
+    prepare_bill_calculations,
+    recompute_bill_total,
+    summarize_bill_calculations,
+)
 from ..bill_review import set_bill_reviewed, apply_bulk_review
 from ..paste_actions import (
     paste_bill, paste_trade_item, unique_category_after_paste,
@@ -67,17 +76,22 @@ def _category_maps(project: dict) -> tuple[dict[str, str], dict[str, str]]:
     return id_to_name, name_to_id
 
 
-def _trade_item_category_name(item: dict, project: dict) -> str:
+def _trade_item_category_name(
+    item: dict,
+    project: dict,
+    category_maps: tuple[dict[str, str], dict[str, str]] | None = None,
+) -> str:
     if item.get("category"):
         return item.get("category", "")
-    id_to_name, _ = _category_maps(project)
+    id_to_name, _ = category_maps or _category_maps(project)
     return id_to_name.get(item.get("category_id", ""), item.get("category_id", ""))
 
 
 def _project_category_names(project: dict) -> list[str]:
+    category_maps = _category_maps(project)
     names = [_category_name(c) for c in (project or {}).get("category_order", []) or []]
     for item in (project or {}).get("trade_items", []) or []:
-        name = _trade_item_category_name(item, project)
+        name = _trade_item_category_name(item, project, category_maps)
         if name and name not in names:
             names.append(name)
     return names
@@ -125,6 +139,7 @@ def build_export_blocks(project: dict, op_map: dict, ec,
     p = project
     bills = p.get("bills", [])
     trade_items = p.get("trade_items", [])
+    calculations = prepare_bill_calculations(bills, trade_items, op_map)
 
     blocks: list[dict] = []
 
@@ -212,16 +227,16 @@ def build_export_blocks(project: dict, op_map: dict, ec,
     blocks.append({"text": "【账单明细】", "style": "heading"})
 
     total = 0.0
-    for i, b in enumerate(bills, 1):
+    for i, (b, calc) in enumerate(zip(bills, calculations), 1):
         content = b.get("content", "")
         note = b.get("note", "")
         date = _format_bill_date(b)
         record_time = b.get("record_time", "")
         # 实时 join：name/category/单价/合计
-        category, name = resolve_label(b, trade_items)
-        billing = resolve_billing(b, trade_items)
-        total_val = recompute_bill_total(b, trade_items, op_map)
-        orphan = is_orphan(b, trade_items)
+        category, name = calc.category, calc.name
+        billing = calc.billing
+        total_val = calc.total
+        orphan = calc.orphan
 
         total_str = f"￥{total_val:.2f}" if isinstance(total_val, (int, float)) else "错误"
         if isinstance(total_val, (int, float)):
@@ -238,14 +253,17 @@ def build_export_blocks(project: dict, op_map: dict, ec,
         if ec.append_note_to_item_title and note:
             display = f"{display} - {note}"
         blocks.append({"text": f"# {i}  {display}", "style": "body",
-                      "color": "#c0392b" if orphan else "#000000"})
+                      "color": SYSTEM_RED if orphan else TEXT_PRIMARY})
 
-        if billing.is_per_unit:
-            formula_text = _format_formula(content, op_map, extra_outer_layers=1)
-            if formula_text:
-                formula_text = f"{formula_text} × ￥{billing.unit_price:.2f}"
+        if calc.canonical:
+            formula_text = to_display(
+                calc.canonical,
+                extra_outer_layers=1 if billing.is_per_unit else 0,
+            )
         else:
             formula_text = _format_formula(content, op_map)
+        if billing.is_per_unit and formula_text:
+            formula_text = f"{formula_text} × ￥{billing.unit_price:.2f}"
         blocks.append({"text": f"  公式：{formula_text}", "style": "body", "color": ec.text_colors.formula})
 
         blocks.append({"text": f"  金额：{total_str}", "style": "body", "color": ec.text_colors.amount})
@@ -303,14 +321,14 @@ WORKER_DEFAULT_WEIGHTS = {
     "单价": 0.2142857143,    # 3/14
     "单位": 0.2142857143,
     "计费类型": 0.2142857143,
-    "操作": 0.12,
+    "操作": 0.06,
 }
 
 CATEGORY_LIST_DEFAULT_WEIGHTS = {"name": 0.80, "count": 0.20}
 
-def _category_list_weights():
-    from ..config_loader import load_app
-    cfg = load_app().get("list_column_weights", {}).get("category_list", {})
+def _category_list_weights(app_config: dict | None = None):
+    app_config = app_config if app_config is not None else load_app()
+    cfg = app_config.get("list_column_weights", {}).get("category_list", {})
     return {
         "name": cfg.get("name", CATEGORY_LIST_DEFAULT_WEIGHTS["name"]),
         "count": cfg.get("count", CATEGORY_LIST_DEFAULT_WEIGHTS["count"]),
@@ -327,15 +345,23 @@ def _safe_positive_float(v) -> float | None:
     return None
 
 
-def resolve_bill_columns(project_data: dict) -> tuple[list[str], dict[str, float], list[str]]:
+# 列显隐预设（数据列集合，不含固定显示的「操作」列）
+BILL_PRESET_QUICK_VIEW = ("审核", "工作内容", "公式", "单价", "金额")
+BILL_PRESET_AUDIT = ("审核", "工作内容", "公式", "公式结果", "单价", "金额", "日期", "备注")
+
+
+def resolve_bill_columns(
+    project_data: dict,
+    app_config: dict | None = None,
+) -> tuple[list[str], dict[str, float], list[str]]:
     """返回 (列顺序, 当前模式权重[全部11列], 隐藏列列表)。
 
     权重始终包含全部11列，简单模式下隐藏列的权重按比例分配给可见列。
     数据来源：app_config.default_bill_column_widths_data > project.bill_column_widths。
+    列显隐：project.bill_visible_columns（用户自定义）> bill_display_mode 预设 > 默认速览。
     """
-    from ..config_loader import load_app
-
-    defaults = load_app().get("default_bill_column_widths_data", [])
+    app_config = app_config if app_config is not None else load_app()
+    defaults = app_config.get("default_bill_column_widths_data", [])
     columns = [d["name"] for d in defaults]
 
     saved = (project_data or {}).get("bill_column_widths", []) or []
@@ -351,10 +377,20 @@ def resolve_bill_columns(project_data: dict) -> tuple[list[str], dict[str, float
         base[d["name"]] = saved_map.get(d["name"], d["weight"])
 
     mode = (project_data or {}).get("bill_display_mode", "complex")
-    if mode != "simple":
-        return columns, base, []
-
-    hidden = [d["name"] for d in defaults if not d.get("show_in_simple", True)]
+    visible = (project_data or {}).get("bill_visible_columns") or []
+    if visible:
+        visible_set = set(visible)
+        hidden = [c for c in columns if c not in visible_set]
+        # 「操作」列固定显示：无论用户显隐设置如何都保留行内操作按钮
+        hidden = [c for c in hidden if c != "操作"]
+    elif mode == "simple":
+        hidden = [d["name"] for d in defaults if not d.get("show_in_simple", True)]
+    elif mode == "audit":
+        hidden = [d["name"] for d in defaults if not d.get("show_in_audit", True)]
+    else:
+        # 默认（未自定义）：速览列集，操作列固定显示
+        hidden = [c for c in columns if c not in BILL_PRESET_QUICK_VIEW]
+        hidden = [c for c in hidden if c != "操作"]
     if not hidden:
         return columns, base, []
 
@@ -373,7 +409,7 @@ def resolve_bill_columns(project_data: dict) -> tuple[list[str], dict[str, float
     return columns, weights, hidden
 
 
-def resolve_worker_column_weights(project_data: dict) -> dict:
+def resolve_worker_column_weights(project_data: dict, app_config: dict | None = None) -> dict:
     """解析 worker 表格列的权重：项目保存值 → app_config 默认 → 模块级硬编码。
 
     与 bills 同模式（多级 fallback）。字段名 `worker_column_widths`；app_config
@@ -381,7 +417,8 @@ def resolve_worker_column_weights(project_data: dict) -> dict:
     """
     saved = (project_data or {}).get("worker_column_widths", {}) or {}
     try:
-        app_defaults = load_app().get("default_worker_column_widths", {}) or {}
+        app_config = app_config if app_config is not None else load_app()
+        app_defaults = app_config.get("default_worker_column_widths", {}) or {}
     except Exception:
         app_defaults = {}
 
@@ -567,31 +604,73 @@ def _format_project_date(p: dict) -> str:
 class ContentArea(tk.Frame):
     def __init__(self, parent, on_name_change=None, on_status_change=None):
         super().__init__(parent, bg=APP_BG)
+        self._app_config = load_app()
         self.current_uuid = None
         self.project_data = None
         self.tab_var = tk.StringVar(value="bills")
         self._selected_category = None
         self._edit_cat_id: str = ""
+        self._cat_name_save_after_id = None
         self._on_name_change = on_name_change
         self._on_status_change = on_status_change
         self._editability: Optional[EditabilityPolicy] = None
         # 列表选中底色（app_config.json: selection_highlight_color）。
         # 账单管理与工种管理的单条数据高亮共用此值。
-        self._selection_bg = load_app().get("selection_highlight_color", "#90cdf4")
-        self._reviewed_bg = load_app().get("bill_reviewed_row_color", "#e6fffa")
+        self._selection_bg = self._app_config.get("selection_highlight_color", "#007aff")
+        self._reviewed_bg = self._app_config.get("bill_reviewed_row_color", REVIEW_BG)
         # 应用内剪贴板：单槽结构，跨项目持久（实例由 ContentArea 持有，切换项目不丢失）
         self._clipboard = AppClipboard()
         self._toast_mgr = ToastNotification(self.winfo_toplevel())
         self._bill_sort_descending = False
         self._worker_price_sort_descending = False
         self._worker_billing_sort_descending = False
+        self._bill_list = None
+        self._bill_add_button = None
+        self._worker_list = None
+        self._tab_frames: dict[str, tk.Frame] = {}
+        self._active_tab: str | None = None
+        # Stable view references.  Data refreshes update these widgets in
+        # place instead of rebuilding the whole tab frame.
+        self._bill_view_parent = None
+        self._bill_summary_label = None
+        self._bill_metric_vars: dict[str, tk.StringVar] = {}
+        self._worker_view_parent = None
+        self._category_item_widgets: dict[str, dict[str, tk.Widget]] = {}
+        self._bills_tab_dirty = False
+        self._workers_tab_dirty = False
+        self._load_generation = 0
+        self._load_results = {}
+        self._load_poll_after_id = None
+        self._loading_state_after_id = None
+        self._loading_overlay = None
+        self._header_name_lbl = None
+        self._header_toggle_badge = None
+        self._render_generation = 0
+        self._render_after_id = None
+        self._category_render_after_id = None
+        self._category_render_generation = 0
+        self._category_weights = _category_list_weights(self._app_config)
+        self._save_queue_lock = threading.Lock()
+        self._pending_project_save = None
+        self._project_save_running = False
+        self._project_save_idle = threading.Event()
+        self._project_save_idle.set()
+        self._save_error_queue: "queue.Queue[tuple[str, Exception]]" = queue.Queue()
+        self._save_error_poll_after_id = None
         self._show_welcome()
 
     def refresh_app_settings(self) -> None:
-        self._selection_bg = load_app().get("selection_highlight_color", "#90cdf4")
-        self._reviewed_bg = load_app().get("bill_reviewed_row_color", "#e6fffa")
+        self._app_config = load_app()
+        self._selection_bg = self._app_config.get("selection_highlight_color", "#007aff")
+        self._reviewed_bg = self._app_config.get("bill_reviewed_row_color", REVIEW_BG)
+        self._category_weights = _category_list_weights(self._app_config)
         if self.current_uuid and self.project_data:
-            self._render()
+            # 设置页只影响视觉偏好（选中色/审核色/符号映射），按当前 tab
+            # 走局部刷新即可，无需整页 _render()。
+            if self.tab_var.get() == "bills":
+                self._render_bills()
+            else:
+                self._render_workers()
 
     def set_editability(self, policy: EditabilityPolicy) -> None:
         """由 MainInterface 在创建 ContentArea 后注入的全局可写性策略。"""
@@ -602,6 +681,22 @@ class ContentArea(tk.Frame):
         if not self.project_data:
             return None
         return ProjectStatus.from_value(self.project_data.get("status"))
+
+    def _cancel_deferred_render(self) -> None:
+        self._render_generation += 1
+        if self._render_after_id is not None:
+            try:
+                self.after_cancel(self._render_after_id)
+            except tk.TclError:
+                pass
+            self._render_after_id = None
+        if self._category_render_after_id is not None:
+            try:
+                self.after_cancel(self._category_render_after_id)
+            except tk.TclError:
+                pass
+            self._category_render_after_id = None
+        self._category_render_generation += 1
 
     def _show_welcome(self):
         self.clear()
@@ -614,24 +709,217 @@ class ContentArea(tk.Frame):
                  bg=APP_BG, fg=TEXT_SECONDARY).pack(pady=(6, 0))
 
     def clear(self):
+        self._cancel_deferred_render()
+        if self.current_uuid and self.project_data:
+            self._flush_category_name_save()
+        elif self._cat_name_save_after_id is not None:
+            try:
+                self.after_cancel(self._cat_name_save_after_id)
+            except tk.TclError:
+                pass
+            self._cat_name_save_after_id = None
         for w in self.winfo_children():
             w.destroy()
+        # clear() 用于切换项目/欢迎页的完整重建；旧 tab frame 已被销毁，
+        # 不能继续保留对其中列表控件的引用。
+        self._tab_frames = {}
+        self._active_tab = None
+        self._bills_tab_ready = False
+        self._workers_tab_ready = False
+        self._bills_tab_dirty = False
+        self._workers_tab_dirty = False
+        self._bill_list = None
+        self._bill_add_button = None
+        self._worker_list = None
+        self._bill_view_parent = None
+        self._bill_summary_label = None
+        self._bill_metric_vars = {}
+        self._worker_view_parent = None
+        self._loading_overlay = None
+        self._header_name_lbl = None
+        self._header_toggle_badge = None
+        self._category_item_widgets = {}
+        self._category_render_generation += 1
+        self._category_render_after_id = None
+
+    def destroy(self):
+        """Cancel pending Tk callbacks before the content area is removed."""
+        try:
+            if self.current_uuid and self.project_data:
+                self._flush_category_name_save()
+        except Exception as exc:
+            logger.warning("销毁内容区前提交分类名称失败: %s", exc)
+
+        self._cancel_deferred_render()
+        self._cancel_load_poll()
+        for attr_name in ("_loading_state_after_id", "_cat_name_save_after_id", "_save_error_poll_after_id"):
+            callback_id = getattr(self, attr_name, None)
+            if callback_id is None:
+                continue
+            try:
+                self.after_cancel(callback_id)
+            except (tk.TclError, RuntimeError):
+                pass
+            setattr(self, attr_name, None)
+
+        self._bill_add_button = None
+
+        try:
+            self.flush_project_save(timeout=1.0)
+        except Exception as exc:
+            logger.warning("销毁内容区时刷新项目保存队列失败: %s", exc)
+        super().destroy()
 
     def load_project(self, uuid):
+        if uuid == self.current_uuid and self.project_data is not None:
+            return
+        if self.current_uuid and self.project_data:
+            self._flush_category_name_save()
+        self._load_generation += 1
+        generation = self._load_generation
+        self._cancel_load_poll()
+        self._cancel_deferred_render()
+        if self._loading_state_after_id is not None:
+            try:
+                self.after_cancel(self._loading_state_after_id)
+            except tk.TclError:
+                pass
+            self._loading_state_after_id = None
+
         if uuid is None:
             self.current_uuid = None
             self.project_data = None
             self._show_welcome()
             return
+
         self.current_uuid = uuid
-        self.project_data = get_project(uuid)
-        if not self.project_data:
+        self.project_data = None
+        self._bills_tab_ready = False
+        self._workers_tab_ready = False
+        self._loading_state_after_id = self.after_idle(
+            lambda: self._show_loading_state(generation, uuid)
+        )
+
+        def _read_project():
+            try:
+                result = get_project(uuid)
+                error = None
+            except Exception as exc:  # pragma: no cover - defensive worker boundary
+                result = None
+                error = exc
+            if generation == self._load_generation:
+                self._load_results[generation] = (generation, uuid, result, error)
+
+        threading.Thread(
+            target=_read_project,
+            name="project-load",
+            daemon=True,
+        ).start()
+        self._load_poll_after_id = self.after(10, self._poll_project_load)
+
+    def _show_loading_state(self, generation: int, uuid: str) -> None:
+        self._loading_state_after_id = None
+        if generation != self._load_generation or uuid != self.current_uuid or self.project_data is not None:
+            return
+        # 不清空现有内容，仅在原结构上叠加轻量提示，避免切换项目时整页闪空
+        self._hide_loading_overlay()
+        frame = tk.Frame(self, bg=APP_BG)
+        frame.place(relx=0.5, rely=0.4, anchor="center")
+        tk.Label(
+            frame,
+            text="正在加载项目…",
+            font=font_manager.get("body"),
+            bg=APP_BG,
+            fg=TEXT_SECONDARY,
+        ).pack()
+        self._loading_overlay = frame
+
+    def _hide_loading_overlay(self) -> None:
+        if self._loading_overlay is not None:
+            try:
+                self._loading_overlay.destroy()
+            except tk.TclError:
+                pass
+            self._loading_overlay = None
+
+    def _cancel_load_poll(self) -> None:
+        if self._load_poll_after_id is not None:
+            try:
+                self.after_cancel(self._load_poll_after_id)
+            except tk.TclError:
+                pass
+            self._load_poll_after_id = None
+        self._load_results = {
+            key: value for key, value in self._load_results.items()
+            if key >= self._load_generation
+        }
+
+    def _poll_project_load(self) -> None:
+        self._load_poll_after_id = None
+        result = self._load_results.pop(self._load_generation, None)
+        if result is None:
+            self._load_poll_after_id = self.after(10, self._poll_project_load)
+            return
+        generation, uuid, project, error = result
+        if generation != self._load_generation or uuid != self.current_uuid:
+            return
+        if self._loading_state_after_id is not None:
+            try:
+                self.after_cancel(self._loading_state_after_id)
+            except tk.TclError:
+                pass
+            self._loading_state_after_id = None
+        if project is None:
+            logger.warning("[project] load failed: uuid=%s error=%s", uuid[:16], error)
             messagebox.showerror("错误", "无法加载项目")
+            self.current_uuid = None
             self._show_welcome()
             return
+        self.project_data = project
         logger.debug("[project] load_project: uuid=%s tab=%s CA_w=%s",
                      uuid[:16], self.tab_var.get(), self.winfo_width())
+        self.after_idle(lambda g=generation: self._render_loaded_project(g))
+
+    def _render_loaded_project(self, generation: int) -> None:
+        if generation != self._load_generation or not self.current_uuid or not self.project_data:
+            return
+        self._hide_loading_overlay()
+        # 结构已建且列表存活 → 走增量刷新（复用列表控件与行，仅更新数据），
+        # 避免切换项目时整页 clear + 全量重建造成的闪烁与刷新幅度
+        try:
+            bill_alive = self._bill_list is not None and self._bill_list.winfo_exists()
+            worker_alive = self._worker_list is not None and self._worker_list.winfo_exists()
+        except tk.TclError:
+            bill_alive = worker_alive = False
+        if bill_alive or worker_alive:
+            self._refresh_header_for_project()
+            if bill_alive:
+                self._render_bills(self._tab_frames.get("bills"))
+            if worker_alive:
+                self._render_workers(self._tab_frames.get("workers"), invalidate_bills=False)
+            self._bills_tab_ready = True
+            self._workers_tab_ready = True
+            self._bills_tab_dirty = False
+            self._workers_tab_dirty = False
+            return
         self._render()
+
+    def _refresh_header_for_project(self) -> None:
+        """切换项目后只更新头部（项目名/状态徽章），不重建页面。"""
+        p = self.project_data
+        name_lbl = self._header_name_lbl
+        if name_lbl is not None:
+            try:
+                if name_lbl.winfo_exists():
+                    name_lbl.config(text=p.get("name", ""))
+            except tk.TclError:
+                pass
+        badge = self._header_toggle_badge
+        if badge is not None:
+            try:
+                badge.set_status(ProjectStatus.from_value(p.get("status")))
+            except tk.TclError:
+                pass
 
     def _render(self):
         self.clear()
@@ -639,11 +927,21 @@ class ContentArea(tk.Frame):
 
         top = tk.Frame(self, bg=APP_BG, padx=24)
         top.pack(fill=tk.X, pady=(16, 8))
+        top.grid_columnconfigure(0, weight=1)
 
-        # 项目名：只读文本
-        project_name_lbl = tk.Label(top, text=p.get("name", ""), font=font_manager.get("heading"),
-                                    bg=APP_BG, fg=TEXT_PRIMARY, anchor="w")
-        project_name_lbl.pack(side=tk.LEFT)
+        # 项目名：占据剩余空间并随窗口宽度换行，避免与状态/日期挤压重叠。
+        project_name_lbl = tk.Label(
+            top,
+            text=p.get("name", ""),
+            font=font_manager.get("heading"),
+            bg=APP_BG,
+            fg=TEXT_PRIMARY,
+            anchor="w",
+            justify="left",
+            wraplength=300,
+        )
+        project_name_lbl.grid(row=0, column=0, sticky="ew")
+        self._header_name_lbl = project_name_lbl
 
         # 状态切换（可点击标签）：始终从 self.project_data 读取最新状态
         current_status = ProjectStatus.from_value(self.project_data.get("status"))
@@ -653,26 +951,26 @@ class ContentArea(tk.Frame):
             new_status = (ProjectStatus.DONE if now == ProjectStatus.EDITING
                           else ProjectStatus.EDITING)
             self.project_data["status"] = new_status.value
-            update_project(self.current_uuid, self.project_data)
+            self._save_project_async()
             if self._on_status_change is not None:
                 try:
                     self._on_status_change(self.current_uuid, new_status)
                 except Exception as ex:
                     logger.warning("通知侧边栏项目状态更新失败: %s", ex)
-            self._render()
+            toggle_badge.set_status(new_status)
             if self._editability is not None:
                 self._editability.refresh()
 
         toggle_badge = ClickableStatusBadge(top, status=current_status, on_click=_do_toggle_status)
-        toggle_badge.pack(side=tk.LEFT, padx=(12, 0))
+        toggle_badge.grid(row=0, column=1, padx=(12, 0), sticky="w")
+        self._header_toggle_badge = toggle_badge
 
-        proj_date_text = _format_project_date(p)
-        if proj_date_text:
-            tk.Label(top, text=f"项目日期：{proj_date_text}",
-                     font=font_manager.get("small"), bg=APP_BG, fg=TEXT_SECONDARY).pack(side=tk.LEFT, padx=(12, 0))
+        def _refresh_header_wrap(_event=None):
+            available = top.winfo_width()
+            if available > 0:
+                project_name_lbl.config(wraplength=max(220, available - 220))
 
-        tk.Label(top, text=f"创建：{p.get('created_at', 'N/A')}",
-                 font=font_manager.get("small"), bg=APP_BG, fg=TEXT_SECONDARY).pack(side=tk.RIGHT)
+        top.bind("<Configure>", _refresh_header_wrap, add="+")
 
         sep = tk.Frame(self, bg=BORDER, height=1)
         sep.pack(fill=tk.X, padx=24, pady=4)
@@ -681,13 +979,13 @@ class ContentArea(tk.Frame):
         nb.pack(fill=tk.X)
         self._tab_buttons = {}
         self._tab_selected_font = font_manager.get("entry_item").copy()
-        self._tab_selected_font.configure(slant="italic")
+        self._tab_selected_font.configure(weight="bold")
         self._tab_normal_font = font_manager.get("entry_item")
-        for val, txt in [("bills", "\U0001f4b0 账单管理"), ("workers", "\U0001f527 工作类型")]:
+        for val, txt in [("bills", "账单管理"), ("workers", "工作类型")]:
             rb = tk.Radiobutton(nb, text=txt, variable=self.tab_var, value=val,
                                 command=self._switch_tab, font=self._tab_normal_font,
-                                bg=APP_BG, activebackground=APP_BG, indicatoron=0,
-                                padx=24, pady=10, relief="flat", bd=0,
+                                bg=APP_BG, activebackground=HIGHLIGHT_BG, indicatoron=0,
+                                padx=14, pady=7, relief="flat", bd=0,
                                 fg=TEXT_SECONDARY, selectcolor=APP_BG)
             rb.pack(side=tk.LEFT, padx=(0, 6))
             self._tab_buttons[val] = rb
@@ -704,20 +1002,58 @@ class ContentArea(tk.Frame):
         ca_w = self.winfo_width()
         cf_w = self.content_frame.winfo_width()
         logger.debug("[tab] switch to=%s CA_w=%s CF_w=%s", tab, ca_w, cf_w)
-        for w in self.content_frame.winfo_children():
-            w.destroy()
-        # Update tab highlight
+        # Update tab highlight（文字按钮式：选中 ACCENT 加粗，未选 TEXT_SECONDARY）
         for val, btn in self._tab_buttons.items():
             if val == tab:
-                btn.config(fg=ACCENT, bg=HIGHLIGHT_BG, relief="solid", bd=1,
+                btn.config(fg=ACCENT, bg=APP_BG, relief="flat", bd=0,
                            font=self._tab_selected_font)
             else:
                 btn.config(fg=TEXT_SECONDARY, bg=APP_BG, relief="flat", bd=0,
                            font=self._tab_normal_font)
+
+        # tab 页面只在第一次访问时创建，后续切换仅隐藏/显示已有 frame。
+        # 这样不会反复销毁滚动容器、行控件和事件绑定，切换延迟稳定在布局级别。
+        tab_changed = self._active_tab != tab
+        if tab_changed:
+            self._cancel_deferred_render()
+
+        old_frame = self._tab_frames.get(self._active_tab or "")
+        frame = self._tab_frames.get(tab)
+        if frame is None:
+            frame = tk.Frame(self.content_frame, bg=APP_BG)
+            self._tab_frames[tab] = frame
+
+        if old_frame is not None and old_frame is not frame:
+            old_frame.pack_forget()
+        if self._active_tab != tab:
+            frame.pack(fill=tk.BOTH, expand=True)
+            self._active_tab = tab
+
         if tab == "bills":
-            self._render_bills()
-        else:
-            self._render_workers()
+            if not getattr(self, "_bills_tab_ready", False) or self._bills_tab_dirty:
+                if self._render_after_id is None:
+                    self._schedule_tab_render(tab, frame)
+        elif not getattr(self, "_workers_tab_ready", False) or self._workers_tab_dirty:
+            if self._render_after_id is None:
+                self._schedule_tab_render(tab, frame)
+
+    def _schedule_tab_render(self, tab: str, frame: tk.Frame) -> None:
+        generation = self._render_generation
+
+        def _run():
+            self._render_after_id = None
+            if generation != self._render_generation:
+                return
+            if self.tab_var.get() != tab or self._active_tab != tab:
+                return
+            if tab == "bills":
+                self._render_bills(frame, _generation=generation)
+                self._bills_tab_ready = True
+            else:
+                self._render_workers(frame, invalidate_bills=False, _generation=generation)
+                self._workers_tab_ready = True
+
+        self._render_after_id = self.after_idle(_run)
 
     def _get_edit_cat_name(self) -> str:
         """通过 _edit_cat_id 查出 category_order 中对应的当前名字。"""
@@ -729,8 +1065,105 @@ class ContentArea(tk.Frame):
                 return cat.name if hasattr(cat, 'name') else str(cat)
         return ""
 
+    def _schedule_category_name_save(self) -> None:
+        """分类名称输入防抖：避免每个字符都触发磁盘写入和列表重建。"""
+        if not self.current_uuid or not self.project_data or not self._edit_cat_id:
+            return
+        if self._cat_name_save_after_id is not None:
+            try:
+                self.after_cancel(self._cat_name_save_after_id)
+            except tk.TclError:
+                pass
+        self._cat_name_save_after_id = self.after(300, self._flush_category_name_save)
+
+    def _flush_category_name_save(self) -> None:
+        """提交待保存的分类名称；页面重建前调用，避免丢失最后输入。"""
+        if self._cat_name_save_after_id is not None:
+            try:
+                self.after_cancel(self._cat_name_save_after_id)
+            except tk.TclError:
+                pass
+            self._cat_name_save_after_id = None
+        self._save_category_name()
+
+    def _on_category_name_return(self, _event=None):
+        self._flush_category_name_save()
+        return "break"
+
+    def _save_project_async(self) -> None:
+        """Coalesce project writes and run them serially off the Tk thread.
+
+        A fast sequence such as drag-sort, delete, or column resizing can
+        schedule several saves before the first backup finishes.  Keeping
+        only the newest snapshot avoids duplicate backups while the single
+        worker preserves write order and atomicity.
+        """
+        if not self.current_uuid or not self.project_data:
+            return
+        uuid = self.current_uuid
+        try:
+            snapshot = copy.deepcopy(self.project_data)
+        except Exception:
+            snapshot = self.project_data.to_dict() if hasattr(self.project_data, "to_dict") else dict(self.project_data)
+
+        with self._save_queue_lock:
+            self._pending_project_save = (uuid, snapshot)
+            self._project_save_idle.clear()
+            if self._project_save_running:
+                return
+            self._project_save_running = True
+        self._schedule_save_error_poll()
+        threading.Thread(
+            target=self._drain_project_save_queue,
+            name="project-save",
+            daemon=True,
+        ).start()
+
+    def _drain_project_save_queue(self) -> None:
+        while True:
+            with self._save_queue_lock:
+                pending = self._pending_project_save
+                self._pending_project_save = None
+                if pending is None:
+                    self._project_save_running = False
+                    self._project_save_idle.set()
+                    return
+            uuid, snapshot = pending
+            try:
+                update_project(uuid, snapshot)
+            except Exception as exc:  # pragma: no cover - defensive worker boundary
+                logger.warning("项目后台保存失败 uuid=%s: %s", uuid[:16], exc, exc_info=True)
+                self._save_error_queue.put((uuid, exc))
+
+    def _schedule_save_error_poll(self) -> None:
+        """保存失败需要回到主线程提示用户；只在有保存任务在飞时轮询。"""
+        if self._save_error_poll_after_id is not None:
+            return
+        self._save_error_poll_after_id = self.after(60, self._poll_save_errors)
+
+    def _poll_save_errors(self) -> None:
+        self._save_error_poll_after_id = None
+        try:
+            while True:
+                try:
+                    _uuid, exc = self._save_error_queue.get_nowait()
+                except queue.Empty:
+                    break
+                logger.error("项目保存失败需要用户处理: %s", exc)
+                self._toast_mgr.show(f"项目保存失败，数据未写入磁盘：{exc}", duration=6000)
+        finally:
+            # 后台保存仍在进行（可能有新的失败）时继续轮询，否则停止。
+            if not self._project_save_idle.is_set() or not self._save_error_queue.empty():
+                self._save_error_poll_after_id = self.after(60, self._poll_save_errors)
+
+    def flush_project_save(self, timeout: float = 2.0) -> bool:
+        """Wait briefly for the newest queued snapshot before application exit."""
+        return self._project_save_idle.wait(max(float(timeout), 0.0))
+
     def _save_category_name(self) -> None:
-        if not self._editable or not hasattr(self, "_cat_name_var") or not self._edit_cat_id:
+        self._cat_name_save_after_id = None
+        if (not self.current_uuid or not self.project_data or not self._editable
+                or not hasattr(self, "_cat_name_var") or not self._edit_cat_id):
             return
         cleaned = self._cat_name_var.get().strip()
         old_name = self._get_edit_cat_name()
@@ -753,7 +1186,7 @@ class ContentArea(tk.Frame):
                         ti.category = cleaned
                 if hasattr(self.project_data, '_sync_trade_item_category_ids'):
                     self.project_data._sync_trade_item_category_ids()
-                update_project(self.current_uuid, self.project_data)
+                self._save_project_async()
                 self._selected_category = cleaned
                 self._refresh_category_highlight()
                 logger.info("_save_category_name: done, new selected=%r", cleaned)
@@ -788,42 +1221,143 @@ class ContentArea(tk.Frame):
         op_map = load_app().get("symbol_mapping", {})
         trade_items = self.project_data.get("trade_items", [])
         bills = self.project_data.get("bills", [])
-        total = 0.0
-        for b in bills:
-            t = recompute_bill_total(b, trade_items, op_map)
-            if isinstance(t, (int, float)):
-                total += t
+        _calculations, total, _error_count = summarize_bill_calculations(
+            bills, trade_items, op_map
+        )
         return total
 
-    def _render_bills(self):
-        parent = self.content_frame
-        for w in parent.winfo_children():
-            w.destroy()
+    def _update_bill_summary(self, total: float, count: int, error_count: int) -> None:
+        if self._bill_metric_vars:
+            self._bill_metric_vars["amount"].set(f"￥{total:.2f}")
+            self._bill_metric_vars["count"].set(str(count))
+            self._bill_metric_vars["errors"].set(str(error_count))
+            return
+        if self._bill_summary_label is None:
+            return
+        text = f"合计（{count} 条）：￥{total:.2f}"
+        if error_count:
+            text += f"（{error_count} 条计算错误）"
+        try:
+            self._bill_summary_label.config(text=text)
+        except tk.TclError:
+            self._bill_summary_label = None
+
+    def _render_bills(self, parent=None, *, _generation=None):
+        """Render the bills tab, reusing its stable list for data refreshes."""
+        if _generation is not None and _generation != self._render_generation:
+            return
+        parent = parent or self._tab_frames.get("bills") or self.content_frame
         p = self.project_data
         bills = p.get("bills", [])
         logger.debug("_render_bills: content_frame width=%s", parent.winfo_width())
-        op_map = load_app().get("symbol_mapping", {})
+        op_map = self._app_config.get("symbol_mapping", {})
         trade_items = p.get("trade_items", [])
+        calculations, total, err_cnt = summarize_bill_calculations(
+            bills, trade_items, op_map
+        )
+        columns, weights, hidden = resolve_bill_columns(p, self._app_config)
+        mode = (p or {}).get("bill_display_mode", "complex")
+
+        # Ordinary edits, deletes, moves and review changes keep the existing
+        # header/canvas/list alive.  A display configuration change still
+        # falls through to the full builder because the column header itself
+        # needs a different widget structure.
+        existing = self._bill_list
+        can_reuse = False
+        if existing is not None and self._bill_view_parent is parent:
+            try:
+                can_reuse = existing.winfo_exists()
+            except tk.TclError:
+                can_reuse = False
+        if can_reuse:
+            config_changed = (
+                tuple(existing._columns) != tuple(columns)
+                or set(existing._hidden_cols) != set(hidden)
+                or getattr(existing, "_mode", None) != mode
+            )
+            if not config_changed:
+                # 设置页保存后同步视觉偏好：符号映射/选中色/审核行色
+                existing._op_map = op_map
+                existing._selection_bg = self._selection_bg
+                existing._reviewed_bg = self._reviewed_bg
+                self._bill_weights = weights
+                self._update_bill_summary(total, len(bills), err_cnt)
+                existing.update_data(
+                    bills,
+                    trade_items=trade_items,
+                    calculations=calculations,
+                )
+                existing.update_review_visuals()
+                self._bills_tab_dirty = False
+                return
+
+        for w in parent.winfo_children():
+            w.destroy()
+        self._bill_list = None
+        self._bill_add_button = None
+        self._bill_view_parent = parent
+        self._bill_summary_label = None
+        self._bill_metric_vars = {}
 
         header = tk.Frame(parent, bg=APP_BG)
         header.pack(fill=tk.X, pady=(0, 8))
 
-        total = self._calc_total()
-        err_cnt = sum(
-            1 for b in bills
-            if recompute_bill_total(b, trade_items, op_map) == 0
-            and b.get("content", "")
+        # 三个轻量指标比一条长文本更容易扫读，也不会因错误提示变长
+        # 而挤压表格宽度。
+        self._bill_metric_vars = {
+            "amount": tk.StringVar(value=f"￥{total:.2f}"),
+            "count": tk.StringVar(value=str(len(bills))),
+            "errors": tk.StringVar(value=str(err_cnt)),
+        }
+        metric_specs = (
+            ("总金额", "amount", ACCENT),
+            ("记录数", "count", TEXT_PRIMARY),
+            ("错误数", "errors", SYSTEM_RED),
         )
-        # "合计"红色 + 显示账单条数 + 错误条数
-        total_text = f"合计（{len(bills)} 条）：￥{total:.2f}"
-        if err_cnt:
-            total_text += f"（{err_cnt} 条计算错误）"
-        tk.Label(header, text=total_text, font=font_manager.get("heading"), bg=APP_BG,
-                 fg="#c0392b").pack(side=tk.LEFT)
+        for title, key, value_fg in metric_specs:
+            card = tk.Frame(
+                header,
+                bg=APP_BG,
+                highlightbackground=BORDER,
+                highlightthickness=1,
+                padx=16,
+                pady=8,
+            )
+            card.pack(side=tk.LEFT, padx=(0, 12))
+            tk.Label(
+                card,
+                text=title,
+                font=font_manager.get("small"),
+                bg=APP_BG,
+                fg=TEXT_SECONDARY,
+            ).pack(side=tk.LEFT, padx=(0, 8))
+            tk.Label(
+                card,
+                textvariable=self._bill_metric_vars[key],
+                font=font_manager.get("subheading"),
+                bg=APP_BG,
+                fg=value_fg,
+            ).pack(side=tk.LEFT)
+
+        self._bill_add_button = tk.Button(
+            header,
+            text="＋ 添加记录",
+            command=self._add_bill,
+            font=font_manager.get("small"),
+            bg=ACCENT,
+            fg="white",
+            activebackground=ACCENT_HOVER,
+            activeforeground="white",
+            relief="flat",
+            bd=0,
+            padx=16,
+            pady=6,
+            cursor="hand2" if self._editable else "arrow",
+            state=tk.NORMAL if self._editable else tk.DISABLED,
+        )
+        self._bill_add_button.pack(side=tk.RIGHT, padx=(8, 2))
 
         # ── 自定义列表（替代 ttk.Treeview，支持公式换行 + 不等行高 + 行内 3 按钮）──
-        columns, weights, hidden = resolve_bill_columns(p)
-        mode = (p or {}).get("bill_display_mode", "complex")
         self._bill_weights = weights
         from .widgets import BillListView
         self._bill_list = BillListView(
@@ -835,6 +1369,7 @@ class ContentArea(tk.Frame):
             hidden_cols=hidden,
             mode=mode,
             trade_items=self.project_data.get("trade_items", []),
+            calculations=calculations,
             on_edit=self._edit_bill,
             on_move_up=self._move_bill_up,
             on_move_down=self._move_bill_down,
@@ -856,6 +1391,7 @@ class ContentArea(tk.Frame):
         )
         self._bill_list.pack(fill=tk.BOTH, expand=True)
         self._restore_bills_scroll()
+        self._bills_tab_dirty = False
 
     def _on_bill_column_resize(self, weights: dict) -> None:
         """用户拖完列分隔条 → 立即更新内存 + 写回项目文件。"""
@@ -868,7 +1404,7 @@ class ContentArea(tk.Frame):
             if self.project_data is not None:
                 cols_list = [{"name": k, "weight": v} for k, v in weights.items()]
                 self.project_data["bill_column_widths"] = cols_list
-                update_project(self.current_uuid, self.project_data)
+                self._save_project_async()
                 logger.debug("_on_bill_column_resize: saved to project uuid=%s",
                              self.current_uuid)
         except Exception as e:
@@ -876,11 +1412,11 @@ class ContentArea(tk.Frame):
 
     def _persist_bill_review_state(self) -> None:
         if self.current_uuid:
-            update_project(self.current_uuid, self.project_data)
+            self._save_project_async()
 
     def _refresh_bill_review_visuals(self) -> None:
         if self._bill_list is not None:
-            self._bill_list.set_bills(self.project_data.get("bills", []))
+            self._bill_list.update_review_visuals()
 
     def _set_bill_reviewed(self, idx: int, reviewed: bool) -> None:
         bills = self.project_data.get("bills", []) if self.project_data else []
@@ -911,7 +1447,7 @@ class ContentArea(tk.Frame):
         )
         self.project_data["bills"] = bills
         self._save_current_bills_top()
-        update_project(self.current_uuid, self.project_data)
+        self._save_project_async()
         self._bill_sort_descending = not descending
         self._render_bills()
         self._bill_list.set_header_sort_indicator(
@@ -944,7 +1480,7 @@ class ContentArea(tk.Frame):
             result[pos] = item
 
         items[:] = result
-        update_project(self.current_uuid, self.project_data)
+        self._save_project_async()
         self._worker_price_sort_descending = not descending
         self._render_workers()
         self._worker_list.set_header_sort_indicator(
@@ -973,7 +1509,7 @@ class ContentArea(tk.Frame):
             result[pos] = item
 
         items[:] = result
-        update_project(self.current_uuid, self.project_data)
+        self._save_project_async()
         self._worker_billing_sort_descending = not descending
         self._render_workers()
         self._worker_list.set_header_sort_indicator(
@@ -993,7 +1529,7 @@ class ContentArea(tk.Frame):
         try:
             if self.project_data is not None:
                 self.project_data["worker_column_widths"] = dict(weights)
-                update_project(self.current_uuid, self.project_data)
+                self._save_project_async()
                 logger.debug("_on_worker_column_resize: saved to project uuid=%s",
                              self.current_uuid)
         except Exception as e:
@@ -1006,7 +1542,7 @@ class ContentArea(tk.Frame):
         if idx <= 0 or idx >= len(bills):
             return
         bills[idx - 1], bills[idx] = bills[idx], bills[idx - 1]
-        update_project(self.current_uuid, self.project_data)
+        self._save_project_async()
         self._render_bills()
 
     def _move_bill_down(self, idx: int):
@@ -1016,7 +1552,7 @@ class ContentArea(tk.Frame):
         if idx < 0 or idx >= len(bills) - 1:
             return
         bills[idx], bills[idx + 1] = bills[idx + 1], bills[idx]
-        update_project(self.current_uuid, self.project_data)
+        self._save_project_async()
         self._render_bills()
 
     def _reorder_bill(self, from_idx: int, to_idx: int):
@@ -1029,7 +1565,7 @@ class ContentArea(tk.Frame):
             return
         self._save_current_bills_top()
         self.project_data["bills"] = new_bills
-        update_project(self.current_uuid, self.project_data)
+        self._save_project_async()
         self._render_bills()
         if moved_id and self._bill_list is not None:
             for idx, bill in enumerate(self.project_data.get("bills", [])):
@@ -1046,7 +1582,7 @@ class ContentArea(tk.Frame):
         if self._confirm_delete("确认", f"删除第 {idx + 1} 条记录？"):
             self._save_current_bills_top()
             bills.pop(idx)
-            update_project(self.current_uuid, self.project_data)
+            self._save_project_async()
             self._render_bills()
 
     def _save_bills_top_index(self, anchor) -> None:
@@ -1060,7 +1596,7 @@ class ContentArea(tk.Frame):
             return
         lists["bills"] = dict(anchor)
         if self.current_uuid:
-            update_project(self.current_uuid, self.project_data)
+            self._save_project_async()
 
     def _save_current_bills_top(self) -> None:
         bill_list = getattr(self, "_bill_list", None)
@@ -1126,7 +1662,7 @@ class ContentArea(tk.Frame):
         new_bill = paste_bill(payload, items)
         bills = self.project_data.setdefault("bills", [])
         bills.append(new_bill)
-        update_project(self.current_uuid, self.project_data)
+        self._save_project_async()
         self._render_bills()
         if new_bill.get("trade_item_id"):
             self._toast_mgr.show(f"已粘贴账单到末尾（新行 #{len(bills)}）（Ctrl+V）")
@@ -1143,7 +1679,7 @@ class ContentArea(tk.Frame):
         if not self._confirm_delete("确认删除", f"确定删除账单 #{idx + 1}？"):
             return
         bills.pop(idx)
-        update_project(self.current_uuid, self.project_data)
+        self._save_project_async()
         self._render_bills()
         self._toast_mgr.show(f"已删除账单 #{idx + 1}（删除）")
 
@@ -1165,10 +1701,35 @@ class ContentArea(tk.Frame):
         # 最后兜底：旧字段
         return bill.get("trade_item_name", "")
 
-    def _render_workers(self):
-        parent = self.content_frame
+    def _render_workers(self, parent=None, *, invalidate_bills=True, _generation=None):
+        """Render the workers tab, reusing its stable master/detail layout."""
+        if _generation is not None and _generation != self._render_generation:
+            return
+        self._flush_category_name_save()
+        parent = parent or self._tab_frames.get("workers") or self.content_frame
+
+        existing = self._worker_list
+        can_reuse = False
+        if existing is not None and self._worker_view_parent is parent:
+            try:
+                can_reuse = existing.winfo_exists() and self._cat_items_frame.winfo_exists()
+            except (AttributeError, tk.TclError):
+                can_reuse = False
+        if can_reuse:
+            existing._selection_bg = self._selection_bg
+            self._refresh_category_items()
+            self._refresh_worker_tree()
+            self._workers_tab_dirty = False
+            if (invalidate_bills and "bills" in self._tab_frames
+                    and self._tab_frames.get("bills") is not parent):
+                self._bills_tab_dirty = True
+            return
+
         for w in parent.winfo_children():
             w.destroy()
+        self._worker_list = None
+        self._worker_view_parent = parent
+        self._category_item_widgets = {}
         p = self.project_data
         cats = _project_category_names(p)
 
@@ -1181,7 +1742,7 @@ class ContentArea(tk.Frame):
         main_frame.pack(fill=tk.BOTH, expand=True)
 
         # 计算分类列表初始宽度（从 app_config 读取归一化比例，以 ContentArea 宽度为基准）
-        _cat_ratio = load_app().get("category_list_width_ratio", 0.25)
+        _cat_ratio = self._app_config.get("category_list_width_ratio", 0.25)
         _ref_w = max(self.winfo_width(), 800)
         _cat_raw = int(_ref_w * _cat_ratio)
         _cat_w = max(180, min(500, _cat_raw))
@@ -1206,8 +1767,14 @@ class ContentArea(tk.Frame):
         self._cat_scrollable.pack(fill=tk.BOTH, expand=True)
         self._cat_items_frame = self._cat_scrollable.inner
 
+        category_maps = _category_maps(p)
+        category_counts = {}
+        for ti in p.get("trade_items", []) or []:
+            category = _trade_item_category_name(ti, p, category_maps)
+            if category:
+                category_counts[category] = category_counts.get(category, 0) + 1
         for cat in cats:
-            self._add_category_item(cat)
+            self._add_category_item(cat, category_counts.get(cat, 0))
 
         # ── 拖拽分隔条 ──
         cat_splitter = DraggableSplitter(
@@ -1240,17 +1807,20 @@ class ContentArea(tk.Frame):
                 break
         self._cat_name_var = tk.StringVar(value=self._selected_category or "")
         self._cat_name_entry = ttk.Entry(cat_name_container, textvariable=self._cat_name_var,
-                                         font=font_manager.get("subheading"), width=30)
-        self._cat_name_entry.pack(side=tk.LEFT)
-        self._cat_name_var.trace_add("write", lambda *_: self._save_category_name())
+                                          font=font_manager.get("subheading"), width=30)
+        cat_name_container.pack_configure(fill=tk.X, expand=True)
+        self._cat_name_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self._cat_name_var.trace_add("write", lambda *_: self._schedule_category_name_save())
+        self._cat_name_entry.bind("<FocusOut>", self._flush_category_name_save, add="+")
+        self._cat_name_entry.bind("<Return>", self._on_category_name_return, add="+")
         if self._editability is not None:
             self._editability.manage(self._cat_name_entry, normally_enabled=True)
         elif not self._editable:
             _set_btn_state(self._cat_name_entry, True)
 
-        # ── 工种列表（与「账单管理」同款：拖列宽 / 选中行 / ↑↓ 键 / 行内操作）──
+        # ── 工种列表（与「账单管理」同款：拖列宽 / 选中行 / ↑↓ 键 / 共享操作栏）──
         from .widgets import WorkerListView
-        self._worker_weights = resolve_worker_column_weights(p)
+        self._worker_weights = resolve_worker_column_weights(p, self._app_config)
         self._worker_list = WorkerListView(
             right_frame,
             items=self._get_cat_items(),
@@ -1274,6 +1844,12 @@ class ContentArea(tk.Frame):
         )
         self._worker_list.pack(fill=tk.BOTH, expand=True, pady=(4, 8))
         self._restore_workers_scroll()
+        self._workers_tab_dirty = False
+        # 工种名称/单价/顺序变化会影响账单页的名称解析或合计；账单页
+        # 如果已经创建，则等用户切回时只刷新一次，不在当前交互中重建它。
+        if (invalidate_bills and "bills" in self._tab_frames
+                and self._tab_frames.get("bills") is not parent):
+            self._bills_tab_dirty = True
 
     def _on_category_resize(self, width: int) -> None:
         """DraggableSplitter 释放时回调：保存归一化宽度比例到 app_config。"""
@@ -1293,8 +1869,13 @@ class ContentArea(tk.Frame):
         except Exception as e:
             logger.error("[category] save failed: %s", e, exc_info=True)
 
-    def _add_category_item(self, cat_name):
-        """左侧分类列表添加一个分类项"""
+    def _add_category_item(self, cat_name, count=None):
+        """Add one category item and retain its widgets for later updates."""
+        if cat_name in self._category_item_widgets:
+            entry = self._category_item_widgets[cat_name]
+            if count is not None:
+                entry["count"].config(text=f"{count}项")
+            return entry
         is_selected = (cat_name == self._selected_category)
         bg = HIGHLIGHT_BG if is_selected else APP_BG
         fg = ACCENT if is_selected else TEXT_PRIMARY
@@ -1302,15 +1883,21 @@ class ContentArea(tk.Frame):
         item = tk.Frame(self._cat_items_frame, bg=bg, cursor="hand2", padx=10, pady=8)
         item.pack(fill=tk.X, padx=4, pady=1)
 
-        indicator = None
-        if is_selected:
-            indicator = tk.Frame(item, bg=ACCENT, width=4)
-            indicator.pack(side=tk.LEFT, padx=(0, 8))
+        # Keep the indicator widget for every row.  Changing selection then
+        # only changes colors instead of inserting/removing child widgets.
+        indicator = tk.Frame(item, bg=ACCENT if is_selected else bg, width=4)
+        indicator.pack(side=tk.LEFT, padx=(0, 8), fill=tk.Y)
+        indicator.pack_propagate(False)
 
         # 统计该分类下的工种数
-        count = sum(1 for ti in self.project_data.get("trade_items", []) if _trade_item_category_name(ti, self.project_data) == cat_name)
+        if count is None:
+            category_maps = _category_maps(self.project_data)
+            count = sum(
+                1 for ti in self.project_data.get("trade_items", [])
+                if _trade_item_category_name(ti, self.project_data, category_maps) == cat_name
+            )
 
-        weights = _category_list_weights()
+        weights = self._category_weights
         name_w = weights["name"]
         count_w = weights["count"]
 
@@ -1351,26 +1938,115 @@ class ContentArea(tk.Frame):
         def on_right_click(e, c=cat_name):
             self._show_category_context_menu(e, c)
 
-        bind_widgets = [item, content, name_lbl, count_lbl]
-        if indicator is not None:
-            bind_widgets.append(indicator)
+        entry = {
+            "item": item,
+            "content": content,
+            "indicator": indicator,
+            "name": name_lbl,
+            "count": count_lbl,
+        }
+        self._category_item_widgets[cat_name] = entry
+
+        bind_widgets = [item, content, name_lbl, count_lbl, indicator]
         for w in bind_widgets:
             w.bind("<Button-1>", on_click)
             w.bind("<Button-3>", on_right_click)
             if not is_selected:
-                w.bind("<Enter>", lambda e, i=item: i.config(bg="#edf2f7"))
-                w.bind("<Leave>", lambda e, i=item: i.config(bg=APP_BG))
+                w.bind(
+                    "<Enter>",
+                    lambda e, c=cat_name: self._set_category_item_style(c, hover=True),
+                )
+                w.bind(
+                    "<Leave>",
+                    lambda e, c=cat_name: self._set_category_item_style(c, hover=False),
+                )
+        self._set_category_item_style(cat_name)
+        return entry
 
-    def _refresh_category_highlight(self):
-        """刷新左侧分类列表的高亮状态"""
-        for w in self._cat_items_frame.winfo_children():
-            w.destroy()
+    def _set_category_item_style(self, cat_name: str, hover: bool = False) -> None:
+        entry = self._category_item_widgets.get(cat_name)
+        if not entry:
+            return
+        selected = cat_name == self._selected_category
+        bg = HIGHLIGHT_BG if selected else (ROW_HOVER if hover else APP_BG)
+        fg = ACCENT if selected else TEXT_PRIMARY
+        for key in ("item", "content", "name", "count"):
+            try:
+                entry[key].config(bg=bg)
+            except tk.TclError:
+                return
+        try:
+            entry["indicator"].config(bg=ACCENT if selected else bg)
+            entry["name"].config(
+                fg=fg,
+                font=self._tab_selected_font if selected else self._tab_normal_font,
+            )
+        except tk.TclError:
+            pass
+
+    def _refresh_category_items(self) -> None:
+        """Reconcile category rows without destroying unchanged widgets."""
+        if not hasattr(self, "_cat_items_frame") or self._cat_items_frame is None:
+            return
+        try:
+            if not self._cat_items_frame.winfo_exists():
+                return
+        except tk.TclError:
+            return
         p = self.project_data
         cats = _project_category_names(p)
         if self._selected_category not in cats:
             self._selected_category = cats[0] if cats else None
+        category_maps = _category_maps(p)
+        counts: dict[str, int] = {}
+        for ti in p.get("trade_items", []) or []:
+            category = _trade_item_category_name(ti, p, category_maps)
+            if category:
+                counts[category] = counts.get(category, 0) + 1
+
+        current = set(cats)
+        for stale in set(self._category_item_widgets) - current:
+            entry = self._category_item_widgets.pop(stale)
+            try:
+                entry["item"].destroy()
+            except tk.TclError:
+                pass
+
+        # 顺序一致：只更新计数与选中样式，不 pack_forget/pack，避免整列抖动
+        existing_order = [name for name in self._category_item_widgets]
+        if existing_order == cats:
+            for cat in cats:
+                entry = self._category_item_widgets.get(cat)
+                if entry is None:
+                    continue
+                try:
+                    entry["count"].config(text=f"{counts.get(cat, 0)}项")
+                except tk.TclError:
+                    continue
+                self._set_category_item_style(cat)
+            return
+
+        # 顺序不一致（分类增删/换序后第一次刷新）：补齐新增项后全量重排一次，
+        # 并同步 dict 插入顺序，使后续刷新走上面的快速分支。
         for cat in cats:
-            self._add_category_item(cat)
+            entry = self._category_item_widgets.get(cat)
+            if entry is None:
+                entry = self._add_category_item(cat, counts.get(cat, 0))
+            else:
+                try:
+                    entry["count"].config(text=f"{counts.get(cat, 0)}项")
+                    entry["item"].pack_forget()
+                    entry["item"].pack(fill=tk.X, padx=4, pady=1)
+                except tk.TclError:
+                    continue
+            self._set_category_item_style(cat)
+        self._category_item_widgets = {
+            name: self._category_item_widgets[name] for name in cats
+        }
+
+    def _refresh_category_highlight(self):
+        """Refresh category selection/counts without rebuilding the list."""
+        self._refresh_category_items()
 
     def _get_cat_items(self) -> list[dict]:
         """返回当前选中分类下的工种列表（直接引用 trade_items 里的 dict）。"""
@@ -1390,6 +2066,7 @@ class ContentArea(tk.Frame):
         """刷新右侧工种表格（仅更新列表内容，不重建整个面板）。"""
         if not hasattr(self, "_worker_list") or self._worker_list is None:
             return
+        self._flush_category_name_save()
         if hasattr(self, "_cat_name_var"):
             # 先更新 UUID，再设 var → trace 回调按新 UUID 查找，新旧名一致→直接 return
             self._edit_cat_id = ""
@@ -1410,8 +2087,13 @@ class ContentArea(tk.Frame):
         if self._editability is not None and not self._editability.is_editable:
             return
         self._save_current_bills_top()
-        EditBillDialog(self, self.project_data, self._refresh_view,
-                       editable=self._editable)
+        EditBillDialog(
+            self,
+            self.project_data,
+            self._refresh_view,
+            editable=self._editable,
+            persist=self._save_project_async,
+        )
 
     def _edit_bill(self, idx):
         if not self.project_data:
@@ -1420,8 +2102,14 @@ class ContentArea(tk.Frame):
             return
         self._save_current_bills_top()
         bill = self.project_data["bills"][idx]
-        EditBillDialog(self, self.project_data, self._refresh_view, bill,
-                       editable=self._editable)
+        EditBillDialog(
+            self,
+            self.project_data,
+            self._refresh_view,
+            bill,
+            editable=self._editable,
+            persist=self._save_project_async,
+        )
 
     def _export_image(self):
         p = self.project_data
@@ -1601,10 +2289,10 @@ class ContentArea(tk.Frame):
                 ti.category = new_name
         if hasattr(self.project_data, '_sync_trade_item_category_ids'):
             self.project_data._sync_trade_item_category_ids()
-        update_project(self.current_uuid, self.project_data)
+        self._save_project_async()
         dialog.destroy()
         self._selected_category = new_name
-        self._render()
+        self._refresh_workers_only()
 
     def _confirm_add_cat(self, dialog, name):
         name = name.strip()
@@ -1615,10 +2303,10 @@ class ContentArea(tk.Frame):
         if name not in co:
             co.append(name)
             self.project_data["category_order"] = co
-        update_project(self.current_uuid, self.project_data)
+        self._save_project_async()
         dialog.destroy()
         self._selected_category = name
-        self._render()
+        self._refresh_workers_only()
 
     def _add_trade_item_for_selected(self):
         if not self._selected_category:
@@ -1636,8 +2324,17 @@ class ContentArea(tk.Frame):
         items = self.project_data.get("trade_items", [])
         next_seq = max((ti.get("seq", 0) for ti in items), default=0) + 1
         dummy = {"seq": next_seq, "category": category, "name": "", "unit": units[0] if units else ""}
-        EditTradeItemDialog(self, dummy, cats, units, self.project_data, self.current_uuid,
-                            self._refresh_workers_only, editable=self._editable)
+        EditTradeItemDialog(
+            self,
+            dummy,
+            cats,
+            units,
+            self.project_data,
+            self.current_uuid,
+            self._refresh_workers_only,
+            editable=self._editable,
+            persist=self._save_project_async,
+        )
 
     def _edit_trade_item(self, item):
         if self._editability is not None and not self._editability.is_editable:
@@ -1646,8 +2343,17 @@ class ContentArea(tk.Frame):
         cats = _project_category_names(self.project_data)
 
         units = sorted(set(read_billing(ti).unit for ti in self.project_data.get("trade_items", [])))
-        EditTradeItemDialog(self, item, cats, units, self.project_data, self.current_uuid,
-                            self._refresh_workers_only, editable=self._editable)
+        EditTradeItemDialog(
+            self,
+            item,
+            cats,
+            units,
+            self.project_data,
+            self.current_uuid,
+            self._refresh_workers_only,
+            editable=self._editable,
+            persist=self._save_project_async,
+        )
 
     def _edit_trade_item_at(self, idx: int) -> None:
         """行内 / 双击触发的编辑：按当前分类内 idx 找到对应 trade_item。"""
@@ -1705,7 +2411,7 @@ class ContentArea(tk.Frame):
             b["_needs_attention"] = True
 
         del items[cat_indices[idx]]
-        update_project(self.current_uuid, self.project_data)
+        self._save_project_async()
         # 刷新 workers 和 bills（bills 列表里受影响行变红）
         self._refresh_workers_only()
         if self._bill_list is not None:
@@ -1725,7 +2431,7 @@ class ContentArea(tk.Frame):
         pos_a = cat_indices[idx]
         pos_b = cat_indices[target]
         items[pos_a], items[pos_b] = items[pos_b], items[pos_a]
-        update_project(self.current_uuid, self.project_data)
+        self._save_project_async()
         # 选区跟随：移到新位置后仍选中同一项
         self._refresh_workers_only()
         self._worker_list.set_selected_index(target)
@@ -1745,7 +2451,7 @@ class ContentArea(tk.Frame):
             return
         self._save_current_workers_top()
         self.project_data["trade_items"] = new_items
-        update_project(self.current_uuid, self.project_data)
+        self._save_project_async()
         self._refresh_workers_only()
         if moved_id and self._worker_list is not None:
             for idx, item in enumerate(self._get_cat_items()):
@@ -1771,7 +2477,7 @@ class ContentArea(tk.Frame):
             return
         lists[key] = dict(anchor)
         if self.current_uuid:
-            update_project(self.current_uuid, self.project_data)
+            self._save_project_async()
 
     def _save_current_workers_top(self) -> None:
         worker_list = getattr(self, "_worker_list", None)
@@ -1850,8 +2556,8 @@ class ContentArea(tk.Frame):
                 new_ti["category"] = target["category"]
                 new_ti["category_id"] = target.get("category_id", "")
                 items[global_idx] = new_ti
-                update_project(self.current_uuid, self.project_data)
-                self._render()
+                self._save_project_async()
+                self._refresh_workers_only()
                 self._toast_mgr.show(f"已替换工作「{new_ti['name']}」")
             return  # 否也不做任何操作
 
@@ -1865,8 +2571,8 @@ class ContentArea(tk.Frame):
         if unique_category_after_paste(new_ti["category"], cat_order):
             cat_order.append(new_ti["category"])
             self.project_data["category_order"] = cat_order
-        update_project(self.current_uuid, self.project_data)
-        self._render()
+        self._save_project_async()
+        self._refresh_workers_only()
         self._toast_mgr.show(f"已粘贴工作「{new_ti['name']}」（Ctrl+V）")
 
     def _delete_category(self, cat: str) -> None:
@@ -1919,10 +2625,10 @@ class ContentArea(tk.Frame):
         ]
         co = self.project_data.get("category_order", [])
         self.project_data["category_order"] = [c for c in co if _category_name(c) != cat]
-        update_project(self.current_uuid, self.project_data)
+        self._save_project_async()
         if self._selected_category == cat:
             self._selected_category = None
-        self._render()
+        self._refresh_workers_only()
 
     def _move_category_up(self, cat: str) -> None:
         """把分类在 category_order 中上移一位。"""
@@ -1936,7 +2642,7 @@ class ContentArea(tk.Frame):
             return  # 已经在最上面
         cats[idx - 1], cats[idx] = cats[idx], cats[idx - 1]
         self.project_data["category_order"] = _category_order_for_names(self.project_data, cats)
-        update_project(self.current_uuid, self.project_data)
+        self._save_project_async()
         self._refresh_workers_only()
 
     def _move_category_down(self, cat: str) -> None:
@@ -1951,7 +2657,7 @@ class ContentArea(tk.Frame):
             return  # 已经在最下面
         cats[idx + 1], cats[idx] = cats[idx], cats[idx + 1]
         self.project_data["category_order"] = _category_order_for_names(self.project_data, cats)
-        update_project(self.current_uuid, self.project_data)
+        self._save_project_async()
         self._refresh_workers_only()
 
     def _move_category_top(self, cat: str) -> None:
@@ -1967,7 +2673,7 @@ class ContentArea(tk.Frame):
         cats.remove(cat)
         cats.insert(0, cat)
         self.project_data["category_order"] = _category_order_for_names(self.project_data, cats)
-        update_project(self.current_uuid, self.project_data)
+        self._save_project_async()
         self._selected_category = cat
         self._refresh_workers_only()
 
@@ -1984,7 +2690,7 @@ class ContentArea(tk.Frame):
         cats.remove(cat)
         cats.append(cat)
         self.project_data["category_order"] = _category_order_for_names(self.project_data, cats)
-        update_project(self.current_uuid, self.project_data)
+        self._save_project_async()
         self._selected_category = cat
         self._refresh_workers_only()
 
@@ -2051,15 +2757,17 @@ class ContentArea(tk.Frame):
     def _show_bill_mode_menu(self, event):
         from .shortcut_manager import shortcut_manager as sm
         menu = tk.Menu(self, tearoff=0)
-        # 上半部分：不修改存档的操作
-        menu.add_command(label="\U0001f313\ufe0f 繁简切换",
-                         command=self._toggle_bill_display_mode,
-                         accelerator=sm.get_accel("toggle_display"))
+        submenu = self._build_bill_column_menu(menu)
+        if submenu is not None:
+            menu.add_cascade(label="\U0001f5d1\ufe0f 列显示",
+                             menu=submenu,
+                             accelerator=sm.get_accel("toggle_display"))
+        # 不修改存档的操作
         menu.add_command(label="\U0001f5bc\ufe0f 导出图片",
                          command=self._export_image,
                          accelerator=sm.get_accel("save_image"))
         menu.add_separator()
-        # 下半部分：修改存档的操作（DONE 时禁用）
+        # 修改存档的操作（DONE 时禁用）
         add_state = "normal" if self._editable else "disabled"
         menu.add_command(label="\U0001f4c4\ufe0f 添加记录",
                          command=self._add_bill,
@@ -2069,6 +2777,87 @@ class ContentArea(tk.Frame):
             menu.tk_popup(event.x_root, event.y_root)
         finally:
             menu.grab_release()
+
+    def _bill_preset_columns(self, preset: str) -> list[str]:
+        """返回预设对应的数据列集合（按配置列顺序）。"""
+        columns, _, _ = resolve_bill_columns(self.project_data, self._app_config)
+        data_cols = [c for c in columns if c != self._bill_action_col()]
+        if preset == "all":
+            return data_cols
+        if preset == "quick":
+            return [c for c in columns if c in BILL_PRESET_QUICK_VIEW]
+        if preset == "audit":
+            return [c for c in columns if c in BILL_PRESET_AUDIT]
+        return data_cols
+
+    @staticmethod
+    def _bill_action_col() -> str:
+        return "操作"
+
+    def _current_bill_preset(self, data_cols: list[str], visible_set: set) -> str | None:
+        candidates = {
+            "all": set(data_cols),
+            "quick": set(c for c in data_cols if c in BILL_PRESET_QUICK_VIEW),
+            "audit": set(c for c in data_cols if c in BILL_PRESET_AUDIT),
+        }
+        for name, cols in candidates.items():
+            if visible_set == cols:
+                return name
+        return None
+
+    def _build_bill_column_menu(self, parent_menu) -> tk.Menu | None:
+        """构造「列显示」子菜单：全选/速览/查账预设 + 每列勾选。"""
+        if not self.project_data or not self.current_uuid:
+            return None
+        columns, _, hidden = resolve_bill_columns(self.project_data, self._app_config)
+        data_cols = [c for c in columns if c != self._bill_action_col()]
+        visible_set = set(data_cols) - set(hidden)
+        current = self._current_bill_preset(data_cols, visible_set)
+
+        submenu = tk.Menu(parent_menu, tearoff=0)
+        submenu.add_command(label="列显示（操作列固定）", state="disabled")
+        submenu.add_separator()
+        for name, label in (("all", "全选"), ("quick", "速览"), ("audit", "查账")):
+            mark = "\u2611 " if current == name else "   "
+            submenu.add_command(
+                label=f"{mark}{label}",
+                command=lambda p=name: self._set_bill_visible_preset(p),
+            )
+        submenu.add_separator()
+        # 每列勾选（勾 = 显示）
+        self._bill_visibility_vars = {}
+        for col in data_cols:
+            var = tk.BooleanVar(value=col in visible_set)
+            self._bill_visibility_vars[col] = var
+            submenu.add_checkbutton(
+                label=col,
+                variable=var,
+                command=lambda c=col: self._toggle_bill_column_visibility(c),
+            )
+        return submenu
+
+    def _set_bill_visible_preset(self, preset: str) -> None:
+        cols = self._bill_preset_columns(preset)
+        self._set_bill_visible_columns(cols)
+
+    def _set_bill_visible_columns(self, cols: list[str]) -> None:
+        """写入列显隐设置并保存、刷新列表。"""
+        if not self.project_data or not self.current_uuid:
+            return
+        # 空集合视为未自定义（全显示），与旧项目缺省状态一致
+        self.project_data["bill_visible_columns"] = list(cols)
+        self._save_project_async()
+        self._render_bills()
+
+    def _toggle_bill_column_visibility(self, col: str) -> None:
+        columns, _, hidden = resolve_bill_columns(self.project_data, self._app_config)
+        visible = set(columns) - set(hidden)
+        if col in visible:
+            visible.discard(col)
+        else:
+            visible.add(col)
+        ordered = [c for c in columns if c in visible]
+        self._set_bill_visible_columns(ordered)
 
     def _show_worker_mode_menu(self, event):
         menu = tk.Menu(self, tearoff=0)
@@ -2090,22 +2879,30 @@ class ContentArea(tk.Frame):
             menu.grab_release()
 
     def _toggle_bill_display_mode(self):
+        """Alt+D：在全选 → 速览 → 查账 三预设间循环。"""
         if not self.project_data or not self.current_uuid:
             return
-        mode = self.project_data.get("bill_display_mode", "complex")
-        new_mode = "simple" if mode == "complex" else "complex"
-        self.project_data["bill_display_mode"] = new_mode
-        update_project(self.current_uuid, self.project_data)
-        self._render_bills()
+        columns, _, hidden = resolve_bill_columns(self.project_data, self._app_config)
+        data_cols = [c for c in columns if c != self._bill_action_col()]
+        visible_set = set(data_cols) - set(hidden)
+        current = self._current_bill_preset(data_cols, visible_set)
+        names = ("all", "quick", "audit")
+        idx = names.index(current) if current in names else -1
+        next_name = names[(idx + 1) % len(names)]
+        self._set_bill_visible_preset(next_name)
 
     def _refresh_workers_only(self):
         """仅刷新工作类型页面（不重新渲染整个项目视图）"""
         if self.current_uuid:
-            self.project_data = get_project(self.current_uuid)
             if self.tab_var.get() == "workers":
                 self._render_workers()
-            else:
-                self._render()
+            elif "workers" in self._tab_frames:
+                # 当前仍在账单页时，更新已缓存但隐藏的工作类型页；不切换
+                # 主视图，也不重新创建项目头部和导航。
+                self._render_workers(self._tab_frames["workers"])
+            if self.tab_var.get() == "bills" and "bills" in self._tab_frames:
+                # 工作类型名称/单价可能影响账单名称和合计，当前页需要同步。
+                self._render_bills(self._tab_frames["bills"])
 
     def _restore_defaults(self):
         if self._editability is not None and not self._editability.is_editable:
@@ -2115,8 +2912,8 @@ class ContentArea(tk.Frame):
         category_order, defaults = _default_worker_data()
         self.project_data["trade_items"] = defaults
         self.project_data["category_order"] = category_order
-        update_project(self.current_uuid, self.project_data)
-        self._render()
+        self._save_project_async()
+        self._refresh_workers_only()
 
     def _clear_all_categories(self):
         if not self._editable:
@@ -2125,13 +2922,16 @@ class ContentArea(tk.Frame):
             return
         self.project_data["category_order"] = []
         self.project_data["trade_items"] = []
-        update_project(self.current_uuid, self.project_data)
+        self._save_project_async()
         self._selected_category = None
-        self._render()
+        self._refresh_workers_only()
 
     def _refresh_view(self):
-        if self.current_uuid:
-            self.project_data = get_project(self.current_uuid)
-            self._render()
+        if not self.current_uuid:
+            return
+        if self.tab_var.get() == "bills":
+            self._render_bills()
+        else:
+            self._render_workers()
 
 

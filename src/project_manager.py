@@ -3,6 +3,8 @@ import json
 import os
 import re
 import shutil
+import tempfile
+import threading
 import uuid as uuid_module
 from datetime import datetime
 from pathlib import Path
@@ -15,7 +17,12 @@ from .category import Category
 from .trade_item import TradeItem
 from .bill import Bill
 from .billing import Billing, write_billing
-from .backup_policy import next_sequence_backup_path, should_backup, make_room_for_backup
+from .backup_policy import (
+    next_sequence_backup_path,
+    should_backup,
+    rotate_sequence_backups,
+    list_backup_paths,
+)
 from .trade_item_id import (
     generate_category_id,
     generate_trade_item_id,
@@ -29,12 +36,14 @@ from .project_uuid import (
     is_valid_project_filename,
     get_projects_dir,
     get_backups_dir,
-    PROJECTS_DIR,
-    BACKUPS_DIR,
 )
+from .versioning import CURRENT_SCHEMA_VERSION, MigrationError, migrate_json_document
+from .config_loader import load_app
 
 _BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 CONFIG_DIR = os.environ.get("CPA_CONFIG_DIR", os.path.join(_BASE_DIR, "config"))
+PROJECTS_DIR = get_projects_dir()
+BACKUPS_DIR = get_backups_dir()
 
 
 def _validate_uuid(uuid_str: str) -> str:
@@ -58,10 +67,37 @@ def _safe_path(base_dir: str, filename: str) -> str:
         base_dir = get_projects_dir()
     elif base_dir == BACKUPS_DIR:
         base_dir = get_backups_dir()
-    full = os.path.normpath(os.path.join(base_dir, filename))
-    if not full.startswith(os.path.normpath(base_dir)):
+    base = Path(base_dir).expanduser().resolve()
+    full = (base / str(filename)).resolve()
+    try:
+        full.relative_to(base)
+    except ValueError:
         raise ValueError(f"Path traversal detected: {filename}")
-    return full
+    return str(full)
+
+
+def _project_path(uuid: str) -> Path:
+    """Return a project path proven to stay inside the configured directory."""
+    return Path(_safe_path(get_projects_dir(), f"p_{uuid}.json"))
+
+
+_project_write_locks: dict[str, threading.Lock] = {}
+_project_write_locks_guard = threading.Lock()
+
+
+def _project_write_lock(uuid: str) -> threading.Lock:
+    """串行化同一项目的一切写操作（GUI 后台保存、对话框、置顶切换）。
+
+    后台保存 worker 与主线程 toggle_pin/对话框保存并发时，靠这把锁保证
+    磁盘上的读-改-写操作互斥，避免旧快照覆盖新数据（丢失更新）。
+    """
+    normalized = _validate_uuid(uuid)
+    with _project_write_locks_guard:
+        lock = _project_write_locks.get(normalized)
+        if lock is None:
+            lock = threading.Lock()
+            _project_write_locks[normalized] = lock
+        return lock
 
 
 def _load_default_items() -> list[dict]:
@@ -70,9 +106,7 @@ def _load_default_items() -> list[dict]:
     返回 dict 列表（不是 TradeItem dataclass），调用方（create_project）负责
     关联 category_id 并转 dataclass。
     """
-    path = _safe_path(CONFIG_DIR, "app_config.json")
-    with open(path, encoding="utf-8") as f:
-        cfg = json.load(f)
+    cfg = load_app()
     items = copy.deepcopy(cfg.get("default_trade_items", []))
     seen_ids: set[str] = set()
     for it in items:
@@ -89,9 +123,7 @@ def _load_default_items() -> list[dict]:
 
 
 def _load_default_categories() -> list[Category]:
-    path = _safe_path(CONFIG_DIR, "app_config.json")
-    with open(path, encoding="utf-8") as f:
-        cfg = json.load(f)
+    cfg = load_app()
     categories = []
     seen: set[str] = set()
     for c in cfg.get("default_categories", []) or []:
@@ -133,7 +165,7 @@ def create_project(
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     project_uuid = generate_project_uuid()
-    file_path = project_file_path(project_uuid)
+    file_path = _project_path(project_uuid)
 
     default_items = _load_default_items()
 
@@ -183,19 +215,110 @@ def create_project(
         bills=[],
         bill_column_widths={},
     )
-    atomic_write_json(str(file_path), project.to_dict())
+    with _project_write_lock(project_uuid):
+        atomic_write_json(str(file_path), project.to_dict())
     _invalidate_list_cache()
     return project
 
 
 _list_cache: list[Project] | None = None
 _list_cache_dir_mtime: float | None = None
+_list_cache_lock = threading.Lock()
 
 
 def _invalidate_list_cache():
     global _list_cache, _list_cache_dir_mtime
-    _list_cache = None
-    _list_cache_dir_mtime = None
+    with _list_cache_lock:
+        _list_cache = None
+        _list_cache_dir_mtime = None
+
+
+def _parse_project_data(data: dict, project_uuid: str | None = None) -> Project:
+    """迁移并归一化一份项目 JSON dict，结构错误时抛 ValueError。"""
+    if project_uuid:
+        data = dict(data)
+        data.setdefault("project_uuid", project_uuid)
+    try:
+        migrated = migrate_json_document("project", data)
+        return Project.from_dict(migrated)
+    except MigrationError as exc:
+        raise ValueError(f"项目文件版本不受支持：{exc}") from exc
+    except (AttributeError, TypeError, ValueError, KeyError, IndexError) as exc:
+        raise ValueError(f"项目数据结构无效：{exc}") from exc
+
+
+def _try_recover_from_backup(file_path: Path, project_uuid: str, error: Exception) -> Project | None:
+    """项目文件损坏时，尝试用最近的有效备份自动恢复。
+
+    成功恢复：把备份内容原子写回项目文件并返回恢复的项目；
+    无可用备份：返回 None，调用方维持原有"无法加载"行为。
+    """
+    backups_dir = get_backups_dir()
+    if not os.path.isdir(backups_dir):
+        return None
+    candidates = list_backup_paths(project_uuid, Path(backups_dir))
+    for backup_path in candidates:
+        try:
+            with open(backup_path, encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        try:
+            recovered = _parse_project_data(data, project_uuid)
+        except ValueError:
+            continue
+        # 尽量保留损坏文件里仍可读取的置顶状态（备份通常早于置顶切换）
+        try:
+            with open(file_path, encoding="utf-8") as fh:
+                broken = json.load(fh)
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            broken = None
+        if isinstance(broken, dict) and "is_pinned" in broken:
+            recovered.is_pinned = bool(broken.get("is_pinned", False))
+        with _project_write_lock(project_uuid):
+            atomic_write_json(str(file_path), recovered.to_dict())
+        _invalidate_list_cache()
+        logger.warning(
+            "项目 %s 文件损坏，已从备份 %s 自动恢复（原错误: %s）",
+            project_uuid[:16], backup_path.name, error,
+        )
+        return recovered
+    return None
+
+
+def _load_project_from_file(file_path: Path, project_uuid: str | None = None) -> Project:
+    """读取并归一化一个项目文件，统一处理损坏或旧格式数据。
+
+    文件 JSON 损坏或结构无效时，尝试从最近备份自动恢复；恢复失败才抛
+    ValueError（调用方降级为"无法加载"）。
+    """
+    try:
+        with open(file_path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        error = ValueError(f"无法读取项目文件：{exc}")
+        if project_uuid:
+            recovered = _try_recover_from_backup(file_path, project_uuid, error)
+            if recovered is not None:
+                return recovered
+        raise error
+    if not isinstance(data, dict):
+        error = ValueError("项目 JSON 根节点必须是对象")
+        if project_uuid:
+            recovered = _try_recover_from_backup(file_path, project_uuid, error)
+            if recovered is not None:
+                return recovered
+        raise error
+    try:
+        return _parse_project_data(data, project_uuid)
+    except ValueError as exc:
+        if project_uuid:
+            recovered = _try_recover_from_backup(file_path, project_uuid, exc)
+            if recovered is not None:
+                return recovered
+        raise
 
 
 def list_projects() -> list[Project]:
@@ -210,48 +333,48 @@ def list_projects() -> list[Project]:
     except OSError:
         return []
 
-    if _list_cache is not None and _list_cache_dir_mtime == current_mtime:
-        return _list_cache
+    with _list_cache_lock:
+        if _list_cache is not None and _list_cache_dir_mtime == current_mtime:
+            return _list_cache
 
     projects: list[Project] = []
     for f in os.listdir(projects_dir):
         u = extract_uuid_from_filename(f)
         if not u:
             continue
-        file_path = os.path.join(projects_dir, f)
         try:
-            with open(file_path, encoding="utf-8") as fh:
-                data = json.load(fh)
-            data.setdefault("project_uuid", u)
-            project = Project.from_dict(data)
+            file_path = Path(_safe_path(projects_dir, f))
+            project = _load_project_from_file(file_path, u)
             projects.append(project)
-        except (json.JSONDecodeError, OSError) as e:
+        except (ValueError, OSError) as e:
             logger.warning("Failed to load project %s: %s", f, e)
     projects.sort(key=lambda p: (not p.is_pinned, p.last_modified), reverse=True)
 
-    _list_cache = projects
-    _list_cache_dir_mtime = current_mtime
+    with _list_cache_lock:
+        _list_cache = projects
+        _list_cache_dir_mtime = current_mtime
     return _list_cache
 
 
 def delete_project(uuid: str) -> bool:
     uuid = _validate_uuid(uuid)
-    file_path = project_file_path(uuid)
+    file_path = _project_path(uuid)
     if not file_path.is_file():
         old_path = Path(_safe_path(PROJECTS_DIR, f"{uuid}.json"))
         if old_path.is_file():
             file_path = old_path
         else:
             return False
-    _backup_project(uuid)
-    os.remove(str(file_path))
+    with _project_write_lock(uuid):
+        _backup_project(uuid, force=True)
+        os.remove(str(file_path))
     _invalidate_list_cache()
     return True
 
 
 def get_project(uuid: str) -> Project | None:
     uuid = _validate_uuid(uuid)
-    file_path = project_file_path(uuid)
+    file_path = _project_path(uuid)
     if not file_path.is_file():
         old_path = Path(_safe_path(PROJECTS_DIR, f"{uuid}.json"))
         if old_path.is_file():
@@ -260,16 +383,17 @@ def get_project(uuid: str) -> Project | None:
             file_path = _find_project_file(uuid)
             if file_path is None:
                 return None
-    with open(file_path, encoding="utf-8") as f:
-        data = json.load(f)
-    data.setdefault("project_uuid", uuid)
-    return Project.from_dict(data)
+    try:
+        return _load_project_from_file(file_path, uuid)
+    except ValueError as exc:
+        logger.error("Failed to load project %s: %s", uuid, exc)
+        return None
 
 
-def toggle_pin(uuid: str) -> None:
-    """Toggle pinned state. Does NOT trigger backup."""
+def toggle_pin(uuid: str) -> bool:
+    """Toggle pinned state. Does NOT trigger backup. 返回切换后的置顶状态。"""
     uuid = _validate_uuid(uuid)
-    file_path = project_file_path(uuid)
+    file_path = _project_path(uuid)
     if not file_path.is_file():
         old_path = Path(_safe_path(PROJECTS_DIR, f"{uuid}.json"))
         if old_path.is_file():
@@ -279,14 +403,23 @@ def toggle_pin(uuid: str) -> None:
             if existing is not None:
                 file_path = existing
             else:
-                return
-    with open(file_path, encoding="utf-8") as f:
-        data = json.load(f)
-    data.setdefault("project_uuid", uuid)
-    data["is_pinned"] = not data.get("is_pinned", False)
-    data["last_modified"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    atomic_write_json(str(file_path), data)
+                return False
+    with _project_write_lock(uuid):
+        try:
+            with open(file_path, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            logger.error("Failed to read project %s for pin toggle: %s", uuid, exc)
+            return False
+        if not isinstance(data, dict):
+            logger.error("Failed to toggle pin for %s: project JSON root is not an object", uuid)
+            return False
+        data.setdefault("project_uuid", uuid)
+        data["is_pinned"] = not data.get("is_pinned", False)
+        data["last_modified"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        atomic_write_json(str(file_path), data)
     _invalidate_list_cache()
+    return bool(data.get("is_pinned", False))
 
 
 def _find_project_file(uuid: str) -> Path | None:
@@ -296,33 +429,42 @@ def _find_project_file(uuid: str) -> Path | None:
     for name in os.listdir(projects_dir):
         if not name.endswith(".json"):
             continue
-        path = Path(_safe_path(PROJECTS_DIR, name))
+        try:
+            path = Path(_safe_path(get_projects_dir(), name))
+        except ValueError:
+            logger.warning("Ignoring project path outside projects directory: %s", name)
+            continue
         if path.stem == uuid:
             return path
         try:
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
-        except (OSError, json.JSONDecodeError):
+        except (OSError, UnicodeError, json.JSONDecodeError):
             continue
-        if data.get("project_uuid") == uuid:
+        if isinstance(data, dict) and data.get("project_uuid") == uuid:
             return path
     return None
 
 
 def _get_backup_count() -> int:
-    path = os.path.join(CONFIG_DIR, "app_config.json")
     try:
-        with open(path, encoding="utf-8") as f:
-            cfg = json.load(f)
-        return max(1, int(cfg.get("backup_count", 10)))
+        return max(1, int(load_app().get("backup_count", 10)))
     except Exception:
         return 10
+
+
+def _get_backup_max_bytes() -> int:
+    """备份保留的字节上限；0 表示不限制。"""
+    try:
+        return max(0, int(load_app().get("backup_max_bytes", 0)))
+    except Exception:
+        return 0
 
 
 def _backup_project(uuid: str, force: bool = False, next_project: dict | None = None):
     """备份项目到 backups/。"""
     uuid = _validate_uuid(uuid)
-    src = project_file_path(uuid)
+    src = _project_path(uuid)
     if not src.is_file():
         old_path = Path(_safe_path(PROJECTS_DIR, f"{uuid}.json"))
         if old_path.is_file():
@@ -340,7 +482,7 @@ def _backup_project(uuid: str, force: bool = False, next_project: dict | None = 
         try:
             with open(src, encoding="utf-8") as f:
                 current = json.load(f)
-        except (OSError, json.JSONDecodeError):
+        except (OSError, UnicodeError, json.JSONDecodeError):
             current = {}
         if not should_backup(current, next_project):
             return
@@ -348,10 +490,43 @@ def _backup_project(uuid: str, force: bool = False, next_project: dict | None = 
         return
 
     n = _get_backup_count()
-    make_room_for_backup(src, Path(backups_dir), n)
     dst = next_sequence_backup_path(src, Path(backups_dir))
     dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(str(src), str(dst))
+    _copy_file_atomically(src, dst)
+    rotate_sequence_backups(src, Path(backups_dir), n, _get_backup_max_bytes())
+
+
+def _copy_file_atomically(source: Path, destination: Path) -> None:
+    """Copy a file without exposing a partially written destination."""
+    fd, temp_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.",
+        suffix=".tmp",
+        dir=str(destination.parent),
+    )
+    os.close(fd)
+    temp_path = Path(temp_name)
+    try:
+        shutil.copy2(str(source), str(temp_path))
+        os.replace(str(temp_path), str(destination))
+        # Retention is based on backup creation time, not source mtime.
+        os.utime(destination, None)
+    finally:
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _read_current_pin_state(file_path: Path) -> bool | None:
+    """读取磁盘上项目文件的当前置顶状态；文件不存在/不可读返回 None。"""
+    try:
+        with open(file_path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    if isinstance(data, dict) and "is_pinned" in data:
+        return bool(data.get("is_pinned", False))
+    return None
 
 
 def update_project(uuid: str, project: Project) -> None:
@@ -361,21 +536,36 @@ def update_project(uuid: str, project: Project) -> None:
         data = dict(project)
         data.setdefault("project_uuid", uuid)
         project = Project.from_dict(data)
+    # The caller's UUID identifies the file being updated; keep the payload
+    # consistent with it even when a stale in-memory object is supplied.
+    project.project_uuid = uuid
     project.last_modified = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     next_data = project.to_dict()
-    file_path = project_file_path(uuid)
+    file_path = _project_path(uuid)
     if not file_path.is_file():
         existing = _find_project_file(uuid)
         if existing is not None:
             file_path = existing
-    _backup_project(uuid, next_project=next_data)
-    atomic_write_json(str(file_path), next_data)
+    with _project_write_lock(uuid):
+        # 置顶状态只由 toggle_pin 独占写入。快照可能早于置顶切换，因此
+        # 保存时以磁盘上的最新值合并，避免内容保存覆盖刚切换的置顶。
+        pinned = _read_current_pin_state(file_path)
+        if pinned is not None:
+            next_data["is_pinned"] = pinned
+        _backup_project(uuid, next_project=next_data)
+        atomic_write_json(str(file_path), next_data)
     _invalidate_list_cache()
 
 
 def normalize_project(data: dict) -> dict:
     """兼容旧测试/调用方：归一化为当前 Project JSON dict。"""
-    return Project.from_dict(data or {}).to_dict()
+    if not isinstance(data, dict):
+        raise ValueError("项目数据必须是对象")
+    try:
+        migrated = migrate_json_document("project", data)
+        return Project.from_dict(migrated).to_dict()
+    except MigrationError as exc:
+        raise ValueError(f"项目文件版本不受支持：{exc}") from exc
 
 
 def save_project_as(project: Project, output_path: str) -> None:
@@ -392,15 +582,43 @@ def export_project(uuid: str, output_path: str) -> bool:
 
 
 def import_project(input_path: str) -> Project | None:
-    with open(input_path, encoding="utf-8") as f:
-        data = json.load(f)
-    if "name" not in data:
-        raise ValueError("无效的项目文件：缺少 name 字段")
-    return create_project(
-        name=data.get("name", "导入项目"),
-        status=data.get("status", ProjectStatus.EDITING),
-        created_at=data.get("created_at"),
-        project_date_type=data.get("project_date_type", "无时间"),
-        project_date_start=data.get("project_date_start", ""),
-        project_date_end=data.get("project_date_end", ""),
-    )
+    """导入完整项目数据并生成新的项目 UUID。
+
+    导入不能调用 ``create_project`` 后再拼字段：那会先注入默认工种，
+    也容易遗漏项目描述、账单列宽和视图状态。这里直接把导出的 JSON
+    归一化为 Project，再以新 UUID 写入目标目录。
+    """
+    try:
+        with open(input_path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"无法读取项目文件：{exc}") from exc
+
+    if not isinstance(data, dict):
+        raise ValueError("无效的项目文件：JSON 根节点必须是对象")
+
+    name = str(data.get("name", "")).strip()
+    if not name:
+        raise ValueError("无效的项目文件：缺少有效的 name 字段")
+
+    try:
+        migrated = migrate_json_document("project", data)
+        project = Project.from_dict(migrated)
+    except MigrationError as exc:
+        raise ValueError(f"项目文件版本不受支持：{exc}") from exc
+    except (AttributeError, TypeError, ValueError, KeyError, IndexError) as exc:
+        raise ValueError(f"无效的项目文件：数据结构错误（{exc}）") from exc
+
+    # 项目导入始终创建副本，避免覆盖原项目或产生同 UUID 文件。
+    project.project_uuid = generate_project_uuid()
+    project.name = name
+    if not project.created_at:
+        project.created_at = datetime.now().strftime("%Y-%m-%d")
+    project.last_modified = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    project.schema_version = CURRENT_SCHEMA_VERSION
+
+    file_path = _project_path(project.project_uuid)
+    with _project_write_lock(project.project_uuid):
+        atomic_write_json(str(file_path), project.to_dict())
+    _invalidate_list_cache()
+    return project

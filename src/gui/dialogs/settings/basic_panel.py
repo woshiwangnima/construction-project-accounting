@@ -3,8 +3,13 @@
 import tkinter as tk
 from tkinter import ttk, colorchooser
 
-from .base import BaseSettingsPanel, register_section
-from ...theme import APP_BG, TEXT_PRIMARY, TEXT_SECONDARY
+from .base import (
+    BaseSettingsPanel,
+    bind_responsive_wrap,
+    normalize_hex_color,
+    register_section,
+)
+from ...theme import APP_BG, ACCENT, REVIEW_BG, ROW_STRIPE, SEPARATOR, TEXT_PRIMARY, TEXT_SECONDARY
 from ...font_manager import font_manager
 from ...widgets import ScrollableFrame, _make_btn
 from ....config_loader import load_app, save_app
@@ -25,8 +30,11 @@ class BasicSettingsPanel(BaseSettingsPanel):
 
         tk.Label(inner, text=f"{self.section_icon} 基础设置", font=font_manager.get("body_bold"),
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w")
-        tk.Label(inner, text="这些设置会写入 app_config.json，作为应用级默认值。",
-                 font=font_manager.get("small"), bg=APP_BG, fg=TEXT_SECONDARY).pack(anchor="w", pady=(2, 12))
+        hint = tk.Label(inner, text="这些设置会写入 app_config.json，作为应用级默认值。",
+                        font=font_manager.get("small"), bg=APP_BG, fg=TEXT_SECONDARY,
+                        justify="left")
+        hint.pack(fill=tk.X, anchor="w", pady=(2, 12))
+        bind_responsive_wrap(hint, inner, padding=4)
 
         row = tk.Frame(inner, bg=APP_BG)
         row.pack(fill=tk.X, pady=3)
@@ -35,28 +43,42 @@ class BasicSettingsPanel(BaseSettingsPanel):
         self._backup_count = tk.IntVar(value=10)
         self._backup_spin = ttk.Spinbox(row, from_=1, to=100, textvariable=self._backup_count, width=8)
         self._backup_spin.pack(side=tk.LEFT)
-        tk.Label(row, text="每个项目最多保留的备份文件数", font=font_manager.get("small"),
-                 bg=APP_BG, fg=TEXT_SECONDARY).pack(side=tk.LEFT, padx=(8, 0))
+        backup_hint = tk.Label(inner, text="每个项目最多保留的备份文件数",
+                               font=font_manager.get("small"), bg=APP_BG,
+                               fg=TEXT_SECONDARY, justify="left")
+        backup_hint.pack(fill=tk.X, anchor="w", padx=(10, 0), pady=(0, 3))
+        bind_responsive_wrap(backup_hint, inner, padding=14)
 
         self._backup_count.trace_add("write", lambda *_: self._schedule_save())
 
-        tk.Frame(inner, bg="#e2e8f0", height=1).pack(fill=tk.X, pady=12)
+        tk.Frame(inner, bg=SEPARATOR, height=1).pack(fill=tk.X, pady=12)
         tk.Label(inner, text="账单管理设置", font=font_manager.get("body_bold"),
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w")
-        tk.Label(inner, text="颜色值使用 #RRGGBB 格式；选中颜色优先于已审核行颜色。",
-                 font=font_manager.get("small"), bg=APP_BG, fg=TEXT_SECONDARY).pack(anchor="w", pady=(2, 8))
-        self._selection_color = tk.StringVar(value="#90cdf4")
-        self._reviewed_color = tk.StringVar(value="#e6fffa")
+        color_hint = tk.Label(
+            inner, text="颜色值使用 #RRGGBB 格式；选中颜色优先于已审核行颜色。",
+            font=font_manager.get("small"), bg=APP_BG, fg=TEXT_SECONDARY,
+            justify="left",
+        )
+        color_hint.pack(fill=tk.X, anchor="w", pady=(2, 8))
+        bind_responsive_wrap(color_hint, inner, padding=4)
+        self._selection_color = tk.StringVar(value=ACCENT)
+        self._reviewed_color = tk.StringVar(value=REVIEW_BG)
         self._color_row(inner, "选中行颜色", self._selection_color)
         self._color_row(inner, "已审核行颜色", self._reviewed_color)
         self._selection_color.trace_add("write", lambda *_: self._schedule_save())
         self._reviewed_color.trace_add("write", lambda *_: self._schedule_save())
 
-        tk.Frame(inner, bg="#e2e8f0", height=1).pack(fill=tk.X, pady=12)
+        tk.Frame(inner, bg=SEPARATOR, height=1).pack(fill=tk.X, pady=12)
         tk.Label(inner, text="符号映射", font=font_manager.get("body_bold"),
                  bg=APP_BG, fg=TEXT_PRIMARY).pack(anchor="w")
-        tk.Label(inner, text="符号映射从 app_config.json 读取，仅在此展示；如需修改请编辑配置文件。",
-                 font=font_manager.get("small"), bg=APP_BG, fg=TEXT_SECONDARY).pack(anchor="w", pady=(2, 8))
+        symbol_hint = tk.Label(
+            inner,
+            text="符号映射从 app_config.json 读取，仅在此展示；如需修改请编辑配置文件。",
+            font=font_manager.get("small"), bg=APP_BG, fg=TEXT_SECONDARY,
+            justify="left",
+        )
+        symbol_hint.pack(fill=tk.X, anchor="w", pady=(2, 8))
+        bind_responsive_wrap(symbol_hint, inner, padding=4)
         self._symbol_display = tk.Text(inner, height=11, font=font_manager.get("small"), width=72, wrap="word",
                                        bg="white", fg=TEXT_PRIMARY, relief="solid", bd=1)
         self._symbol_display.pack(fill=tk.X)
@@ -71,22 +93,22 @@ class BasicSettingsPanel(BaseSettingsPanel):
         entry.pack(side=tk.LEFT, padx=(0, 6))
         swatch = tk.Label(row, text="  ●  ", font=font_manager.get("body"), bg=var.get(),
                           fg="white" if self._is_dark(var.get()) else "black",
-                          cursor="hand2", relief="groove", bd=1)
+                          cursor="hand2", relief="flat", bd=0)
         swatch.pack(side=tk.LEFT, padx=(0, 6))
 
         def pick():
             _code, color = colorchooser.askcolor(
                 title="选择颜色",
                 parent=self.winfo_toplevel(),
-                initialcolor=var.get(),
+                initialcolor=normalize_hex_color(var.get(), "#ffffff"),
             )
             if color:
                 var.set(color)
 
         def update_swatch(*_):
-            c = var.get()
+            c = normalize_hex_color(var.get(), "")
             try:
-                swatch.config(bg=c, fg="white" if self._is_dark(c) else "black")
+                swatch.config(bg=c or ROW_STRIPE, fg="white" if c and self._is_dark(c) else "black")
             except tk.TclError:
                 pass
 
@@ -107,8 +129,12 @@ class BasicSettingsPanel(BaseSettingsPanel):
     def _load(self):
         cfg = load_app()
         self._backup_count.set(max(1, int(cfg.get("backup_count", 10))))
-        self._selection_color.set(cfg.get("selection_highlight_color", "#90cdf4"))
-        self._reviewed_color.set(cfg.get("bill_reviewed_row_color", "#e6fffa"))
+        self._selection_color.set(
+            normalize_hex_color(cfg.get("selection_highlight_color"), ACCENT)
+        )
+        self._reviewed_color.set(
+            normalize_hex_color(cfg.get("bill_reviewed_row_color"), REVIEW_BG)
+        )
 
         mapping = normalize_symbol_mapping(cfg.get("symbol_mapping") or DEFAULT_SYMBOL_MAPPING)
         lines = []
@@ -133,7 +159,14 @@ class BasicSettingsPanel(BaseSettingsPanel):
 
     def _save(self):
         cfg = load_app()
-        cfg["backup_count"] = max(1, int(self._backup_count.get()))
-        cfg["selection_highlight_color"] = self._selection_color.get().strip() or "#90cdf4"
-        cfg["bill_reviewed_row_color"] = self._reviewed_color.get().strip() or "#e6fffa"
+        try:
+            cfg["backup_count"] = max(1, min(100, int(self._backup_count.get())))
+        except (TypeError, ValueError, tk.TclError):
+            cfg["backup_count"] = 10
+        cfg["selection_highlight_color"] = normalize_hex_color(
+            self._selection_color.get(), ACCENT
+        )
+        cfg["bill_reviewed_row_color"] = normalize_hex_color(
+            self._reviewed_color.get(), REVIEW_BG
+        )
         save_app(cfg)

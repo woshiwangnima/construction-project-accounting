@@ -7,18 +7,16 @@ from pathlib import Path
 from typing import Optional
 
 from .backup_policy import list_backup_paths
-
-_BASE_DIR = os.path.dirname(os.path.dirname(__file__))
-PROJECTS_DIR = os.environ.get("CPA_PROJECTS_DIR", os.path.join(_BASE_DIR, "projects"))
-BACKUPS_DIR = os.environ.get("CPA_BACKUPS_DIR", os.path.join(_BASE_DIR, "backups"))
+from .paths import get_backups_dir as _get_backups_dir
+from .paths import get_projects_dir as _get_projects_dir
 
 
 def get_projects_dir() -> str:
-    return os.environ.get("CPA_PROJECTS_DIR", PROJECTS_DIR)
+    return str(_get_projects_dir())
 
 
 def get_backups_dir() -> str:
-    return os.environ.get("CPA_BACKUPS_DIR", BACKUPS_DIR)
+    return str(_get_backups_dir())
 
 _UUID_PATTERN = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 _PROJECT_FILE_RE = re.compile(rf"^p_({_UUID_PATTERN})(_\d+_\d+)?\.json$")

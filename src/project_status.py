@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from enum import Enum
 
+from .gui.theme import SYSTEM_GREEN, TEXT_TERTIARY
+
 
 class ProjectStatus(str, Enum):
     EDITING = "editing"
@@ -38,7 +40,7 @@ class ProjectStatus(str, Enum):
     @property
     def color(self) -> str:
         # 绿/灰
-        return "#38a169" if self == ProjectStatus.EDITING else "#a0aec0"
+        return SYSTEM_GREEN if self == ProjectStatus.EDITING else TEXT_TERTIARY
 
     @property
     def icon(self) -> str:

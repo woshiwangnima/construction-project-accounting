@@ -1,8 +1,11 @@
 import logging
 import os
 import sys
+from logging.handlers import RotatingFileHandler
 
-LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
+from .paths import get_log_dir
+
+LOG_DIR = str(get_log_dir())
 LOG_FILE = os.path.join(LOG_DIR, "app.log")
 
 _LOG_LEVELS = {
@@ -25,7 +28,13 @@ def setup_logger():
     _logger.setLevel(logging.DEBUG)
     _logger.handlers.clear()
 
-    fh = logging.FileHandler(LOG_FILE, encoding="utf-8", mode="a")
+    fh = RotatingFileHandler(
+        LOG_FILE,
+        encoding="utf-8",
+        mode="a",
+        maxBytes=5 * 1024 * 1024,
+        backupCount=3,
+    )
     fh.setLevel(file_level)
     fh.setFormatter(logging.Formatter(
         "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
@@ -45,4 +54,8 @@ def setup_logger():
     return _logger
 
 
-logger = setup_logger()
+# 惰性初始化：导入本模块不创建 logs 目录，也不绑定 handler。
+# GUI 入口（main.py）显式调用 setup_logger() 完成配置。
+logger = logging.getLogger("construction_project")
+logger.setLevel(logging.DEBUG)
+logger.addHandler(logging.NullHandler())

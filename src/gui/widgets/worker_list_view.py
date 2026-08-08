@@ -1,6 +1,6 @@
 """工作类型（工种）列表 widget - 复用 ListViewBase。
 
-与「账单管理」同款：可拖拽列宽、可选中行（↑/↓ 键切）、行内上移/下移/删除按钮。
+与「账单管理」同款：可拖拽列宽、可选中行（↑/↓ 键切）、列表级统一操作栏。
 
 数据项字段：dict，包含 name / unit_price / unit / has_unit。
 列定义：("名称", "单价", "单位", "计费类型", "操作")。
@@ -8,7 +8,7 @@
 import tkinter as tk
 
 from ..theme import (
-    APP_BG, TEXT_SECONDARY,
+    APP_BG, ACCENT, TEXT_SECONDARY, TEXT_TERTIARY,
 )
 from ..font_manager import font_manager
 from .list_view_base import ListViewBase
@@ -18,6 +18,13 @@ from ..shortcut_manager import shortcut_manager as sm
 
 # 工作类型表完整列（含操作列）
 WORKER_FULL_COLUMNS = ("名称", "单价", "单位", "计费类型", "操作")
+WORKER_COLUMN_MIN_WIDTHS = {
+    "名称": 120,
+    "单价": 76,
+    "单位": 76,
+    "计费类型": 88,
+    "操作": 52,
+}
 
 
 class WorkerListView(ListViewBase):
@@ -36,7 +43,7 @@ class WorkerListView(ListViewBase):
         on_sort_by_price=None,
         on_sort_by_billing_type=None,
         weights=None,
-        selection_bg: str = "#90cdf4",
+        selection_bg: str = ACCENT,
         editable: bool = True,
         **kwargs,
     ):
@@ -52,7 +59,7 @@ class WorkerListView(ListViewBase):
             default_weights=default_weights or None,
             min_width=60,
             action_col="操作",
-            action_col_width=104,
+            action_col_width=52,
             on_column_resize=on_column_resize,
             on_move_up=on_move_up,
             on_move_down=on_move_down,
@@ -64,11 +71,13 @@ class WorkerListView(ListViewBase):
             editable=editable,
             wrap_cols=("名称",),
             header_click_map=header_click_map,
-            action_delete=False,
+            header_labels={"操作": "排序"},
+            action_delete=True,
+            shared_actions=True,
+            initial_items=list(items or []),
+            column_min_widths=WORKER_COLUMN_MIN_WIDTHS,
             **kwargs,
         )
-        self._items = list(items)
-        self._render_rows()
 
     def _create_row_widgets(self, row_frame, idx, item) -> dict:
         """填一行：4 个数据列 Label。"""
@@ -84,12 +93,12 @@ class WorkerListView(ListViewBase):
             price_text = "-"
             unit_text = "-"
             billing_text = "无单价"
-            billing_color = "#999999"
+            billing_color = TEXT_TERTIARY
 
         cells: dict = {
             "名称": tk.Label(
                 row_frame, text=name, font=font_manager.get("body"), anchor="w", padx=6,
-                wraplength=80, justify="left",
+                wraplength=0, justify="left",
             ),
             "单价": tk.Label(
                 row_frame, text=price_text, font=font_manager.get("body_bold"), anchor="e", padx=6,
@@ -105,23 +114,38 @@ class WorkerListView(ListViewBase):
         # 数据列 grid 配置
         for col_idx, col in enumerate(self._data_cols):
             row_frame.grid_columnconfigure(col_idx, minsize=60, weight=0)
-            cells[col].grid(row=0, column=col_idx, sticky="nsew", padx=2, pady=8)
+            cells[col].grid(row=0, column=col_idx, sticky="nsew", padx=2, pady=10)
 
         # 选中行：所有模式都允许（点数据单元 = 选中，点操作按钮 = 触发动作）
-        for col_key, w in cells.items():
-            w.bind("<Button-1>", lambda *a, i=idx: self._on_row_click(i))
+        self._bind_row_widgets(row_frame, idx, cells)
         # 右键菜单：cell 上单独绑
-        for col_key, w in cells.items():
-            w.bind("<Button-3>", lambda *a, i=idx: self._fire_row_right_click(a[0] if a else None, i))
         # 已完成状态：不绑双击编辑
-        if self._editable and self._on_row_activated:
-            for col_key, w in cells.items():
-                w.bind(
-                    "<Double-1>",
-                    lambda *a, i=idx: self._on_row_activated(i),
-                )
 
         return cells
+
+    def _update_row_widgets(self, widgets: dict, idx: int, item) -> None:
+        """增量刷新单行：复用现有 widget，只更新文本与颜色（不重建）。
+
+        计算逻辑必须与 _create_row_widgets 完全一致。
+        """
+        name = item.get("name", "")
+        billing = read_billing(item)
+
+        if billing.is_per_unit:
+            price_text = f"￥{billing.unit_price:.2f}"
+            unit_text = billing.unit
+            billing_text = "按单价"
+            billing_color = TEXT_SECONDARY
+        else:
+            price_text = "-"
+            unit_text = "-"
+            billing_text = "无单价"
+            billing_color = TEXT_TERTIARY
+
+        widgets["名称"].config(text=name)
+        widgets["单价"].config(text=price_text)
+        widgets["单位"].config(text=unit_text)
+        widgets["计费类型"].config(text=billing_text, fg=billing_color)
 
     def _on_row_right_click(self, event, idx) -> None:
         """工种行 / 空白处右键：弹「复制 / 粘贴」菜单。"""
@@ -162,7 +186,7 @@ class WorkerListView(ListViewBase):
             has_items = True
             menu.add_separator()
         # 删除
-        del_allowed = self._paste_allowed is None or self._paste_allowed()
+        del_allowed = self._editable
         if idx is not None and self._on_delete:
             menu.add_command(
                 label="\U0001f5d1\ufe0f 删除",
@@ -170,6 +194,10 @@ class WorkerListView(ListViewBase):
                 state="normal" if del_allowed else "disabled",
                 accelerator=sm.get_accel("delete_item"),
             )
+            has_items = True
+        if self._add_reorder_menu_items(menu, idx):
+            if has_items:
+                menu.add_separator()
             has_items = True
         if not has_items:
             return None

@@ -24,7 +24,7 @@ DEFAULT_SHORTCUTS = {
     "new_project":     {"label": "新建项目",     "event": "<Control-n>",        "accel": "Ctrl+N"},
     "add_record":      {"label": "添加记录",     "event": "<Control-Return>",   "accel": "Ctrl+Enter"},
     "save_image":      {"label": "保存为图片",   "event": "<Control-Shift-S>",  "accel": "Ctrl+Shift+S"},
-    "toggle_display":  {"label": "繁简切换",     "event": "<Alt-d>",            "accel": "Alt+D"},
+    "toggle_display":  {"label": "列显示切换",   "event": "<Alt-d>",            "accel": "Alt+D"},
     "rollback":        {"label": "回滚存档",     "event": "<F4>",               "accel": "F4"},
     "edit_project":    {"label": "编辑项目",     "event": "<Alt-e>",            "accel": "Alt+E"},
     "open_location":   {"label": "打开位置",     "event": "<Alt-f>",            "accel": "Alt+F"},
@@ -173,24 +173,25 @@ class ShortcutManager:
                 s._toggle_pin_project()
 
         elif action_id == "rollback":
-            uuid = s._selected_uuid if hasattr(s, '_selected_uuid') else None
+            uuid = s.selected_uuid
             if uuid:
                 s._open_rollback_dialog(uuid)
 
         elif action_id == "edit_project":
-            uuid = s._selected_uuid if hasattr(s, '_selected_uuid') else None
+            uuid = s.selected_uuid
             if uuid:
                 s._edit_project(uuid)
 
         elif action_id == "open_location":
-            uuid = s._selected_uuid if hasattr(s, '_selected_uuid') else None
+            uuid = s.selected_uuid
             if uuid:
                 s._open_file_location(uuid)
 
         elif action_id == "delete_project":
-            uuid = s._selected_uuid if hasattr(s, '_selected_uuid') else None
+            uuid = s.selected_uuid
             if uuid:
-                project = s._get_project_by_uuid(uuid)
+                from ..project_manager import get_project
+                project = get_project(uuid)
                 if project:
                     s._delete_project(uuid, project)
 

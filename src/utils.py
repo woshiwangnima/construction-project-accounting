@@ -11,8 +11,9 @@ def atomic_write_json(file_path: str, data: dict, max_retries: int = 3):
 
     失败重试：os.replace 在 Windows 上偶发 [WinError 5]（目标/临时文件被
     杀毒/文件监视器/编辑器短暂占用）。先重试 3 次（50/100/200ms 退避），
-    仍失败则回退到非原子直接写，保证配置一定能落盘。
+    全部失败则抛出最后一个错误，保留原文件，避免把目标文件写成半截 JSON。
     """
+    file_path = os.path.abspath(file_path)
     dir_name = os.path.dirname(file_path)
     os.makedirs(dir_name, exist_ok=True)
     delays = [0.05, 0.1, 0.2]
@@ -28,7 +29,7 @@ def atomic_write_json(file_path: str, data: dict, max_retries: int = 3):
             continue
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+                json.dump(data, f, indent=2, ensure_ascii=False, allow_nan=False)
                 f.flush()
                 try:
                     os.fsync(f.fileno())
@@ -55,6 +56,6 @@ def atomic_write_json(file_path: str, data: dict, max_retries: int = 3):
             except OSError:
                 pass
             raise
-    # 重试全部失败 → 兜底非原子写入
-    with open(file_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+    if last_err is not None:
+        raise last_err
+    raise OSError(f"无法原子写入 JSON 文件: {file_path}")

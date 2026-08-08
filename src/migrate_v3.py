@@ -17,8 +17,10 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-PROJECTS_DIR = os.environ.get("CPA_PROJECTS_DIR", "./projects")
-BACKUPS_DIR = os.environ.get("CPA_BACKUPS_DIR", "./backups")
+from .paths import get_backups_dir, get_projects_dir
+
+PROJECTS_DIR = str(get_projects_dir())
+BACKUPS_DIR = str(get_backups_dir())
 
 
 def _atomic_write(path: str, data: dict) -> None:
@@ -30,10 +32,10 @@ def _atomic_write(path: str, data: dict) -> None:
     os.replace(tmp, path)
 
 
-def _backup(src_path: str, project_uuid: str) -> None:
-    os.makedirs(BACKUPS_DIR, exist_ok=True)
+def _backup(src_path: str, project_uuid: str, backups_dir: str) -> None:
+    os.makedirs(backups_dir, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    dst = os.path.join(BACKUPS_DIR, f"p_{project_uuid}_{ts}.json")
+    dst = os.path.join(backups_dir, f"p_{project_uuid}_{ts}.json")
     shutil.copy2(src_path, dst)
 
 
@@ -47,7 +49,7 @@ def _gen_bill_id(trade_item_id: str, content: str, record_time: str) -> str:
     return "b_" + hashlib.sha1(raw).hexdigest()[:12]
 
 
-def _migrate_one(file_path: str, dry_run: bool) -> dict:
+def _migrate_one(file_path: str, dry_run: bool, backups_dir: str) -> dict:
     """迁移单个项目文件。返回报告 dict。"""
     report = {"path": file_path, "status": "ok", "categories": 0, "trade_items": 0, "bills": 0, "orphans": 0}
 
@@ -143,7 +145,7 @@ def _migrate_one(file_path: str, dry_run: bool) -> dict:
 
     if not dry_run:
         uuid_part = data.get("project_uuid", Path(file_path).stem)
-        _backup(file_path, uuid_part)
+        _backup(file_path, uuid_part, backups_dir)
         _atomic_write(file_path, data)
 
     return report
@@ -175,7 +177,7 @@ def main() -> int:
     total_orphans = 0
     for fp in files:
         try:
-            r = _migrate_one(fp, args.dry_run)
+            r = _migrate_one(fp, args.dry_run, args.backups_dir)
             ok += 1
             total_orphans += r["orphans"]
             print(f"  PASS  {os.path.basename(fp)}: {r['categories']} 分类, {r['trade_items']} 工作项, {r['bills']} 账单, {r['orphans']} 孤儿")

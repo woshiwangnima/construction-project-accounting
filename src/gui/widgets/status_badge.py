@@ -57,3 +57,7 @@ class ClickableStatusBadge(StatusBadge):
     def _handle_click(self, event=None):
         if self._on_click:
             self._on_click()
+
+    def set_status(self, status: ProjectStatus):
+        """就地更新状态文字与颜色，不重建任何子控件。"""
+        self.configure_status(status)

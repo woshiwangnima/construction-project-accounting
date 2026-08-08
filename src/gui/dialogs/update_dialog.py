@@ -5,24 +5,30 @@ import tkinter as tk
 from tkinter import ttk
 
 from ..font_manager import font_manager
+from ..theme import APP_BG, TEXT_PRIMARY, TEXT_SECONDARY
+from ..widgets import _make_btn
 from ..widgets.confirm_dialog import confirm_dialog
 from ...updater import UpdateInfo, UpdateChecker, download_update, apply_update
 from ...logger import logger
 
 
 class UpdateDialog(tk.Toplevel):
-    def __init__(self, parent: tk.Widget, info: UpdateInfo):
+    def __init__(self, parent: tk.Widget, info: UpdateInfo, on_close=None):
         super().__init__(parent)
         self.title("发现新版本")
         self.transient(parent)
         self.grab_set()
         self.resizable(False, False)
+        self.configure(bg=APP_BG)
 
         self._info = info
         self._downloading = False
         self._progress_queue: queue.Queue = queue.Queue()
         self._download_thread: threading.Thread | None = None
         self._download_result = None
+        self._on_close_callback = (
+            on_close if callable(on_close) else self._find_close_callback(parent)
+        )
 
         w, h = 480, 340
         pw = parent.winfo_width() if parent.winfo_width() > 100 else 1280
@@ -36,14 +42,28 @@ class UpdateDialog(tk.Toplevel):
         self._build_ui()
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
 
+    @staticmethod
+    def _find_close_callback(parent):
+        """Find MainInterface's bounded close callback through Tk parents."""
+        current = parent
+        visited = set()
+        while current is not None and id(current) not in visited:
+            visited.add(id(current))
+            callback = getattr(current, "_app_close_callback", None)
+            if callable(callback):
+                return callback
+            current = getattr(current, "master", None)
+        return None
+
     def _build_ui(self):
         pad = {"padx": 20, "pady": 6}
 
-        tk.Label(self, text=f"新版本 {self._info.version} 可用", font=font_manager.get("button")).pack(pady=(20, 4), **pad)
+        tk.Label(self, text=f"新版本 {self._info.version} 可用", font=font_manager.get("button"),
+                 bg=APP_BG, fg=TEXT_PRIMARY).pack(pady=(20, 4), **pad)
 
         notes = self._info.release_notes or ["（无更新说明）"]
         text_w = tk.Text(self, height=6, wrap=tk.WORD, font=font_manager.get("body"),
-                         relief=tk.FLAT, bg=self.cget("bg"), state=tk.DISABLED)
+                         relief=tk.FLAT, bg=self.cget("bg"), fg=TEXT_PRIMARY, state=tk.DISABLED)
         text_w.pack(fill=tk.BOTH, **pad)
         text_w.config(state=tk.NORMAL)
         for line in notes:
@@ -54,16 +74,15 @@ class UpdateDialog(tk.Toplevel):
         self._progress.pack(fill=tk.X, **pad)
 
         self._status_var = tk.StringVar(value="")
-        tk.Label(self, textvariable=self._status_var, font=font_manager.get("body"), fg="#666").pack(**pad)
+        tk.Label(self, textvariable=self._status_var, font=font_manager.get("body"),
+                 bg=APP_BG, fg=TEXT_SECONDARY).pack(**pad)
 
-        btn_frame = tk.Frame(self)
+        btn_frame = tk.Frame(self, bg=APP_BG)
         btn_frame.pack(pady=(0, 16))
 
-        self._download_btn = tk.Button(btn_frame, text="下载更新", font=font_manager.get("button"),
-                                       command=self._on_download)
+        self._download_btn = _make_btn(btn_frame, "下载更新", self._on_download, "primary")
         self._download_btn.pack(side=tk.LEFT, padx=6)
-        tk.Button(btn_frame, text="稍后再说", font=font_manager.get("button"),
-                  command=self._on_cancel).pack(side=tk.LEFT, padx=6)
+        _make_btn(btn_frame, "稍后再说", self._on_cancel, "secondary").pack(side=tk.LEFT, padx=6)
 
     def _on_download(self):
         if self._downloading:
@@ -142,7 +161,19 @@ class UpdateDialog(tk.Toplevel):
             return
 
         apply_update(update_dir)
-        self.master.destroy()
+        callback = self._on_close_callback
+        if callable(callback):
+            try:
+                self.grab_release()
+            except tk.TclError:
+                pass
+            try:
+                callback()
+            except Exception:
+                logger.exception("应用更新后执行主窗口关闭回调失败")
+                self.destroy()
+        else:
+            self.destroy()
 
     def _on_progress(self, downloaded: int, total: int):
         """保留兼容旧调用，实际由 _on_progress_threadsafe 替代。"""

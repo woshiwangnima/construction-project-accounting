@@ -6,17 +6,17 @@
 """
 import tkinter as tk
 
-from ..theme import APP_BG, DANGER, TEXT_PRIMARY
+from ..theme import APP_BG, BORDER, DANGER, ICON_BTN_HOVER, SYSTEM_RED, TEXT_PRIMARY
 from ..font_manager import font_manager
 
 
-def _make_confirm_btn(parent, text, command, bg, fg, hover_bg, active_bg):
+def _make_confirm_btn(parent, text, command, bg, fg, hover_bg, active_bg, active_fg="white"):
     btn = tk.Button(
         parent, text=text, command=command,
         font=font_manager.get("dialog_btn"),
         bg=bg, fg=fg,
-        activebackground=active_bg, activeforeground="white",
-        relief="raised", bd=2, padx=20, pady=10, cursor="hand2",
+        activebackground=active_bg, activeforeground=active_fg,
+        relief="flat", bd=0, padx=20, pady=10, cursor="hand2",
     )
     btn.bind("<Enter>", lambda e: btn.config(bg=hover_bg))
     btn.bind("<Leave>", lambda e: btn.config(bg=bg))
@@ -51,14 +51,16 @@ def confirm_dialog(parent, title: str, message: str) -> bool:
 
     confirm_btn = _make_confirm_btn(
         btn_frame, "确认", confirm, DANGER, "white",
-        hover_bg="#c0392b", active_bg="#a93226",
+        hover_bg=SYSTEM_RED, active_bg="#e03028",
     )
     confirm_btn.pack(side=tk.RIGHT, padx=(8, 0))
 
     cancel_btn = _make_confirm_btn(
-        btn_frame, "取消", cancel, "#4a5568", "white",
-        hover_bg="#2d3748", active_bg="#1a202c",
+        btn_frame, "取消", cancel, APP_BG, TEXT_PRIMARY,
+        hover_bg=ICON_BTN_HOVER, active_bg=BORDER, active_fg=TEXT_PRIMARY,
     )
+    cancel_btn.config(relief="flat", bd=0, highlightthickness=1,
+                      highlightbackground=BORDER, highlightcolor=BORDER)
     cancel_btn.pack(side=tk.RIGHT, padx=(8, 0))
 
     dialog.bind("<KeyPress-y>", lambda e: confirm())
