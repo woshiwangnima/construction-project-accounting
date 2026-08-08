@@ -2,6 +2,7 @@ import unittest
 
 from src.bill_recompute import prepare_bill_calculations, summarize_bill_calculations
 from src.billing_resolver import build_trade_item_index
+from src.trade_item import TradeItem
 
 
 class BillCalculationTests(unittest.TestCase):
@@ -55,6 +56,20 @@ class BillCalculationTests(unittest.TestCase):
         self.assertEqual(result.name, "旧项目")
         self.assertEqual(result.total, 88.01)
         self.assertEqual(result.formula_value, 4)
+
+    def test_trade_item_object_provides_work_content_label(self):
+        trade_item = TradeItem.from_dict(self.trade_items[0])
+
+        result = prepare_bill_calculations(
+            [{"trade_item_id": "ti-1", "content": "2"}],
+            [trade_item],
+            {},
+        )[0]
+
+        self.assertFalse(result.orphan)
+        self.assertEqual(result.category, "泥瓦工程")
+        self.assertEqual(result.name, "砌墙")
+        self.assertEqual(result.total, 25.00)
 
     def test_index_keeps_first_duplicate_id(self):
         first = {"id": "same", "name": "first"}

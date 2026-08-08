@@ -108,8 +108,13 @@ def calculate_bill(
     snapshot = bill.get("frozen_snapshot") or {}
     label_source = trade_item or (snapshot if isinstance(snapshot, dict) else {})
     billing = read_billing(label_source) if label_source else Billing()
-    category = label_source.get("category", "") if isinstance(label_source, dict) else ""
-    name = label_source.get("name", "") if isinstance(label_source, dict) else ""
+    # ``Project.from_dict`` converts trade items into ``TradeItem`` objects.
+    # TradeItem intentionally exposes the same ``get`` API as a dict, so do
+    # not restrict label extraction to dictionaries here.  Billing already
+    # relies on this compatibility and would otherwise work while the name
+    # column stayed blank.
+    category = label_source.get("category", "") if label_source else ""
+    name = label_source.get("name", "") if label_source else ""
 
     canonical = None
     formula_value = None

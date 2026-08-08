@@ -9,7 +9,7 @@ import tkinter as tk
 
 from ..theme import (
     APP_BG, ACCENT, REVIEW_BG, ROW_STRIPE, SYSTEM_GREEN, SYSTEM_RED,
-    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY,
+    TEXT_PRIMARY,
 )
 from ..font_manager import font_manager
 from .list_view_base import ListViewBase
@@ -28,6 +28,8 @@ from ..shortcut_manager import shortcut_manager as sm
 # 孤儿账单行的文字色（红）+ 前缀图标
 ORPHAN_FG = SYSTEM_RED
 ORPHAN_PREFIX = "⚠ "
+BILL_SECONDARY_FG = "#5f6368"
+BILL_TERTIARY_FG = "#6e6e73"
 
 # Keep narrow columns readable while allowing the table to wrap long Chinese
 # names, formulas and notes.  The action column remains fixed by the base view.
@@ -131,6 +133,13 @@ class BillListView(ListViewBase):
             return self._reviewed_bg
         return ROW_STRIPE if idx % 2 == 1 else "white"
 
+    def _review_command(self, idx: int):
+        """Build a command that reads the current review state on click."""
+        return (
+            lambda i=idx: self._on_review_toggle
+            and self._on_review_toggle(i, not is_bill_reviewed(self._items[i]))
+        )
+
     def set_trade_items(self, trade_items):
         """Trade item 列表变更后调用，重新渲染。"""
         self.update_data(self._items, trade_items=trade_items)
@@ -179,7 +188,8 @@ class BillListView(ListViewBase):
             if review_button is not None:
                 review_button.config(
                     text="☑" if is_bill_reviewed(bill) else "☐",
-                    fg=SYSTEM_GREEN if is_bill_reviewed(bill) else TEXT_TERTIARY,
+                    fg=SYSTEM_GREEN if is_bill_reviewed(bill) else BILL_TERTIARY_FG,
+                    command=self._review_command(idx) if self._editable else None,
                 )
             self._apply_row_bg(idx)
 
@@ -294,7 +304,7 @@ class BillListView(ListViewBase):
             total_color = ORPHAN_FG if orphan else TEXT_PRIMARY
         else:
             total_str = "错误" if content else ""
-            total_color = TEXT_TERTIARY
+            total_color = BILL_TERTIARY_FG
 
         # 名称带 ⚠ 前缀（孤儿）或 类别 - 名称
         display_name = f"{ORPHAN_PREFIX}{name}" if orphan else name
@@ -311,28 +321,27 @@ class BillListView(ListViewBase):
                 font=font_manager.get("body_bold"),
                 relief="flat",
                 bd=0,
-                fg=SYSTEM_GREEN if is_bill_reviewed(b) else TEXT_TERTIARY,
+                fg=SYSTEM_GREEN if is_bill_reviewed(b) else BILL_TERTIARY_FG,
                 cursor="hand2" if self._editable else "arrow",
-                command=(lambda i=idx, value=not is_bill_reviewed(b): self._on_review_toggle and self._on_review_toggle(i, value))
-                if self._editable else None,
+                command=self._review_command(idx) if self._editable else None,
             ),
             "工作内容": tk.Label(row_frame, text=display_name, font=font_manager.get("body"), anchor="w", padx=6,
                                  wraplength=0, justify="left",
                                  fg=ORPHAN_FG if orphan else TEXT_PRIMARY),
             "公式": tk.Label(row_frame, text=qty_str, font=font_manager.get("body"), anchor="w", padx=6,
-                             wraplength=0, justify="left", fg=TEXT_SECONDARY),
+                             wraplength=0, justify="left", fg=BILL_SECONDARY_FG),
             "公式结果": tk.Label(row_frame, text=formula_result_str, font=font_manager.get("body"), anchor="e", padx=6,
-                                fg=TEXT_SECONDARY),
+                                fg=BILL_SECONDARY_FG),
             "单价": tk.Label(row_frame, text=price_str, font=font_manager.get("body"), anchor="w", padx=6,
                               fg=ORPHAN_FG if orphan else TEXT_PRIMARY),
             "金额": tk.Label(row_frame, text=total_str, font=font_manager.get("body_bold"), anchor="e", padx=6,
                              fg=total_color),
             "备注": tk.Label(row_frame, text=note, font=font_manager.get("body"), anchor="w", padx=6,
-                             wraplength=0, justify="left", fg=TEXT_SECONDARY),
+                             wraplength=0, justify="left", fg=BILL_SECONDARY_FG),
             "日期": tk.Label(row_frame, text=date, font=font_manager.get("small"), anchor="w", padx=6,
-                             fg=TEXT_SECONDARY),
+                             fg=BILL_SECONDARY_FG),
             "修改时间": tk.Label(row_frame, text=b.get("record_time", "-"), font=font_manager.get("small"),
-                               anchor="w", padx=6, fg=TEXT_SECONDARY),
+                               anchor="w", padx=6, fg=BILL_SECONDARY_FG),
         }
         # 数据列 grid 配置
         for col in self._data_cols:
@@ -387,7 +396,7 @@ class BillListView(ListViewBase):
             total_color = ORPHAN_FG if orphan else TEXT_PRIMARY
         else:
             total_str = "错误" if content else ""
-            total_color = TEXT_TERTIARY
+            total_color = BILL_TERTIARY_FG
 
         display_name = f"{ORPHAN_PREFIX}{name}" if orphan else name
         if cat and not orphan:
@@ -400,11 +409,9 @@ class BillListView(ListViewBase):
         if review_button is not None:
             review_button.config(
                 text="☑" if is_bill_reviewed(b) else "☐",
-                fg=SYSTEM_GREEN if is_bill_reviewed(b) else TEXT_TERTIARY,
+                fg=SYSTEM_GREEN if is_bill_reviewed(b) else BILL_TERTIARY_FG,
                 cursor="hand2" if self._editable else "arrow",
-                command=(lambda i=idx, value=not is_bill_reviewed(b):
-                         self._on_review_toggle and self._on_review_toggle(i, value))
-                if self._editable else None,
+                command=self._review_command(idx) if self._editable else None,
             )
         widgets["工作内容"].config(text=display_name, fg=ORPHAN_FG if orphan else TEXT_PRIMARY)
         widgets["公式"].config(text=qty_str)
