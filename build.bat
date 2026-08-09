@@ -92,7 +92,7 @@ if exist "%WORK_DIR%\." (
 )
 
 echo [2/5] Building with PyInstaller (onedir)...
-"%PYTHON%" -m PyInstaller --noconfirm --clean --onedir --windowed --name "ConstructionAccounting" --add-data "%ROOT%config;config" --add-data "%ROOT%assets;assets" --hidden-import pyttsx3 --hidden-import comtypes --hidden-import comtypes.gen --hidden-import pythoncom --hidden-import pywintypes --distpath "%DIST_DIR%" --workpath "%WORK_DIR%" --specpath "%WORK_DIR%\spec" "%ROOT%main.py"
+"%PYTHON%" -m PyInstaller --noconfirm --clean --onedir --windowed --name "ConstructionAccounting" --icon "%ROOT%assets\icon.ico" --add-data "%ROOT%config;config" --add-data "%ROOT%assets;assets" --hidden-import pyttsx3 --hidden-import comtypes --hidden-import comtypes.gen --hidden-import pythoncom --hidden-import pywintypes --hidden-import qtawesome --hidden-import qfluentwidgets --distpath "%DIST_DIR%" --workpath "%WORK_DIR%" --specpath "%WORK_DIR%\spec" "%ROOT%main.py"
 set "PYINSTALLER_EXIT=%ERRORLEVEL%"
 if not "%PYINSTALLER_EXIT%"=="0" (
     echo [ERROR] PyInstaller build failed.

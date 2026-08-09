@@ -13,7 +13,7 @@ _DEFAULT_CONFIGS = {
     "app_config.json": {
         "app_version": APP_VERSION,
         "schema_version": CURRENT_SCHEMA_VERSION,
-        "default_font_size": 14,
+        "default_font_size": 16,
         "symbol_mapping": DEFAULT_SYMBOL_MAPPING,
         "window_sizes": {
             "settings": [900, 700],

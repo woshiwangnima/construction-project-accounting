@@ -136,3 +136,6 @@ migration_backups/
 
 # Opencode
 .opencode/
+
+# Local agent management files (do not commit)
+.agent/

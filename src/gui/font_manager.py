@@ -6,16 +6,18 @@ Usage:
     # After Tk root is created (main_window.py):
     font_manager.init(root)
 
+    # Qt 应用（src.gui.qt）：
+    font_manager.init_qt(on_refresh=cb)
+
     # In widgets:
-    font=font_manager.get("body")          # → tk.font.Font object
+    font=font_manager.get("body")          # → tk.font.Font / QFont
     fg=font_manager.get_color("body")      # → theme.TEXT_PRIMARY
 
     # Settings panel triggers refresh after save:
     font_manager.refresh()
 """
 
-import tkinter as tk
-import tkinter.font as tkfont
+from __future__ import annotations
 
 from ..logger import logger
 from .theme import TEXT_PRIMARY, TEXT_SECONDARY
@@ -26,7 +28,7 @@ from .theme import TEXT_PRIMARY, TEXT_SECONDARY
 ROLE_KEYS = ("icon_btn", "dialog_btn", "entry_item", "button", "calc_btn",
              "title", "heading", "subheading",
              "body", "body_bold",
-             "tree", "tree_header", "small")
+             "tree", "tree_header", "small", "amount")
 
 ROLE_DISPLAY_NAMES = {
     "icon_btn": "图标按钮",
@@ -42,12 +44,13 @@ ROLE_DISPLAY_NAMES = {
     "tree": "表格行",
     "tree_header": "表格表头",
     "small": "辅助文字",
+    "amount": "大数字(总金额)",
 }
 
 # 5 个分组（用于设置面板 UI 分区）
 ROLE_GROUPS = [
     ("按钮类", ("icon_btn", "dialog_btn", "entry_item", "button", "calc_btn")),
-    ("标题类", ("title", "heading", "subheading")),
+    ("标题类", ("title", "heading", "subheading", "amount")),
     ("正文类", ("body", "body_bold")),
     ("表格类", ("tree", "tree_header")),
     ("辅助", ("small",)),
@@ -55,37 +58,39 @@ ROLE_GROUPS = [
 
 # 字号乘数：effective_size = round(default_font_size * multiplier)
 _ROLE_SIZE_MULTIPLIERS = {
-    "icon_btn":    1.07,
-    "dialog_btn":  0.8,
-    "entry_item":  0.93,
-    "button":      0.93,
+    "icon_btn":    1.0,
+    "dialog_btn":  1.0,
+    "entry_item":  1.0,
+    "button":      1.0,
     "calc_btn":    1.29,
     "title":       1.57,
-    "heading":     1.14,
-    "subheading":  1.0,
-    "body":        0.93,
-    "body_bold":   0.93,
-    "tree":        0.93,
-    "tree_header": 0.93,
-    "small":       0.79,
+    "heading":     1.2,
+    "subheading":  1.07,
+    "body":        1.0,
+    "body_bold":   1.0,
+    "tree":        1.0,
+    "tree_header": 1.0,
+    "small":       0.86,
+    "amount":      2.0,
 }
 
 _DEFAULT_FONT_SIZE = 14
 
 _ROLE_DEFAULTS = {
-    "icon_btn":    {"family": "Microsoft YaHei UI", "size": 15, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
-    "dialog_btn":  {"family": "Microsoft YaHei UI", "size": 11, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
-    "entry_item":  {"family": "Microsoft YaHei UI", "size": 13, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
+    "icon_btn":    {"family": "Microsoft YaHei UI", "size": 14, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
+    "dialog_btn":  {"family": "Microsoft YaHei UI", "size": 14, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
+    "entry_item":  {"family": "Microsoft YaHei UI", "size": 14, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
     "title":       {"family": "Microsoft YaHei UI", "size": 22, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
-    "heading":     {"family": "Microsoft YaHei UI", "size": 16, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
-    "subheading":  {"family": "Microsoft YaHei UI", "size": 14, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
-    "body":        {"family": "Microsoft YaHei UI", "size": 13, "bold": False, "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
-    "body_bold":   {"family": "Microsoft YaHei UI", "size": 13, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
-    "button":      {"family": "Microsoft YaHei UI", "size": 13, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": "#ffffff"},
+    "heading":     {"family": "Microsoft YaHei UI", "size": 17, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
+    "subheading":  {"family": "Microsoft YaHei UI", "size": 15, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
+    "body":        {"family": "Microsoft YaHei UI", "size": 14, "bold": False, "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
+    "body_bold":   {"family": "Microsoft YaHei UI", "size": 14, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
+    "button":      {"family": "Microsoft YaHei UI", "size": 14, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": "#ffffff"},
     "calc_btn":    {"family": "Microsoft YaHei UI", "size": 18, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
-    "tree":        {"family": "Microsoft YaHei UI", "size": 13, "bold": False, "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
-    "tree_header": {"family": "Microsoft YaHei UI", "size": 13, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
-    "small":       {"family": "Microsoft YaHei UI", "size": 11, "bold": False, "italic": False, "underline": False, "overstrike": False, "color": TEXT_SECONDARY},
+    "tree":        {"family": "Microsoft YaHei UI", "size": 14, "bold": False, "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
+    "tree_header": {"family": "Microsoft YaHei UI", "size": 14, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
+    "small":       {"family": "Microsoft YaHei UI", "size": 12, "bold": False, "italic": False, "underline": False, "overstrike": False, "color": TEXT_SECONDARY},
+    "amount":      {"family": "Microsoft YaHei UI", "size": 28, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
 }
 
 
@@ -101,26 +106,50 @@ def _cfg_to_font_kwargs(cfg: dict) -> dict:
     }
 
 
+def _build_qfont(cfg: dict):
+    """Convert a merged font config dict to a QFont."""
+    from PySide6.QtGui import QFont
+    font = QFont()
+    font.setFamily(cfg.get("family", "Microsoft YaHei UI"))
+    font.setPointSize(int(cfg.get("size", 14)))
+    font.setWeight(QFont.Weight.Bold if cfg.get("bold") else QFont.Weight.Normal)
+    font.setItalic(bool(cfg.get("italic")))
+    font.setUnderline(bool(cfg.get("underline")))
+    font.setStrikeOut(bool(cfg.get("overstrike")))
+    return font
+
+
 class FontManager:
-    """Singleton font manager — creates and manages tk.font.Font named-font objects."""
+    """Singleton font manager — creates and manages font objects.
+
+    双模式：Tk 模式创建 tk.font.Font（旧 GUI）；Qt 模式创建 QFont（新 GUI）。
+    """
 
     def __init__(self):
         self._root: tk.Tk | None = None
-        self._fonts: dict[str, tkfont.Font] = {}
+        self._fonts: dict[str, object] = {}
         self._colors: dict[str, str] = {}
         self._initialized = False
+        self._mode: str | None = None  # "tk" | "qt"
+        self._qt_refresh_callback = None
 
-    def init(self, root: tk.Tk) -> None:
-        """Initialize font objects. MUST be called after Tk root is created."""
+    def init(self, root: tk.Tk | None = None) -> None:
+        """初始化字体对象。Tk 模式传入 root；Qt 模式传 None（或直接调 init_qt）。"""
         if self._initialized:
             return
+        self._mode = "qt" if root is None else "tk"
         self._root = root
         self._build_fonts()
         self._initialized = True
-        logger.debug("[font_manager] initialized %d roles", len(self._fonts))
+        logger.debug("[font_manager] initialized %d roles (mode=%s)", len(self._fonts), self._mode)
+
+    def init_qt(self, on_refresh=None) -> None:
+        """Qt 模式初始化：无需 root；on_refresh 为 refresh() 时回调（重放字体/QSS）。"""
+        self._qt_refresh_callback = on_refresh
+        self.init(None)
 
     def _build_fonts(self) -> None:
-        """Build (or rebuild) tk.font.Font objects from config + defaults.
+        """Build (or rebuild) font objects from config + defaults.
 
         Effective size = round(default_font_size * multiplier) for each role.
         Size is always computed from the global multiplier — user overrides
@@ -136,16 +165,18 @@ class FontManager:
             # Merge user overrides but ALWAYS use multiplier-computed size
             user_no_size = {k: v for k, v in user.items() if k != "size"}
             merged = {**defaults, **user_no_size}
-            font_kwargs = _cfg_to_font_kwargs(merged)
             color = merged.get("color", defaults["color"])
-
-            name = f"CPA_{role}"
-            if role in self._fonts:
-                self._fonts[role].configure(**font_kwargs)
-                self._colors[role] = color
+            if self._mode == "qt":
+                self._fonts[role] = _build_qfont(merged)
             else:
-                self._fonts[role] = tkfont.Font(root=self._root, name=name, **font_kwargs)
-                self._colors[role] = color
+                import tkinter.font as tkfont
+                font_kwargs = _cfg_to_font_kwargs(merged)
+                name = f"CPA_{role}"
+                if role in self._fonts:
+                    self._fonts[role].configure(**font_kwargs)
+                else:
+                    self._fonts[role] = tkfont.Font(root=self._root, name=name, **font_kwargs)
+            self._colors[role] = color
 
     def _load_user_fonts(self) -> dict:
         """Load font_settings from user_config.json."""
@@ -180,10 +211,13 @@ class FontManager:
             logger.warning("[font_manager] save default_font_size failed: %s", e)
         self.refresh()
 
-    def get(self, role: str) -> tkfont.Font:
-        """Return the tk.font.Font object for a role. Falls back to 'body' if unknown."""
+    def get(self, role: str) -> object:
+        """Return the font object for a role (tk.font.Font / QFont). Falls back to 'body'."""
         if not self._initialized:
+            if self._mode == "qt":
+                return _build_qfont(_ROLE_DEFAULTS.get(role, _ROLE_DEFAULTS["body"]))
             # Before init, return a static tuple-like fallback
+            import tkinter.font as tkfont
             return tkfont.Font(family="Microsoft YaHei UI", size=14)
         return self._fonts.get(role, self._fonts.get("body"))
 
@@ -196,6 +230,13 @@ class FontManager:
     def get_tuple(self, role: str) -> tuple:
         """Return (family, size) or (family, size, 'bold') tuple — for places that need a tuple."""
         f = self.get(role)
+        if self._mode == "qt":
+            family = f.family()
+            size = f.pointSize()
+            weight = f.weight()
+            if weight >= 600:  # QFont.Weight.DemiBold 及以上视为加粗
+                return (family, size, "bold")
+            return (family, size)
         family = f.cget("family")
         size = f.cget("size")
         weight = f.cget("weight")
@@ -208,12 +249,19 @@ class FontManager:
 
         Since widgets hold a reference to the same tk.font.Font object,
         calling .configure() on it automatically updates all widgets.
-        Also re-applies ttk styles.
+        Qt 模式下 QFont 是值对象，通过 on_refresh 回调让应用重新应用字体/QSS。
         """
         if not self._initialized:
             return
         self._build_fonts()
-        self._apply_ttk_styles()
+        if self._mode == "qt":
+            if callable(self._qt_refresh_callback):
+                try:
+                    self._qt_refresh_callback()
+                except Exception as e:
+                    logger.warning("[font_manager] qt refresh callback failed: %s", e)
+        else:
+            self._apply_ttk_styles()
         logger.debug("[font_manager] refreshed %d roles", len(self._fonts))
 
     def _apply_ttk_styles(self) -> None:

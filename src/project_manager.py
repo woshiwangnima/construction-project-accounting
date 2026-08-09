@@ -360,7 +360,7 @@ def delete_project(uuid: str) -> bool:
     uuid = _validate_uuid(uuid)
     file_path = _project_path(uuid)
     if not file_path.is_file():
-        old_path = Path(_safe_path(PROJECTS_DIR, f"{uuid}.json"))
+        old_path = Path(_safe_path(get_projects_dir(), f"{uuid}.json"))
         if old_path.is_file():
             file_path = old_path
         else:
@@ -376,7 +376,7 @@ def get_project(uuid: str) -> Project | None:
     uuid = _validate_uuid(uuid)
     file_path = _project_path(uuid)
     if not file_path.is_file():
-        old_path = Path(_safe_path(PROJECTS_DIR, f"{uuid}.json"))
+        old_path = Path(_safe_path(get_projects_dir(), f"{uuid}.json"))
         if old_path.is_file():
             file_path = old_path
         else:
@@ -395,7 +395,7 @@ def toggle_pin(uuid: str) -> bool:
     uuid = _validate_uuid(uuid)
     file_path = _project_path(uuid)
     if not file_path.is_file():
-        old_path = Path(_safe_path(PROJECTS_DIR, f"{uuid}.json"))
+        old_path = Path(_safe_path(get_projects_dir(), f"{uuid}.json"))
         if old_path.is_file():
             file_path = old_path
         else:
@@ -466,7 +466,7 @@ def _backup_project(uuid: str, force: bool = False, next_project: dict | None = 
     uuid = _validate_uuid(uuid)
     src = _project_path(uuid)
     if not src.is_file():
-        old_path = Path(_safe_path(PROJECTS_DIR, f"{uuid}.json"))
+        old_path = Path(_safe_path(get_projects_dir(), f"{uuid}.json"))
         if old_path.is_file():
             src = old_path
         else:

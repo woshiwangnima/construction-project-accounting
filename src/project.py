@@ -27,7 +27,7 @@ class Project:
     bill_column_widths: list = field(default_factory=list)
     worker_column_widths: dict = field(default_factory=dict)
     view_state: dict = field(default_factory=dict)
-    bill_display_mode: str = "complex"
+    bill_display_mode: str = "simple"
     bill_visible_columns: list = field(default_factory=list)
     is_pinned: bool = False
     app_version: str = APP_VERSION
@@ -68,7 +68,7 @@ class Project:
             bill_column_widths=list(d.get("bill_column_widths", [])),
             worker_column_widths=dict(d.get("worker_column_widths", {})),
             view_state=dict(d.get("view_state", {})),
-            bill_display_mode=d.get("bill_display_mode", "complex"),
+            bill_display_mode=d.get("bill_display_mode", "simple"),
             bill_visible_columns=list(d.get("bill_visible_columns", [])),
             is_pinned=d.get("is_pinned", False),
             app_version=str(d.get("app_version", APP_VERSION)),

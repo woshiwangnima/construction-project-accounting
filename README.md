@@ -110,7 +110,9 @@
 ## 技术栈
 
 - **Python 3.10+**
-- **Tkinter** — GUI 界面框架
+- **PySide6** — GUI 界面框架（Qt Widgets）
+- **PySide6-Fluent-Widgets** — Fluent Design 风格控件库（Toast 通知、设置面板等）
+- **QtAwesome** — 图标字体
 - **Pillow** — 图片处理与导出
 - **pyttsx3** — TTS 语音播报（可选依赖）
 - **PyInstaller** — 打包为 Windows 可执行文件
@@ -128,39 +130,36 @@ construction-project-accounting/
 │   ├── app_config.json         # 应用配置（符号映射、默认工种等）
 │   └── user_config.json        # 用户配置（导出颜色、语音偏好等）
 ├── src/                        # 源代码目录
-│   ├── gui/                    # 图形界面
+│   ├── gui/                    # 图形界面（Qt / PySide6）
 │   │   ├── __init__.py
-│   │   ├── main_window.py      # 主窗口组装 + 快捷键 + 更新检查
-│   │   ├── sidebar.py          # 侧边栏（项目列表 + 右键菜单）
-│   │   ├── content.py          # 内容区（账单 + 工作类型 + 导出）
-│   │   ├── theme.py            # 颜色/字体常量
+│   │   ├── font_manager.py     # 字体管理（Qt 模式）
+│   │   ├── theme.py            # 颜色/字体常量 + QSS
 │   │   ├── editability.py      # 编辑权限策略
 │   │   ├── clipboard.py        # 应用内剪贴板
-│   │   ├── widgets/            # 可复用组件
-│   │   │   ├── bill_list_view.py    # 账单自定义列表
-│   │   │   ├── worker_list_view.py  # 工种列表
-│   │   │   ├── list_view_base.py    # 列表基类
-│   │   │   ├── rollback_list_view.py# 回滚存档列表
-│   │   │   ├── canvas_scroll.py     # Canvas 滚动工具
-│   │   │   ├── scroll_anchor.py     # 滚动位置锚点
-│   │   │   ├── column_layout.py     # 列宽布局
-│   │   │   ├── reorder.py           # 拖动排序
-│   │   │   ├── confirm_dialog.py    # 确认弹窗
-│   │   │   ├── __init__.py          # 通用按钮/输入/日期选择器
-│   │   │   └── ...
-│   │   └── dialogs/            # 弹窗组件
-│   │       ├── new_project.py       # 新建项目
-│   │       ├── edit_trade.py        # 编辑工作项目
-│   │       ├── edit_bill.py         # 编辑账单记录
-│   │       ├── rollback.py          # 回滚存档
-│   │       ├── update_dialog.py     # 更新提示
-│   │       └── settings/            # 设置面板
-│   │           ├── __init__.py           # 设置窗口框架
-│   │           ├── base.py              # 面板基类 + 注册
-│   │           ├── basic_panel.py       # 基本设置
-│   │           ├── voice_panel.py       # 语音设置
-│   │           ├── export_panel.py      # 导出设置
-│   │           └── about_panel.py       # 关于
+│   │   ├── shortcut_manager.py # 全局快捷键（Qt 绑定）
+│   │   ├── widgets/            # 纯逻辑可复用组件
+│   │   │   ├── reorder.py      # 拖动排序
+│   │   │   └── column_layout.py# 列宽布局
+│   │   └── qt/                 # Qt Widgets 界面
+│   │       ├── app.py          # QApplication 组装与启动
+│   │       ├── main_window.py  # 主窗口
+│   │       ├── sidebar.py      # 侧边栏（项目列表 + 右键菜单）
+│   │       ├── content.py      # 内容区（账单 + 工作类型 + 导出）
+│   │       ├── table.py        # 表格基类
+│   │       ├── table_models.py # 表格数据模型
+│   │       ├── bill_table.py   # 账单表格
+│   │       ├── worker_table.py # 工种表格
+│   │       ├── category_list.py# 分类列表
+│   │       ├── action_bar.py   # 操作栏
+│   │       ├── status_badge.py # 状态徽标
+│   │       ├── feedback.py     # Toast 通知
+│   │       ├── onboarding.py   # 首次启动引导
+│   │       └── dialogs/        # Qt 对话框
+│   │           ├── confirm.py  # 确认弹窗
+│   │           ├── edit_bill.py / edit_trade.py # 编辑对话框
+│   │           ├── new_project.py / rollback.py # 新建/回滚
+│   │           ├── import_export.py / export_image.py # 导入导出
+│   │           └── settings/   # 设置面板
 │   ├── project_manager.py     # 项目 CRUD + 备份 + 导入导出
 │   ├── project.py             # Project 数据模型
 │   ├── project_uuid.py        # UUID 生成/验证/文件路径
@@ -186,9 +185,9 @@ construction-project-accounting/
 │   ├── backup_policy.py       # 备份策略（指纹比对、序列化）
 │   ├── backup_inspector.py    # 存档检视（孤儿检测）
 │   ├── logger.py              # 日志模块
-│   └── utils.py               # 工具函数（atomic_write_json）
 │   ├── paths.py               # 资源目录与用户数据目录
-│   └── single_instance.py     # 单实例锁
+│   ├── single_instance.py     # 单实例锁
+│   └── utils.py               # 工具函数（atomic_write_json）
 ├── assets/                    # 资源文件
 │   └── audio/                 # 语音播报音频文件（数字 + 运算符 WAV）
 └── scripts/                   # 构建工具脚本

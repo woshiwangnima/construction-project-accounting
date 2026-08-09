@@ -1,8 +1,8 @@
 """项目状态枚举。
 
 取代旧的 "进行中"/"已结账" 字符串，引入 "编辑中"/"已完成" 语义。
-- EDITING（编辑中）：项目数据可被修改；用绿色显示
-- DONE（已完成）：项目数据冻结；只能"生成图片"和"更改列宽"；用灰色显示
+- EDITING（编辑中）：项目数据可被修改；用蓝色显示
+- DONE（已完成）：项目数据冻结；只能"生成图片"和"更改列宽"；用绿色显示
 
 为了向后兼容磁盘上可能存在的旧值（"active" / "completed"），`from_value` 接受旧值并映射到新枚举。
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from .gui.theme import SYSTEM_GREEN, TEXT_TERTIARY
+from .theme_tokens import STATUS_DONE_FG, STATUS_EDITING_FG
 
 
 class ProjectStatus(str, Enum):
@@ -39,8 +39,8 @@ class ProjectStatus(str, Enum):
 
     @property
     def color(self) -> str:
-        # 绿/灰
-        return SYSTEM_GREEN if self == ProjectStatus.EDITING else TEXT_TERTIARY
+        # 蓝/绿
+        return STATUS_EDITING_FG if self == ProjectStatus.EDITING else STATUS_DONE_FG
 
     @property
     def icon(self) -> str:

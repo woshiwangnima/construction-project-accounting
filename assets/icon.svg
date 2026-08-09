@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- 记账软件纯金币图标 -->
+  <defs>
+    <!-- 深蓝/暗色渐变背景框 -->
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0F172A"/>
+      <stop offset="50%" stop-color="#1E293B"/>
+      <stop offset="100%" stop-color="#090D16"/>
+    </linearGradient>
+
+    <!-- 中心背景微金光 -->
+    <radialGradient id="goldGlow" cx="0.5" cy="0.45" r="0.5">
+      <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#F59E0B" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- 金币外圈主金光渐变 -->
+    <linearGradient id="goldOuter" x1="0.2" y1="0" x2="0.8" y2="1">
+      <stop offset="0%" stop-color="#FFE885"/>
+      <stop offset="30%" stop-color="#F59E0B"/>
+      <stop offset="70%" stop-color="#D97706"/>
+      <stop offset="100%" stop-color="#92400E"/>
+    </linearGradient>
+
+    <!-- 金币内侧面渐变 -->
+    <radialGradient id="goldFace" cx="0.38" cy="0.32" r="0.68">
+      <stop offset="0%" stop-color="#FFFBEB"/>
+      <stop offset="25%" stop-color="#FCD34D"/>
+      <stop offset="65%" stop-color="#F59E0B"/>
+      <stop offset="90%" stop-color="#D97706"/>
+      <stop offset="100%" stop-color="#B45309"/>
+    </radialGradient>
+
+    <!-- 金币顶部高光弧 -->
+    <linearGradient id="glareGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.65"/>
+      <stop offset="50%" stop-color="#FFFFFF" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- 货币符号雕刻渐变 -->
+    <linearGradient id="symbolGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#78350F"/>
+      <stop offset="50%" stop-color="#92400E"/>
+      <stop offset="100%" stop-color="#451A03"/>
+    </linearGradient>
+
+    <!-- 阴影效果 -->
+    <filter id="dropShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="8" flood-color="#000000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <!-- 1. 背景卡片 -->
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#bgGrad)"/>
+  <circle cx="128" cy="128" r="96" fill="url(#goldGlow)"/>
+
+  <!-- 2. 金币主体（立体分层） -->
+  <g filter="url(#dropShadow)">
+    <!-- 金币下边沉厚度 -->
+    <circle cx="128" cy="131" r="80" fill="#78350F"/>
+    
+    <!-- 金币边框圆环 -->
+    <circle cx="128" cy="128" r="80" fill="url(#goldOuter)"/>
+    
+    <!-- 金币盘面下沉暗框 -->
+    <circle cx="128" cy="128" r="70" fill="#92400E"/>
+    <!-- 金币主盘面 -->
+    <circle cx="128" cy="128" r="67" fill="url(#goldFace)"/>
+
+    <!-- 盘面精致内金环 -->
+    <circle cx="128" cy="128" r="60" fill="none" stroke="#FDE047" stroke-width="2" opacity="0.6"/>
+
+    <!-- 3. 中央货币符号 (¥) -->
+    <!-- 浅亮凸起立体边线 -->
+    <g fill="none" stroke="#FEF3C7" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" opacity="0.75" transform="translate(0, 1.5)">
+      <path d="M 96,96 L 128,132 M 160,96 L 128,132 M 128,132 L 128,164"/>
+      <path d="M 104,130 L 152,130 M 106,144 L 150,144"/>
+    </g>
+    
+    <!-- 深色彩印实体粗线条 -->
+    <g fill="none" stroke="url(#symbolGrad)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M 96,96 L 128,132 M 160,96 L 128,132 M 128,132 L 128,164"/>
+      <path d="M 104,130 L 152,130 M 106,144 L 150,144"/>
+    </g>
+
+    <!-- 4. 高光与金属反射 -->
+    <path d="M 60,105 A 67,67 0 0,1 180,85 A 67,67 0 0,0 60,105 Z" fill="url(#glareGrad)"/>
+    <circle cx="95" cy="75" r="5" fill="#FFFFFF" opacity="0.65"/>
+  </g>
+</svg>

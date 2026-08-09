@@ -9,9 +9,11 @@ Usage:
 
     # In context menus:
     accelerator=shortcut_manager.get_accel("add_record")
-"""
 
-import tkinter as tk
+Qt (PySide6) usage:
+    shortcut_manager.init(self)
+    shortcut_manager.bind_qt(self.window)  # 为每个 action 创建 QShortcut
+"""
 
 from ..logger import logger
 
@@ -24,7 +26,6 @@ DEFAULT_SHORTCUTS = {
     "new_project":     {"label": "新建项目",     "event": "<Control-n>",        "accel": "Ctrl+N"},
     "add_record":      {"label": "添加记录",     "event": "<Control-Return>",   "accel": "Ctrl+Enter"},
     "save_image":      {"label": "保存为图片",   "event": "<Control-Shift-S>",  "accel": "Ctrl+Shift+S"},
-    "toggle_display":  {"label": "列显示切换",   "event": "<Alt-d>",            "accel": "Alt+D"},
     "rollback":        {"label": "回滚存档",     "event": "<F4>",               "accel": "F4"},
     "edit_project":    {"label": "编辑项目",     "event": "<Alt-e>",            "accel": "Alt+E"},
     "open_location":   {"label": "打开位置",     "event": "<Alt-f>",            "accel": "Alt+F"},
@@ -38,11 +39,12 @@ DEFAULT_SHORTCUTS = {
     "copy":            {"label": "复制",         "event": "<Control-c>",        "accel": "Ctrl+C"},
     "paste":           {"label": "粘贴",         "event": "<Control-v>",        "accel": "Ctrl+V"},
     "pin_project":     {"label": "置顶固定",     "event": "<Control-Shift-p>",  "accel": "Ctrl+Shift+P"},
+    "toggle_sidebar": {"label": "切换侧栏",     "event": "<Control-b>",          "accel": "Ctrl+B"},
 }
 
 # Action IDs grouped by context (for settings panel grouping)
 ACTION_GROUPS = [
-    ("通用", ("new_project", "add_record", "save_image", "toggle_display")),
+    ("通用", ("new_project", "add_record", "save_image", "toggle_sidebar")),
     ("项目", ("edit_project", "rollback", "open_location", "delete_project", "pin_project")),
     ("分类", ("edit_category", "move_up", "move_down", "delete_category")),
     ("列表", ("edit_trade", "delete_item", "copy", "paste")),
@@ -56,6 +58,8 @@ class ShortcutManager:
         self._main = None  # MainInterface reference
         self._root = None
         self._bindings: list[str] = []  # Track bound events for cleanup
+        self._qt_shortcuts: list = []  # Qt QShortcut 对象（QWidget 父对象引用保活）
+        self._qt_bound = False  # 当前绑定路径：True=Qt，False=Tkinter
 
     def init(self, main_interface) -> None:
         """Store MainInterface reference for action dispatch."""
@@ -101,9 +105,14 @@ class ShortcutManager:
         """Return the human-readable label for an action."""
         return DEFAULT_SHORTCUTS.get(action_id, {}).get("label", action_id)
 
-    def bind_all_shortcuts(self, root: tk.Tk) -> None:
-        """Bind all shortcuts globally. Call once after root is created."""
+    def bind_all_shortcuts(self, root) -> None:
+        """Bind all shortcuts globally. Call once after root is created.
+
+        Tkinter 专用路径（旧 GUI 使用）；Qt 版用 bind_qt()。
+        """
+        import tkinter as tk
         self._root = root
+        self._qt_bound = False
         self._unbind_all()
         for action_id, defaults in DEFAULT_SHORTCUTS.items():
             event = self.get_event(action_id)
@@ -125,6 +134,7 @@ class ShortcutManager:
 
     def _unbind_all(self) -> None:
         """Remove all previously bound shortcuts."""
+        import tkinter as tk
         if not self._root:
             return
         for event in self._bindings:
@@ -134,9 +144,70 @@ class ShortcutManager:
                 pass
         self._bindings.clear()
 
+    # ── Qt (PySide6) 绑定路径 ────────────────────────────────────────────────
+
+    _TK_TO_QT_KEY = {
+        "Control": "Ctrl", "Shift": "Shift", "Alt": "Alt",
+        "Return": "Return", "Delete": "Delete", "Up": "Up", "Down": "Down",
+        "F2": "F2", "F4": "F4",
+    }
+
+    def get_qkey(self, action_id: str) -> str:
+        """把 Tk 事件序列（<Control-n>）翻译为 QKeySequence 字符串（Ctrl+N）。"""
+        event = self.get_event(action_id)
+        if not event or not (event.startswith("<") and event.endswith(">")):
+            return ""
+        parts = []
+        for token in event[1:-1].split("-"):
+            if not token:
+                continue
+            if token in self._TK_TO_QT_KEY:
+                parts.append(self._TK_TO_QT_KEY[token])
+            elif token[0].islower() and len(token) == 1:
+                parts.append(token.upper())
+            else:
+                parts.append(token)
+        return "+".join(parts)
+
+    def bind_qt(self, window) -> None:
+        """Qt 版全局绑定：为每个 action 创建 QShortcut（需 QApplication 已存在）。"""
+        from PySide6.QtGui import QKeySequence, QShortcut
+        from PySide6.QtWidgets import QApplication
+
+        app = QApplication.instance()
+        if app is None:
+            logger.warning("[shortcuts] bind_qt: QApplication 不存在，跳过绑定")
+            return
+        self._root = window
+        self._qt_bound = True
+        self._unbind_qt()
+        for action_id in DEFAULT_SHORTCUTS:
+            qkey = self.get_qkey(action_id)
+            if not qkey:
+                continue
+            try:
+                shortcut = QShortcut(QKeySequence(qkey), window)
+                shortcut.activated.connect(
+                    lambda aid=action_id: self._dispatch(aid)
+                )
+                self._qt_shortcuts.append(shortcut)
+            except Exception as e:
+                logger.warning("[shortcuts] 绑定 %s=%s 失败: %s", action_id, qkey, e)
+        logger.debug("[shortcuts] bound %d qt shortcuts", len(self._qt_shortcuts))
+
+    def _unbind_qt(self) -> None:
+        for shortcut in self._qt_shortcuts:
+            shortcut.setParent(None)
+            shortcut.deleteLater()
+        self._qt_shortcuts.clear()
+
     def rebind_all(self) -> None:
         """Re-read config and rebind all shortcuts."""
-        if self._root:
+        if not self._root:
+            return
+        if self._qt_bound:
+            self.bind_qt(self._root)
+        else:
             self.bind_all_shortcuts(self._root)
 
     def _dispatch(self, action_id: str) -> None:
@@ -171,6 +242,10 @@ class ShortcutManager:
         elif action_id == "pin_project":
             if hasattr(s, '_toggle_pin_project'):
                 s._toggle_pin_project()
+
+        elif action_id == "toggle_sidebar":
+            if hasattr(s, "toggle_compact"):
+                s.toggle_compact()
 
         elif action_id == "rollback":
             uuid = s.selected_uuid

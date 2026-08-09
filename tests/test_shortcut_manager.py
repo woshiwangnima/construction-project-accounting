@@ -41,6 +41,37 @@ class ShortcutManagerTests(unittest.TestCase):
         get_project.assert_called_once_with("project-1")
         self.sidebar._delete_project.assert_called_once_with("project-1", project)
 
+    def test_tk_event_translates_to_qkey_sequence(self):
+        cases = {
+            "new_project": "Ctrl+N",
+            "add_record": "Ctrl+Return",
+            "save_image": "Ctrl+Shift+S",
+            "toggle_display": "Alt+D",
+            "rollback": "F4",
+            "edit_project": "Alt+E",
+            "open_location": "Alt+F",
+            "delete_project": "Alt+Delete",
+            "delete_category": "Alt+Shift+Delete",
+            "move_up": "Alt+Up",
+            "move_down": "Alt+Down",
+            "edit_trade": "F2",
+            "delete_item": "Delete",
+            "copy": "Ctrl+C",
+            "paste": "Ctrl+V",
+            "pin_project": "Ctrl+Shift+P",
+        }
+        for action_id, expected in cases.items():
+            self.assertEqual(
+                self.manager.get_qkey(action_id), expected, action_id
+            )
+
+    def test_qkey_falls_back_to_default_when_user_config_breaks(self):
+        with patch.object(self.manager, "_load_user_shortcuts", return_value={"new_project": {"event": "garbage"}}):
+            self.assertEqual(self.manager.get_qkey("new_project"), "")
+
+    def test_qkey_empty_for_unknown_action(self):
+        self.assertEqual(self.manager.get_qkey("does_not_exist"), "")
+
 
 if __name__ == "__main__":
     unittest.main()

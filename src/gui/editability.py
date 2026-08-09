@@ -23,8 +23,6 @@
 from __future__ import annotations
 
 import logging
-import tkinter as tk
-from tkinter import ttk
 from typing import Callable, List, Optional, Tuple
 
 from ..project_status import ProjectStatus
@@ -51,7 +49,7 @@ class EditabilityPolicy:
         self._get_current_status = get_current_status or (lambda: None)
         self._current_uuid_provider = current_uuid_provider or (lambda: "")
         # (widget, normally_enabled) 对
-        self._managed: List[Tuple[tk.Widget, bool]] = []
+        self._managed: List[Tuple[object, bool]] = []
 
     # ── 状态查询 ──
 
@@ -101,7 +99,7 @@ class EditabilityPolicy:
 
     # ── 注册 / 注销 ──
 
-    def manage(self, widget: tk.Widget, normally_enabled: bool = True) -> None:
+    def manage(self, widget: object, normally_enabled: bool = True) -> None:
         """注册 widget 并立刻应用当前状态。重复注册同一 widget 是 no-op。"""
         for w, _ in self._managed:
             if w is widget:
@@ -109,7 +107,7 @@ class EditabilityPolicy:
         self._managed.append((widget, normally_enabled))
         self._apply(widget, normally_enabled)
 
-    def unmanage(self, widget: tk.Widget) -> None:
+    def unmanage(self, widget: object) -> None:
         """注销 widget（被销毁的 widget 也会在 refresh 中自动清理）。"""
         self._managed = [(w, ne) for w, ne in self._managed if w is not widget]
 
@@ -131,45 +129,23 @@ class EditabilityPolicy:
 
     # ── 内部 ──
 
-    def _apply(self, widget: tk.Widget, normally_enabled: bool) -> None:
-        """按 widget 类型应用 disabled / normal 状态。"""
+    def _apply(self, widget: object, normally_enabled: bool) -> None:
+        """按 widget 能力应用 disabled / normal 状态（Qt 语义）。"""
         target = normally_enabled and self.is_editable
         try:
-            cls_name = widget.winfo_class()
-            if cls_name in ("TButton",):
-                # ttk.Button
-                if target:
-                    widget.state(["!disabled"])
-                else:
-                    widget.state(["disabled"])
-            elif cls_name in ("Button",):
-                # tk.Button
-                widget.configure(state="normal" if target else "disabled")
-            elif cls_name in ("TEntry", "TCombobox"):
-                # ttk 输入控件：用 state 而非 configure
-                if target:
-                    widget.state(["!disabled", "!readonly"])
-                else:
-                    widget.state(["disabled"])
-            elif cls_name in ("Entry", "Combobox", "Text", "Spinbox"):
-                widget.configure(state="normal" if target else "disabled")
-            elif cls_name in ("Treeview",):
-                # ttk.Treeview 自身没有 disabled state，用 selectmode 旁路
-                widget.configure(selectmode="browse" if target else "none")
-            else:
-                # 兜底：尝试通用 configure(state=...)
-                try:
-                    widget.configure(state="normal" if target else "disabled")
-                except tk.TclError:
-                    logger.debug("widget %s 不支持 state 配置，跳过", cls_name)
-        except tk.TclError as e:
-            logger.debug("apply disabled failed on %s: %s", widget, e)
+            if hasattr(widget, "setEnabled"):
+                widget.setEnabled(target)
+            elif hasattr(widget, "setDisabled"):
+                widget.setDisabled(not target)
+        except Exception as e:
+            logger.debug("apply disabled failed on %r: %s", widget, e)
             self.unmanage(widget)
 
 
-def _widget_alive(widget: tk.Widget) -> bool:
-    """widget 是否还存在（未 destroy）。"""
+def _widget_alive(widget: object) -> bool:
+    """widget 是否还存在（Qt 中 C++ 对象未被销毁）。"""
     try:
-        return bool(widget.winfo_exists())
-    except tk.TclError:
+        widget.isEnabled()
+        return True
+    except (RuntimeError, AttributeError):
         return False
