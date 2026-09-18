@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 
 from ..font_manager import font_manager
 from ..theme import (
-    ACCENT, APP_BG, HIGHLIGHT_BG, ROW_HOVER, SEPARATOR,
+    ACCENT, APP_BG, CARD_BG, CARD_BORDER, HIGHLIGHT_BG, ROW_HOVER,
     TEXT_PRIMARY, TEXT_SECONDARY,
 )
 
@@ -128,9 +128,10 @@ class QtCategoryList(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("categoryList")
+        # 与右侧工种表同为卡片容器，主-从两栏观感统一（Tk 版此栏是裸列表）。
         self.setStyleSheet(
-            f"#categoryList {{ background: {APP_BG};"
-            f" border-right: 1px solid {SEPARATOR}; }}"
+            f"#categoryList {{ background: {CARD_BG};"
+            f" border: 1px solid {CARD_BORDER}; border-radius: 8px; }}"
         )
         self._names: list[str] = []
         self._counts: dict[str, int] = {}
@@ -141,12 +142,15 @@ class QtCategoryList(QWidget):
         self._item_by_name: dict[str, QListWidgetItem] = {}
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        # 左右留 1px：卡片边框本身占位，行高亮不会压到圆角上。
+        layout.setContentsMargins(1, 8, 1, 8)
         layout.setSpacing(4)
 
         self._header = QLabel("分类列表", self)
         self._header.setFont(font_manager.get("subheading"))
-        self._header.setStyleSheet(f"color: {TEXT_PRIMARY}; border: none;")
+        self._header.setStyleSheet(
+            f"color: {TEXT_PRIMARY}; border: none; padding-left: 8px;"
+        )
         layout.addWidget(self._header)
 
         self._list = QListWidget(self)

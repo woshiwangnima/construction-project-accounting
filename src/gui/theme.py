@@ -90,6 +90,8 @@ CARD_BG = "#ffffff"
 CARD_BORDER = "#e5e5ea"
 BTN_SECONDARY_BG = "#ffffff"
 BTN_SECONDARY_HOVER = "#f5f5f7"
+BTN_DISABLED_BG = "#e5e5ea"
+BTN_DISABLED_FG = "#a1a1a6"
 SEGMENT_BG = "#f2f2f7"
 SEGMENT_SELECTED_BG = "#ffffff"
 TOOLTIP_BG = "#1c1c1e"
@@ -207,6 +209,16 @@ QPushButton[danger="true"] {{
 }}
 QPushButton[danger="true"]:hover {{ background: {DANGER_HOVER}; border-color: {DANGER_HOVER}; }}
 QPushButton[danger="true"]:pressed {{ background: {DANGER_PRESSED}; border-color: {DANGER_PRESSED}; }}
+
+/* 禁用态必须显式覆盖 secondary/danger：属性选择器优先级高于 :disabled 伪类，
+   否则白字会压在 :disabled 的浅灰底上，按钮文字直接消失。 */
+QPushButton:disabled,
+QPushButton[secondary="true"]:disabled,
+QPushButton[danger="true"]:disabled {{
+    background: {BTN_DISABLED_BG};
+    border-color: {BTN_DISABLED_BG};
+    color: {BTN_DISABLED_FG};
+}}
 
 QPushButton[flat="true"] {{
     background: transparent;

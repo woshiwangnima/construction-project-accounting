@@ -2,12 +2,14 @@
 
 ## Project Structure & Module Organization
 
-- `main.py` is the Windows desktop entry point.
-- `src/` contains application logic and data models; `src/gui/` contains Tkinter windows, dialogs, and reusable widgets.
+- `main.py` is the Windows desktop entry point; it starts the Qt (PySide6) app in `src/gui/qt/`.
+- `src/` contains application logic and data models; `src/gui/qt/` contains the Qt windows, dialogs, and widgets. `QtContentArea` (in `content.py`) is composed of `BillViewMixin` (`bill_view.py`) and `WorkerViewMixin` (`worker_view.py`); shared helpers live in `view_common.py` (metric cards / QSS), `category_utils.py` (pure category + column-weight logic), and `save_bridge.py` (async project save — call `close()` before the host QObject is destroyed).
+- Known pitfall: PySide6 6.11 removed instance-level enum access (e.g. `painter.Antialiasing` raises `AttributeError` and can crash a delegate's `paint`); always use class-level enums (`QPainter.RenderHint.Antialiasing`) or `Qt.X` constants.
+- Framework-agnostic helpers shared by the UI live in `src/gui/common/` (`reorder`, `column_layout`); theme, font, clipboard and editability helpers live directly under `src/gui/`.
 - `config/` stores bundled defaults, while `assets/` stores bundled audio and other resources.
 - `scripts/` contains release, migration, manifest, and versioning helpers. Runtime data belongs in `projects/`, `backups/`, and `logs/`; these directories are not source code.
 - Runtime user data defaults to `%APPDATA%\\ConstructionAccounting` on Windows and can be redirected with `CPA_DATA_DIR` or the specific `CPA_*_DIR` variables.
-- No test suite is currently checked in.
+- `tests/` holds the `unittest` suite (also runnable via `pytest`).
 
 ## Build, Test, and Development Commands
 
@@ -18,9 +20,12 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe main.py
 .\.venv\Scripts\python.exe -m compileall -q main.py src
+.\.venv\Scripts\python.exe -m unittest discover -s tests
 ```
 
-The first two commands create an isolated environment and install dependencies. `main.py` launches the GUI; `compileall` catches syntax errors. Run `build.bat` to create the PyInstaller `dist/ConstructionAccounting` release bundle.
+The first two commands create an isolated environment and install dependencies. `main.py` launches the GUI; `compileall` catches syntax errors; `unittest discover` runs the test suite. Run `build.bat` to create the PyInstaller `dist/ConstructionAccounting` release bundle.
+
+Packaging is driven by `packaging/ConstructionAccounting.spec` (paths derived from `SPECPATH`, so it works from any checkout). Do not put the spec under `build/` — `build.bat` deletes that directory before each run. When adding a dependency that pulls in a new Qt module, revisit the `QT_EXCLUDES` and `BIN_EXCLUDE_KEYWORDS` lists in the spec: `excludes` only removes Python bindings, the Qt6 native DLLs must be filtered from `a.binaries` as well.
 
 ## Coding Style & Naming Conventions
 
@@ -28,7 +33,9 @@ Use Python 3.10+ with four-space indentation and standard-library style imports.
 
 ## Testing Guidelines
 
-There is no configured test framework or coverage threshold. For every change, run the compile check and manually exercise the affected Tkinter workflow. GUI changes should be checked for startup, resizing, persistence, and relevant dialogs; data changes should also verify backup and migration behavior.
+There is no coverage threshold. For every change, run the compile check plus `.\.venv\Scripts\python.exe -m unittest discover -s tests`, and manually exercise the affected Qt workflow. GUI changes should be checked for startup, resizing, persistence, and relevant dialogs; data changes should also verify backup and migration behavior.
+
+Historical note (resolved 2026-09-11): `tests/test_qt_smoke.py` used to be flaky — the root cause was `ProjectSaveBridge`'s background thread emitting signals after the host QObject was destroyed (`RuntimeError: Signal source has been deleted`, which broke the drain loop). Fixed by guarding emits and adding `ProjectSaveBridge.close()` called from `MainWindow._on_close`. If flakiness returns, look at background-thread vs. teardown races first.
 
 ## Commit & Pull Request Guidelines
 

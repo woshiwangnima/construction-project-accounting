@@ -29,43 +29,12 @@ from src.gui import theme
 from src.gui.font_manager import font_manager
 from src.gui.qt.content import QtContentArea
 from src.gui.qt.main_window import MainWindow
-from src.gui.widgets.reorder import move_item
+from src.gui.common.reorder import move_item
 from src.project_manager import get_project, project_file_path, update_project
 
-_FONT_MANAGER_SNAPSHOT: dict | None = None
-
-
 def setUpModule() -> None:
-    """强制 Qt 模式字体。
-
-    完整套件（unittest discover）运行时，Tk 测试可能已用 Tk 模式初始化了
-    font_manager 单例，随后的 init_qt() 会早退，Qt 控件 setFont 将收到
-    tk.font.Font 而报 TypeError。这里先快照单例状态，再强制以 Qt 模式重建。
-    """
-    global _FONT_MANAGER_SNAPSHOT
-    _FONT_MANAGER_SNAPSHOT = {
-        "_root": font_manager._root,
-        "_fonts": font_manager._fonts,
-        "_colors": font_manager._colors,
-        "_initialized": font_manager._initialized,
-        "_mode": font_manager._mode,
-        "_qt_refresh_callback": font_manager._qt_refresh_callback,
-    }
-    font_manager._root = None
-    font_manager._fonts = {}
-    font_manager._colors = {}
-    font_manager._initialized = False
-    font_manager._mode = None
+    """确保 font_manager 单例已初始化（Qt 模式）。"""
     font_manager.init_qt()
-
-
-def tearDownModule() -> None:
-    """还原 font_manager 单例，避免影响完整套件中后续的 Tk 测试。"""
-    global _FONT_MANAGER_SNAPSHOT
-    if _FONT_MANAGER_SNAPSHOT is not None:
-        for attr, value in _FONT_MANAGER_SNAPSHOT.items():
-            setattr(font_manager, attr, value)
-        _FONT_MANAGER_SNAPSHOT = None
 
 PROJECT_UUID = "11111111-2222-3333-4444-555555555555"
 PROJECT_NAME = "冒烟测试项目"

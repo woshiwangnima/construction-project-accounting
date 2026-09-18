@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 from qtawesome import icon as qta_icon
 from PySide6.QtCore import QObject, QSize, Qt, Signal, QTimer
+from PySide6.QtGui import QFont, QFontMetrics
 from PySide6.QtWidgets import (
     QButtonGroup, QFrame, QHBoxLayout, QInputDialog, QLabel, QMenu,
     QMessageBox, QPushButton, QSizePolicy, QSplitter, QStackedWidget,
@@ -37,7 +38,20 @@ from ..theme import (
     SYSTEM_GREEN, TEXT_PRIMARY, TEXT_SECONDARY,
 )
 from ..clipboard import AppClipboard
-from ..widgets.reorder import move_item, reorder_subset_by_ids
+from ..common.reorder import move_item, reorder_subset_by_ids
+from .save_bridge import ProjectSaveBridge
+from .view_common import (
+    CARD_QSS, SEGMENT_QSS, _amount_px, _build_metric_row,
+    _make_metric_card, _metric_card_height,
+)
+from .category_utils import (
+    _category_maps, _category_name, _category_id,
+    _project_category_names, _safe_positive_float,
+    _trade_item_category_name, resolve_bill_columns,
+    resolve_worker_column_weights,
+)
+from .bill_view import BillViewMixin
+from .worker_view import WorkerViewMixin
 from .status_badge import QtStatusBadge
 from .bill_table import QtBillTable
 from .worker_table import QtWorkerTable
@@ -45,218 +59,34 @@ from .category_list import QtCategoryList
 from .action_bar import ActionBar
 
 # ── 统一卡片 / 分段容器 QSS（与 theme.build_qss 全局体系一致的补充规则）─────────
-CARD_QSS = (
-    f"background: {CARD_BG}; border: 1px solid {CARD_BORDER};"
-    f"border-radius: 8px; padding: 10px 10px;"
+
+
+# 指标卡片规格：(key, icon, icon_color, title, value_font_role, value_color, object_name)
+_BILL_METRIC_SPECS = (
+    ("amount", "fa5s.wallet", ACCENT, "总金额", "amount", ACCENT, "amount_value"),
+    ("count", "fa5s.list-alt", TEXT_SECONDARY, "明细记录", "subheading", None, ""),
+    ("errors", "fa5s.shield-alt", SYSTEM_GREEN, "数据校验", "subheading", None, ""),
 )
-SEGMENT_QSS = f"background: {SEGMENT_BG}; border-radius: 8px; padding: 2px;"
+_WORKER_METRIC_SPECS = (
+    ("kinds", "fa5s.tasks", ACCENT, "工作类型", "subheading", None, ""),
+    ("priced", "fa5s.tags", TEXT_SECONDARY, "按单价计费", "subheading", None, ""),
+    ("unpriced", "fa5s.exclamation-triangle", DANGER, "未设单价", "subheading", None, ""),
+)
+
 
 # ── 分类辅助函数（镜像 Tk content.py，避免引入 Tk 模块）───────────────────────
 
-
-def _category_name(category) -> str:
-    if hasattr(category, "name"):
-        return category.name
-    if isinstance(category, dict):
-        return category.get("name", "")
-    return str(category)
-
-
-def _category_id(category) -> str:
-    if hasattr(category, "id"):
-        return category.id
-    if isinstance(category, dict):
-        return category.get("id", "")
-    return ""
-
-
-def _category_maps(project) -> tuple[dict[str, str], dict[str, str]]:
-    id_to_name = {}
-    name_to_id = {}
-    for category in (project or {}).get("category_order", []) or []:
-        cid = _category_id(category)
-        name = _category_name(category)
-        if cid:
-            id_to_name[cid] = name
-        if name:
-            name_to_id[name] = cid
-    return id_to_name, name_to_id
-
-
-def _trade_item_category_name(item, project, category_maps=None) -> str:
-    if item.get("category"):
-        return item.get("category", "")
-    id_to_name, _ = category_maps or _category_maps(project)
-    return id_to_name.get(item.get("category_id", ""), item.get("category_id", ""))
-
-
-def _project_category_names(project) -> list[str]:
-    category_maps = _category_maps(project)
-    names = [_category_name(c) for c in (project or {}).get("category_order", []) or []]
-    for item in (project or {}).get("trade_items", []) or []:
-        name = _trade_item_category_name(item, project, category_maps)
-        if name and name not in names:
-            names.append(name)
-    return names
 
 # ── 列配置（镜像 Tk content.py，避免引入 Tk 模块）───────────────────────────
 
 BILLS_MIN_WIDTH = 40
 
-WORKER_COLUMNS = ("名称", "单价", "单位", "计费类型", "操作")
 WORKER_MIN_WIDTH = 60
-WORKER_DEFAULT_WEIGHTS = {
-    "名称": 0.3571428571,    # 5/14
-    "单价": 0.2142857143,    # 3/14
-    "单位": 0.2142857143,
-    "计费类型": 0.2142857143,
-    "操作": 0.06,
-}
 
 BILL_PRESET_QUICK_VIEW = ("审核", "工作内容", "公式", "单价", "金额")
-BILL_ACTION_COL = "操作"
 
 
-def _safe_positive_float(v) -> float | None:
-    try:
-        x = float(v)
-        if x > 0:
-            return x
-    except (TypeError, ValueError):
-        pass
-    return None
-
-
-def resolve_bill_columns(
-    project_data: dict,
-    app_config: dict | None = None,
-) -> tuple[list[str], dict[str, float], list[str]]:
-    """返回 (列顺序, 当前模式权重[全部11列], 隐藏列列表)。与 Tk 版一致。"""
-    app_config = app_config if app_config is not None else load_app()
-    defaults = app_config.get("default_bill_column_widths_data", [])
-    columns = [d["name"] for d in defaults]
-
-    saved = (project_data or {}).get("bill_column_widths", []) or []
-    saved_map = {}
-    for item in saved:
-        if isinstance(item, dict) and "name" in item:
-            w = _safe_positive_float(item.get("weight"))
-            if w is not None:
-                saved_map[item["name"]] = w
-
-    base = {}
-    for d in defaults:
-        base[d["name"]] = saved_map.get(d["name"], d["weight"])
-
-    mode = (project_data or {}).get("bill_display_mode", "simple")
-    visible = (project_data or {}).get("bill_visible_columns") or []
-    if visible:
-        visible_set = set(visible)
-        hidden = [c for c in columns if c not in visible_set]
-        hidden = [c for c in hidden if c != BILL_ACTION_COL]
-    elif mode == "simple":
-        hidden = [d["name"] for d in defaults if not d.get("show_in_simple", True)]
-    elif mode == "audit":
-        hidden = [d["name"] for d in defaults if not d.get("show_in_audit", True)]
-    else:
-        hidden = []
-    if not hidden:
-        return columns, base, []
-
-    visible = [c for c in columns if c not in hidden]
-    total_hidden = sum(base[c] for c in hidden)
-    total_visible = sum(base[c] for c in visible)
-
-    if total_visible <= 0:
-        return columns, base, hidden
-
-    ratio = 1 + total_hidden / total_visible
-    weights = {}
-    for col in columns:
-        weights[col] = base.get(col, 0) * ratio if col in visible else base.get(col, 0)
-
-    return columns, weights, hidden
-
-
-def resolve_worker_column_weights(project_data: dict, app_config: dict | None = None) -> dict:
-    """解析 worker 表格列权重：项目保存值 → app_config 默认 → 硬编码。"""
-    saved = (project_data or {}).get("worker_column_widths", {}) or {}
-    try:
-        app_config = app_config if app_config is not None else load_app()
-        app_defaults = app_config.get("default_worker_column_widths", {}) or {}
-    except Exception:
-        app_defaults = {}
-
-    result: dict[str, float] = {}
-    for col in WORKER_COLUMNS:
-        w = _safe_positive_float(saved.get(col))
-        if w is not None:
-            result[col] = w
-            continue
-        w = _safe_positive_float(app_defaults.get(col))
-        if w is not None:
-            result[col] = w
-            continue
-        result[col] = WORKER_DEFAULT_WEIGHTS[col]
-    return result
-
-
-class ProjectSaveBridge(QObject):
-    """异步项目保存桥：快照合并 + 单 worker 串行写入 + 状态信号。"""
-
-    save_error = Signal(str)
-    save_state = Signal(str, str)  # (state, stamp)：saving/saved/failed
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._lock = threading.Lock()
-        self._pending: tuple[str, dict] | None = None
-        self._running = False
-        self._idle = threading.Event()
-        self._idle.set()
-
-    def schedule(self, uuid: str, project_data) -> None:
-        if not uuid or not project_data:
-            return
-        try:
-            snapshot = copy.deepcopy(project_data)
-        except Exception:
-            snapshot = (project_data.to_dict()
-                        if hasattr(project_data, "to_dict")
-                        else dict(project_data))
-        with self._lock:
-            self._pending = (uuid, snapshot)
-            self._idle.clear()
-            if self._running:
-                return
-            self._running = True
-            self.save_state.emit("saving", "")
-        threading.Thread(target=self._drain, name="project-save", daemon=True).start()
-
-    def _drain(self) -> None:
-        while True:
-            with self._lock:
-                pending = self._pending
-                self._pending = None
-                if pending is None:
-                    self._running = False
-                    self._idle.set()
-                    return
-            uuid, snapshot = pending
-            try:
-                update_project(uuid, snapshot)
-                from .feedback import now_stamp
-                self.save_state.emit("saved", now_stamp())
-            except Exception as exc:  # pragma: no cover - defensive worker boundary
-                logger.warning("项目后台保存失败 uuid=%s: %s", uuid[:16], exc, exc_info=True)
-                self.save_error.emit(str(exc))
-                self.save_state.emit("failed", "")
-
-    def flush(self, timeout: float = 2.0) -> bool:
-        return self._idle.wait(max(float(timeout), 0.0))
-
-
-class QtContentArea(QWidget):
+class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
     name_changed = Signal(str, str)    # (uuid, new_name)
     status_changed = Signal(str, str)  # (uuid, status_value)
     toast = Signal(str)
@@ -454,83 +284,8 @@ class QtContentArea(QWidget):
         bl.setContentsMargins(0, 0, 0, 0)
         bl.setSpacing(8)
 
-        # 指标区：横向充满的 3 列看板卡片网格
-        metrics = QHBoxLayout()
-        metrics.setSpacing(12)
-        self._metric_labels: dict[str, QLabel] = {}
-
-        # 1. 总金额卡片 (含图标)
-        amount_card = QFrame()
-        amount_card.setProperty("card", True)
-        amount_card.setStyleSheet(CARD_QSS)
-        amount_outer = QHBoxLayout(amount_card)
-        amount_outer.setContentsMargins(14, 10, 14, 10)
-        amount_outer.setSpacing(12)
-        amount_icon = QLabel()
-        amount_icon.setStyleSheet("border: none; background: transparent;")
-        amount_icon.setPixmap(qta_icon("fa5s.wallet", color=ACCENT).pixmap(24, 24))
-        amount_outer.addWidget(amount_icon)
-        amount_layout = QVBoxLayout()
-        amount_layout.setSpacing(2)
-        amount_title = QLabel("总金额")
-        amount_title.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 13px; font-weight: bold; border: none;")
-        amount_value = QLabel("")
-        amount_value.setObjectName("amount_value")
-        amount_value.setFont(font_manager.get("amount"))
-        amount_value.setStyleSheet(f"color: {ACCENT}; font-weight: bold; border: none;")
-        amount_layout.addWidget(amount_title)
-        amount_layout.addWidget(amount_value)
-        amount_outer.addLayout(amount_layout, 1)
-        self._metric_labels["amount"] = amount_value
-        metrics.addWidget(amount_card, 1)
-
-        # 2. 明细记录卡片 (含图标)
-        count_card = QFrame()
-        count_card.setProperty("card", True)
-        count_card.setStyleSheet(CARD_QSS)
-        count_outer = QHBoxLayout(count_card)
-        count_outer.setContentsMargins(14, 10, 14, 10)
-        count_outer.setSpacing(12)
-        count_icon = QLabel()
-        count_icon.setStyleSheet("border: none; background: transparent;")
-        count_icon.setPixmap(qta_icon("fa5s.list-alt", color=TEXT_SECONDARY).pixmap(24, 24))
-        count_outer.addWidget(count_icon)
-        count_layout = QVBoxLayout()
-        count_layout.setSpacing(2)
-        count_title = QLabel("明细记录")
-        count_title.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 13px; font-weight: bold; border: none;")
-        count_value = QLabel("")
-        count_value.setFont(font_manager.get("subheading"))
-        count_value.setStyleSheet(f"color: {TEXT_PRIMARY}; font-weight: bold; border: none;")
-        count_layout.addWidget(count_title)
-        count_layout.addWidget(count_value)
-        count_outer.addLayout(count_layout, 1)
-        self._metric_labels["count"] = count_value
-        metrics.addWidget(count_card, 1)
-
-        # 3. 数据校验卡片 (含图标)
-        status_card = QFrame()
-        status_card.setProperty("card", True)
-        status_card.setStyleSheet(CARD_QSS)
-        status_outer = QHBoxLayout(status_card)
-        status_outer.setContentsMargins(14, 10, 14, 10)
-        status_outer.setSpacing(12)
-        status_icon = QLabel()
-        status_icon.setStyleSheet("border: none; background: transparent;")
-        status_icon.setPixmap(qta_icon("fa5s.shield-alt", color=SYSTEM_GREEN).pixmap(24, 24))
-        status_outer.addWidget(status_icon)
-        status_layout = QVBoxLayout()
-        status_layout.setSpacing(2)
-        status_title = QLabel("数据校验")
-        status_title.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 13px; font-weight: bold; border: none;")
-        errors_value = QLabel("")
-        errors_value.setFont(font_manager.get("subheading"))
-        status_layout.addWidget(status_title)
-        status_layout.addWidget(errors_value)
-        status_outer.addLayout(status_layout, 1)
-        self._metric_labels["errors"] = errors_value
-        metrics.addWidget(status_card, 1)
-
+        # 指标区：横向充满的 3 列看板卡片网格（与工作类型页共用工厂函数）
+        metrics, self._metric_labels = _build_metric_row(_BILL_METRIC_SPECS)
         bl.addLayout(metrics)
 
         # 空状态提示（无账单时显示）
@@ -579,6 +334,25 @@ class QtContentArea(QWidget):
         wl2.setContentsMargins(0, 0, 0, 0)
         wl2.setSpacing(8)
 
+        # 顶部骨架与账单页严格同构：指标行 + 操作条，切换页签时高度一致不跳变。
+        w_metrics, self._worker_metric_labels = _build_metric_row(_WORKER_METRIC_SPECS)
+        wl2.addLayout(w_metrics)
+
+        self._worker_action_bar = ActionBar(self._workers_page)
+        self._worker_action_bar.edit_requested.connect(self._edit_trade_item_at)
+        self._worker_action_bar.up_requested.connect(
+            lambda row: self._on_worker_action(row, "up")
+        )
+        self._worker_action_bar.down_requested.connect(
+            lambda row: self._on_worker_action(row, "down")
+        )
+        self._worker_action_bar.copy_requested.connect(self._copy_workers)
+        self._worker_action_bar.paste_requested.connect(self._paste_workers)
+        self._worker_action_bar.delete_requested.connect(
+            lambda row: self._on_worker_action(row, "delete")
+        )
+        wl2.addWidget(self._worker_action_bar)
+
         self._category_splitter = QSplitter(Qt.Horizontal, self._workers_page)
         self._category_splitter.setHandleWidth(5)
         self._category_splitter.setChildrenCollapsible(False)
@@ -602,6 +376,9 @@ class QtContentArea(QWidget):
         self._workers_table.copy_requested.connect(self._copy_workers)
         self._workers_table.paste_requested.connect(self._paste_workers)
         self._workers_table.action_triggered.connect(self._on_worker_action)
+        self._workers_table.selectionModel().selectionChanged.connect(
+            self._on_worker_selection_changed
+        )
         wr_layout.addWidget(self._workers_table, 1)
         self._workers_empty_hint = QFrame(workers_right)
         self._workers_empty_hint.setStyleSheet(
@@ -671,12 +448,22 @@ class QtContentArea(QWidget):
         self._bill_add_btn.setEnabled(editable)
         self._category_list.set_editable(editable)
         self._sync_action_bar()
+        self._sync_worker_action_bar()
 
     def _on_bill_selection_changed(self, *_args) -> None:
         self._sync_action_bar()
 
+    def _on_worker_selection_changed(self, *_args) -> None:
+        self._sync_worker_action_bar()
+
     def _selected_bill_rows(self) -> list[int]:
         sel = self._bills_table.selectionModel()
+        if sel is None:
+            return []
+        return sorted({i.row() for i in sel.selectedRows()})
+
+    def _selected_worker_rows(self) -> list[int]:
+        sel = self._workers_table.selectionModel()
         if sel is None:
             return []
         return sorted({i.row() for i in sel.selectedRows()})
@@ -686,6 +473,16 @@ class QtContentArea(QWidget):
             return
         try:
             self._action_bar.set_rows(self._selected_bill_rows(), self._editable)
+        except RuntimeError:
+            pass
+
+    def _sync_worker_action_bar(self) -> None:
+        if getattr(self, "_worker_action_bar", None) is None:
+            return
+        try:
+            self._worker_action_bar.set_rows(
+                self._selected_worker_rows(), self._editable
+            )
         except RuntimeError:
             pass
 
@@ -732,600 +529,27 @@ class QtContentArea(QWidget):
     def clear(self) -> None:
         self._show_welcome()
 
-    def _switch_bill_mode(self, mode: str) -> None:
-        if not self.project_data or not self.current_uuid:
-            return
-        self.project_data["bill_display_mode"] = mode
-        if "bill_visible_columns" in self.project_data:
-            del self.project_data["bill_visible_columns"]
-        self._save_bridge.schedule(self.current_uuid, self.project_data)
-        self._render_bills()
 
     # ── 账单页渲染 ─────────────────────────────────────────────────────────
 
-    def _render_bills(self) -> None:
-        if not self.project_data:
-            return
-        p = self.project_data
-        bills = p.get("bills", []) or []
-        trade_items = p.get("trade_items", []) or []
-        calculations, total, err_cnt = summarize_bill_calculations(
-            bills, trade_items, self._op_map
-        )
-        columns, weights, hidden = resolve_bill_columns(p, self._app_config)
-        self._bill_weights = weights
-
-        cur_mode = p.get("bill_display_mode", "simple")
-        if hasattr(self, "_mode_buttons") and cur_mode in self._mode_buttons:
-            self._mode_buttons[cur_mode].setChecked(True)
-
-        self._bills_table.set_columns(columns, hidden)
-        self._bills_table.set_column_weights(weights, hidden)
-        self._bills_table.update_data(bills, trade_items, self._op_map, calculations)
-
-        self._metric_labels["amount"].setText(f"￥{total:.2f}")
-        self._metric_labels["count"].setText(str(len(bills)))
-        if err_cnt:
-            self._metric_labels["errors"].setText(f"⚠️ {err_cnt} 处错误")
-            self._metric_labels["errors"].setStyleSheet(f"color: {DANGER}; font-weight: bold;")
-        else:
-            self._metric_labels["errors"].setText("✓ 无错误")
-            self._metric_labels["errors"].setStyleSheet(f"color: {SYSTEM_GREEN}; font-weight: bold;")
-        self._bills_empty_hint.setVisible(len(bills) == 0)
-        self._sync_action_bar()
-
-    def _render_workers(self) -> None:
-        if not self.project_data:
-            return
-        p = self.project_data
-        items = p.get("trade_items", []) or []
-        cats = _project_category_names(p)
-        category_maps = _category_maps(p)
-        counts: dict[str, int] = {}
-        for ti in items:
-            cat = _trade_item_category_name(ti, p, category_maps)
-            if cat:
-                counts[cat] = counts.get(cat, 0) + 1
-        ordered_counts = {cat: counts.get(cat, 0) for cat in cats}
-
-        if self._selected_category not in cats:
-            self._selected_category = cats[0] if cats else None
-        self._category_list.set_categories(ordered_counts)
-        self._category_list.set_selected(self._selected_category)
-        has_cats = bool(cats)
-        self._workers_table.setVisible(has_cats)
-        self._workers_empty_hint.setVisible(not has_cats)
-
-        weights = resolve_worker_column_weights(p, self._app_config)
-        self._worker_weights = weights
-        self._workers_table.set_columns(list(WORKER_COLUMNS), [])
-        self._workers_table.set_column_weights(weights, [])
-        self._workers_table.update_data(self._get_cat_items())
-        self._apply_category_ratio()
-
-    def _get_cat_items(self) -> list:
-        """当前选中分类下的工种（直接引用 trade_items 里的元素）。"""
-        if not self._selected_category or not self.project_data:
-            return []
-        category_maps = _category_maps(self.project_data)
-        return [
-            ti for ti in self.project_data.get("trade_items", []) or []
-            if _trade_item_category_name(ti, self.project_data, category_maps)
-            == self._selected_category
-        ]
-
-    def _get_cat_indices(self) -> list[int]:
-        """当前分类下每个工种在 trade_items 全局列表里的位置。"""
-        if not self._selected_category or not self.project_data:
-            return []
-        category_maps = _category_maps(self.project_data)
-        return [
-            i for i, ti in enumerate(self.project_data.get("trade_items", []) or [])
-            if _trade_item_category_name(ti, self.project_data, category_maps)
-            == self._selected_category
-        ]
-
-    def _on_category_selected(self, name: str) -> None:
-        self._selected_category = name
-        self._render_workers()
 
     # ── 账单操作 ───────────────────────────────────────────────────────────
 
-    def _on_bill_column_resize(self, weights: dict) -> None:
-        if not self.current_uuid or self.project_data is None:
-            return
-        self._bill_weights = dict(weights)
-        self.project_data["bill_column_widths"] = [
-            {"name": k, "weight": v} for k, v in weights.items()
-        ]
-        self._save_bridge.schedule(self.current_uuid, self.project_data)
-
-    def _on_worker_column_resize(self, weights: dict) -> None:
-        if not self.current_uuid or self.project_data is None:
-            return
-        self._worker_weights = dict(weights)
-        self.project_data["worker_column_widths"] = dict(weights)
-        self._save_bridge.schedule(self.current_uuid, self.project_data)
-
-    def _toggle_bill_review(self, row: int) -> None:
-        if not self.project_data:
-            return
-        bills = self.project_data.get("bills", []) or []
-        if row == -1:
-            if not self._editable:
-                return
-            apply_bulk_review(bills)
-            self._save_bridge.schedule(self.current_uuid, self.project_data)
-            self._render_bills()
-            return
-        if row < 0 or row >= len(bills):
-            return
-        set_bill_reviewed(bills[row], not is_bill_reviewed(bills[row]))
-        self._save_bridge.schedule(self.current_uuid, self.project_data)
-        self._render_bills()
-
-    def _sort_bills(self, column: str, order: str = "") -> None:
-        if not self._editable or not self.project_data or column != "修改时间":
-            return
-        descending = self._bill_sort_descending
-        bills = self.project_data.get("bills", []) or []
-        bills.sort(key=lambda b: b.get("record_time", ""), reverse=descending)
-        self.project_data["bills"] = bills
-        self._save_bridge.schedule(self.current_uuid, self.project_data)
-        self._bill_sort_descending = not descending
-        self._bills_table.set_sort_indicator(
-            "修改时间", "desc" if descending else "asc"
-        )
-        self._render_bills()
-
-    def _sort_workers(self, column: str, order: str = "") -> None:
-        if not self._editable or not self.project_data:
-            return
-        items = self.project_data.get("trade_items", [])
-        if column == "单价":
-            descending = self._worker_price_sort_descending
-            price_positions = [
-                i for i, item in enumerate(items)
-                if read_billing(item).is_per_unit
-            ]
-            sorted_priced = sorted(
-                (items[i] for i in price_positions),
-                key=lambda item: read_billing(item).unit_price,
-                reverse=descending,
-            )
-            result = list(items)
-            for pos, item in zip(price_positions, sorted_priced):
-                result[pos] = item
-            items[:] = result
-            self._worker_price_sort_descending = not descending
-            self._workers_table.set_sort_indicator(
-                "单价", "desc" if descending else "asc"
-            )
-        elif column == "计费类型":
-            descending = self._worker_billing_sort_descending
-            with_unit = [item for item in items if read_billing(item).is_per_unit]
-            without_unit = [item for item in items if not read_billing(item).is_per_unit]
-            ordered = (with_unit + without_unit) if descending else (without_unit + with_unit)
-            items[:] = ordered
-            self._worker_billing_sort_descending = not descending
-            self._workers_table.set_sort_indicator(
-                "计费类型", "desc" if descending else "asc"
-            )
-        else:
-            return
-        self._save_bridge.schedule(self.current_uuid, self.project_data)
-        self._render_workers()
-
-    def _on_bill_action(self, row: int, action: str) -> None:
-        if action == "up":
-            self._move_bill(row, -1)
-        elif action == "down":
-            self._move_bill(row, 1)
-        elif action == "delete":
-            self._delete_bill(row)
-
-    def _move_bill(self, idx: int, direction: int) -> None:
-        if not self._editable or not self.project_data:
-            return
-        bills = self.project_data.get("bills", []) or []
-        target = idx + direction
-        if idx < 0 or target < 0 or target >= len(bills):
-            return
-        bills[idx], bills[target] = bills[target], bills[idx]
-        moved_id = bills[target].get("id")
-        self._save_bridge.schedule(self.current_uuid, self.project_data)
-        self._render_bills()
-        self._select_bill_by_id(moved_id)
-
-    def _on_bills_rows_moved(self, rows: list, target: int) -> None:
-        if not self._editable or not self.project_data:
-            return
-        bills = self.project_data.get("bills", []) or []
-        src = rows[0]
-        if src < 0 or src >= len(bills):
-            return
-        # target 为插入下标（与 Tk _reorder_bill 的 to_idx 语义一致），
-        # 直接交给 move_item，避免重复 -1 导致下移总差一行。
-        to = max(0, min(target, len(bills)))
-        if to == src:
-            return
-        moved_id = bills[src].get("id")
-        self.project_data["bills"] = move_item(bills, src, to)
-        self._save_bridge.schedule(self.current_uuid, self.project_data)
-        self._render_bills()
-        self._select_bill_by_id(moved_id)
-
-    def _delete_bill(self, idx: int) -> None:
-        if not self._editable or not self.project_data:
-            return
-        bills = self.project_data.get("bills", []) or []
-        if idx < 0 or idx >= len(bills):
-            return
-        if not self._confirm_delete("确认", f"删除第 {idx + 1} 条记录？"):
-            return
-        bills.pop(idx)
-        self._save_bridge.schedule(self.current_uuid, self.project_data)
-        self._render_bills()
-
-    def _select_bill_by_id(self, bill_id: str | None) -> None:
-        if not bill_id:
-            return
-        bills = self.project_data.get("bills", []) or []
-        for i, bill in enumerate(bills):
-            if bill.get("id") == bill_id:
-                self._bills_table.selectRow(i)
-                return
 
     # ── 复制 / 粘贴：账单 ──
 
-    def _copy_bills(self, rows: list) -> None:
-        if not self.project_data:
-            return
-        idx = rows[0] if rows else 0
-        bills = self.project_data.get("bills", []) or []
-        if idx < 0 or idx >= len(bills):
-            return
-        bill = bills[idx]
-        items = self.project_data.get("trade_items", []) or []
-        cat, name = resolve_label(bill, items)
-        if not name:
-            snap = bill.get("frozen_snapshot")
-            name = snap.get("name", "") if isinstance(snap, dict) else ""
-        if not name:
-            name = bill.get("trade_item_name", "")
-        payload = {
-            "content": bill.get("content", ""),
-            "trade_item_id": bill.get("trade_item_id", ""),
-            "trade_item_name_fallback": name,
-        }
-        for k in ("note", "work_date_type", "work_date_start",
-                  "work_date_end", "frozen_snapshot", "frozen_total"):
-            if bill.get(k) is not None and bill.get(k) != "":
-                payload[k] = bill[k]
-        self._clipboard.set_bill(payload, source_ref=self.current_uuid or "")
-        self.toast.emit(f"已复制账单 #{idx + 1}（Ctrl+C）")
-
-    def _paste_bills(self, rows: list) -> None:
-        if not self.project_data or not self._editable:
-            return
-        if not self._clipboard.has_bill():
-            return
-        try:
-            entry = self._clipboard.get_bill()
-        except Exception as e:
-            self._error_box("粘贴失败", f"剪贴板数据异常：{e}")
-            return
-        payload = entry["payload"]
-        items = self.project_data.get("trade_items", []) or []
-        new_bill = paste_bill(payload, items)
-        bills = self.project_data.setdefault("bills", [])
-        bills.append(new_bill)
-        self._save_bridge.schedule(self.current_uuid, self.project_data)
-        self._render_bills()
-        if new_bill.get("trade_item_id"):
-            self.toast.emit(f"已粘贴账单到末尾（新行 #{len(bills)}）（Ctrl+V）")
-        else:
-            self.toast.emit("已粘贴为孤儿账单（目标项目无对应工作项目）（Ctrl+V）")
 
     # ── 工作类型操作 ────────────────────────────────────────────────────────
 
-    def _on_worker_action(self, row: int, action: str) -> None:
-        if action == "up":
-            self._move_trade_item(row, -1)
-        elif action == "down":
-            self._move_trade_item(row, 1)
-        elif action == "delete":
-            self._delete_trade_item(row)
-
-    def _move_trade_item(self, idx: int, direction: int) -> None:
-        """当前分类内上移/下移：direction=-1 上移，+1 下移。"""
-        if not self._editable or not self.project_data:
-            return
-        cat_indices = self._get_cat_indices()
-        if idx < 0 or idx >= len(cat_indices):
-            return
-        target = idx + direction
-        if target < 0 or target >= len(cat_indices):
-            return
-        items = self.project_data.get("trade_items", [])
-        pos_a, pos_b = cat_indices[idx], cat_indices[target]
-        moved_id = items[pos_a].get("id")
-        items[pos_a], items[pos_b] = items[pos_b], items[pos_a]
-        self._save_bridge.schedule(self.current_uuid, self.project_data)
-        self._render_workers()
-        self._select_worker_by_id(moved_id)
-
-    def _on_workers_rows_moved(self, rows: list, target: int) -> None:
-        if not self._editable or not self.project_data:
-            return
-        cat_items = self._get_cat_items()
-        src = rows[0]
-        if src < 0 or src >= len(cat_items):
-            return
-        moved_id = cat_items[src].get("id")
-        visible_ids = [item.get("id", "") for item in cat_items]
-        items = self.project_data.get("trade_items", []) or []
-        new_items = reorder_subset_by_ids(
-            items, visible_ids, src, target,
-            id_getter=lambda item: item.get("id", ""),
-        )
-        if new_items == items:
-            return
-        self.project_data["trade_items"] = new_items
-        self._save_bridge.schedule(self.current_uuid, self.project_data)
-        self._render_workers()
-        self._select_worker_by_id(moved_id)
-
-    def _select_worker_by_id(self, item_id: str | None) -> None:
-        if not item_id:
-            return
-        for i, item in enumerate(self._get_cat_items()):
-            if item.get("id") == item_id:
-                self._workers_table.selectRow(i)
-                return
-
-    def _delete_trade_item(self, idx: int) -> None:
-        """软删除工作类型：受影响账单冻结为孤儿（与 Tk 一致）。"""
-        if not self._editable or not self.project_data:
-            return
-        cat_indices = self._get_cat_indices()
-        if idx < 0 or idx >= len(cat_indices):
-            return
-        items = self.project_data.get("trade_items", [])
-        item = items[cat_indices[idx]]
-        tid = item.get("id", "")
-        affected_bills = [
-            b for b in self.project_data.get("bills", []) or []
-            if b.get("trade_item_id") == tid
-        ]
-        warn_msg = f"删除「{item.get('name', '')}」？"
-        if affected_bills:
-            warn_msg += (
-                f"\n\n有 {len(affected_bills)} 条账单引用此工作项目。"
-                "删除后这些账单将显示为「已删除」并保留最后已知金额（不再随单价变化）。"
-            )
-        if not self._confirm_delete("确认", warn_msg):
-            return
-        ti_billing = read_billing(item)
-        for b in affected_bills:
-            b["frozen_snapshot"] = {
-                "name": item.get("name", ""),
-                "category": item.get("category", ""),
-                "has_unit": ti_billing.has_unit,
-                "unit_price": ti_billing.unit_price,
-                "unit": ti_billing.unit,
-            }
-            b["frozen_total"] = recompute_bill_total(
-                {**b.to_dict(), "trade_item_id": tid} if hasattr(b, "to_dict")
-                else {**b, "trade_item_id": tid},
-                items,
-                self._op_map,
-            )
-            b["trade_item_id"] = ""
-            b["_needs_attention"] = True
-        del items[cat_indices[idx]]
-        self._save_bridge.schedule(self.current_uuid, self.project_data)
-        self._render_workers()
-        self._render_bills()
 
     # ── 复制 / 粘贴：工作类型 ──
 
-    def _copy_workers(self, rows: list) -> None:
-        if not self.project_data:
-            return
-        idx = rows[0] if rows else 0
-        cat_indices = self._get_cat_indices()
-        if idx < 0 or idx >= len(cat_indices):
-            return
-        items = self.project_data.get("trade_items", []) or []
-        ti = items[cat_indices[idx]]
-        billing = read_billing(ti)
-        payload = {
-            "category": ti.get("category", ""),
-            "name": ti.get("name", ""),
-            "has_unit": billing.has_unit,
-            "unit_price": billing.unit_price,
-            "unit": billing.unit,
-        }
-        self._clipboard.set_trade_item(payload, source_ref=self.current_uuid or "")
-        self.toast.emit(f"已复制工作「{payload['name']}」（Ctrl+C）")
-
-    def _paste_workers(self, rows: list) -> None:
-        if not self.project_data or not self._editable:
-            return
-        if not self._clipboard.has_trade_item():
-            return
-        try:
-            entry = self._clipboard.get_trade_item()
-        except Exception as e:
-            self._error_box("粘贴失败", f"剪贴板数据异常：{e}")
-            return
-        payload = entry["payload"]
-        items = self.project_data.get("trade_items", [])
-        cat_order = self.project_data.get("category_order", []) or []
-        cat_indices = self._get_cat_indices()
-
-        idx = rows[0] if rows else None
-        if idx is not None and 0 <= idx < len(cat_indices):
-            global_idx = cat_indices[idx]
-            target = items[global_idx]
-            if self._confirm_replace(
-                "确认替换",
-                f"确认用剪贴板内容「{payload.get('name', '')}」替换当前行「{target.get('name', '')}」？",
-            ):
-                new_ti = paste_trade_item(payload, items, cat_order)
-                new_ti["id"] = target["id"]
-                new_ti["category"] = target["category"]
-                new_ti["category_id"] = target.get("category_id", "")
-                items[global_idx] = new_ti
-                self._save_bridge.schedule(self.current_uuid, self.project_data)
-                self._render_workers()
-                self.toast.emit(f"已替换工作「{new_ti['name']}」")
-            return
-
-        # 追加到选中分类尾部（与 Tk 一致：粘贴目标 = 当前选中分类）
-        cat = self._selected_category
-        if not cat or cat not in cat_order:
-            cat = cat_order[0] if cat_order else payload.get("category", "")
-        payload["category"] = cat
-        new_ti = paste_trade_item(payload, items, cat_order)
-        items.append(new_ti)
-        if unique_category_after_paste(new_ti["category"], cat_order):
-            cat_order.append(new_ti["category"])
-            self.project_data["category_order"] = cat_order
-        self._save_bridge.schedule(self.current_uuid, self.project_data)
-        self._render_workers()
-        self.toast.emit(f"已粘贴工作「{new_ti['name']}」（Ctrl+V）")
 
     # ── 列显隐预设（右键账单页签）──────────────────────────────────────────
 
-    def _show_bill_mode_menu(self) -> None:
-        if not self.project_data or not self.current_uuid:
-            return
-        menu = QMenu(self)
-        submenu = menu.addMenu(qta_icon("fa5s.columns"), "列显示")
-        columns, _, hidden = resolve_bill_columns(self.project_data, self._app_config)
-        data_cols = [c for c in columns if c != BILL_ACTION_COL]
-        visible_set = set(data_cols) - set(hidden)
-
-        label_action = submenu.addAction("列显示（操作列固定）")
-        label_action.setEnabled(False)
-        submenu.addSeparator()
-        for col in data_cols:
-            action = submenu.addAction(col)
-            action.setCheckable(True)
-            action.setChecked(col in visible_set)
-            action.triggered.connect(
-                lambda _=False, c=col: self._toggle_bill_column_visibility(c)
-            )
-
-        menu.addAction(qta_icon("fa5s.image"), "导出图片", self._export_image)
-        menu.addSeparator()
-        add_action = menu.addAction(qta_icon("fa5s.plus-circle"), "添加记录", self._add_bill)
-        add_action.setEnabled(self._editable)
-        menu.exec(self._tab_buttons["bills"].mapToGlobal(
-            self._tab_buttons["bills"].rect().bottomLeft()
-        ))
-
-    def _show_worker_mode_menu(self) -> None:
-        menu = QMenu(self)
-        add_cat = menu.addAction(qta_icon("fa5s.folder-plus"), "添加分类", self._add_category)
-        add_cat.setEnabled(self._editable)
-        menu.addSeparator()
-        restore = menu.addAction(qta_icon("fa5s.undo"), "恢复默认", self._restore_defaults)
-        restore.setEnabled(self._editable)
-        menu.addSeparator()
-        clear = menu.addAction(qta_icon("fa5s.eraser"), "清空分类", self._clear_all_categories)
-        clear.setEnabled(self._editable)
-        menu.exec(self._tab_buttons["workers"].mapToGlobal(
-            self._tab_buttons["workers"].rect().bottomLeft()
-        ))
-
-    def _set_bill_visible_columns(self, cols: list[str]) -> None:
-        if not self.project_data or not self.current_uuid:
-            return
-        self.project_data["bill_visible_columns"] = list(cols)
-        self._save_bridge.schedule(self.current_uuid, self.project_data)
-        self._render_bills()
-
-    def _toggle_bill_column_visibility(self, col: str) -> None:
-        columns, _, hidden = resolve_bill_columns(self.project_data, self._app_config)
-        visible = set(columns) - set(hidden)
-        if col in visible:
-            visible.discard(col)
-        else:
-            visible.add(col)
-        ordered = [c for c in columns if c in visible]
-        self._set_bill_visible_columns(ordered)
 
     # ── P4 业务对话框接线 ─────────────────────────────────────────────────
 
-    def _add_bill(self) -> None:
-        if not self._editable or not self.project_data:
-            return
-        from .dialogs import EditBillDialog
-        new_bill: dict = {}
-        dlg = EditBillDialog(
-            self, new_bill, self.project_data, self._op_map,
-            on_saved=self._on_bill_saved,
-        )
-        dlg.exec()
-
-    def _edit_bill(self, row: int) -> None:
-        if not self.project_data:
-            return
-        bills = self.project_data.get("bills", []) or []
-        if row < 0 or row >= len(bills):
-            return
-        from .dialogs import EditBillDialog
-        dlg = EditBillDialog(
-            self, bills[row], self.project_data, self._op_map,
-            on_saved=self._on_bill_saved,
-        )
-        dlg.exec()
-
-    def _on_bill_saved(self, updated: dict) -> None:
-        if not self.project_data or not self.current_uuid:
-            return
-        from ...project_manager import ensure_bill_id
-        bills = self.project_data.get("bills", []) or []
-        bill_id = updated.get("id")
-        if bill_id:
-            for i, b in enumerate(bills):
-                if b.get("id") == bill_id:
-                    bills[i] = updated
-                    break
-            else:
-                bills.append(updated)
-        else:
-            ensure_bill_id(updated)
-            bills.append(updated)
-        self.project_data["bills"] = bills
-        self._save_bridge.schedule(self.current_uuid, self.project_data)
-        self._render_bills()
-
-    def _edit_trade_item_at(self, idx: int) -> None:
-        if not self._editable or not self.project_data:
-            return
-        cat_indices = self._get_cat_indices()
-        if idx < 0 or idx >= len(cat_indices):
-            return
-        items = self.project_data.get("trade_items", []) or []
-        ti = items[cat_indices[idx]]
-        cats = _project_category_names(self.project_data)
-        from .dialogs import EditTradeItemDialog
-        dlg = EditTradeItemDialog(
-            self, ti, cats, self._op_map,
-            on_saved=self._on_trade_item_saved,
-        )
-        dlg.exec()
-
-    def _on_trade_item_saved(self, updated: dict) -> None:
-        if not self.project_data or not self.current_uuid:
-            return
-        self._save_bridge.schedule(self.current_uuid, self.project_data)
-        self._render_workers()
-        self._render_bills()
 
     def _export_image(self) -> None:
         if not self.project_data:
@@ -1336,187 +560,9 @@ class QtContentArea(QWidget):
 
     # ── 分类管理（主-从窗格：右键菜单 / 页签菜单入口）──────────────────────
 
-    def _on_category_menu_action(self, name: str, action: str) -> None:
-        if action == "add":
-            self._add_category()
-        elif action == "edit":
-            self._edit_category(name)
-        elif action == "up":
-            self._move_category(name, -1)
-        elif action == "down":
-            self._move_category(name, 1)
-        elif action == "delete":
-            self._delete_category(name)
-
-    def _add_category(self) -> None:
-        if not self._editable or not self.project_data:
-            return
-        name, ok = QInputDialog.getText(self, "添加工作类型", "工作类型名称：")
-        if not ok:
-            return
-        name = name.strip()
-        if not name:
-            self._error_box("提示", "请输入名称")
-            return
-        p = self.project_data
-        co = p.get("category_order", []) or []
-        if name not in co:
-            co.append(name)
-            p["category_order"] = co
-        self._save_bridge.schedule(self.current_uuid, self.project_data)
-        self._selected_category = name
-        self._render_workers()
-
-    def _edit_category(self, name: str) -> None:
-        if not self._editable or not self.project_data:
-            return
-        new_name, ok = QInputDialog.getText(self, "编辑工作类型", "工作类型名称：", text=name)
-        if not ok:
-            return
-        new_name = new_name.strip()
-        if not new_name:
-            self._error_box("提示", "请输入名称")
-            return
-        if new_name == name:
-            return
-        p = self.project_data
-        co = p.category_order if hasattr(p, "category_order") else p.get("category_order", []) or []
-        updated = False
-        for cat in co:
-            if _category_name(cat) == name:
-                if hasattr(cat, "name"):
-                    cat.name = new_name
-                elif isinstance(cat, dict):
-                    cat["name"] = new_name
-                else:
-                    co[co.index(cat)] = new_name
-                updated = True
-                break
-        if not updated:
-            return
-        for ti in p.get("trade_items", []) or []:
-            if isinstance(ti, dict):
-                if ti.get("category") == name:
-                    ti["category"] = new_name
-            elif hasattr(ti, "category") and ti.category == name:
-                ti.category = new_name
-        if hasattr(p, "_sync_trade_item_category_ids"):
-            p._sync_trade_item_category_ids()
-        self._save_bridge.schedule(self.current_uuid, self.project_data)
-        self._selected_category = new_name
-        self._render_workers()
-        self._render_bills()
-
-    def _move_category(self, name: str, direction: int) -> None:
-        """在 category_order 中上移（-1）/下移（+1）一位，保持选中。"""
-        if not self._editable or not self.project_data:
-            return
-        co = list(self.project_data.get("category_order", []) or [])
-        if name not in co:
-            return
-        idx = co.index(name)
-        target = idx + direction
-        if target < 0 or target >= len(co):
-            return
-        co[idx], co[target] = co[target], co[idx]
-        self.project_data["category_order"] = co
-        self._save_bridge.schedule(self.current_uuid, self.project_data)
-        self._render_workers()
-
-    def _delete_category(self, name: str) -> None:
-        """删除分类：所有受影响账单冻结为孤儿（与 Tk 一致）。"""
-        if not self._editable or not self.project_data:
-            return
-        p = self.project_data
-        items = p.get("trade_items", []) or []
-        category_maps = _category_maps(p)
-        deleting = [
-            ti for ti in items
-            if _trade_item_category_name(ti, p, category_maps) == name
-        ]
-        deleting_ids = {ti.get("id", "") for ti in deleting}
-        affected_bills = [
-            b for b in p.get("bills", []) or []
-            if b.get("trade_item_id") in deleting_ids
-        ]
-        warn_msg = f"删除分类「{name}」？"
-        if deleting:
-            warn_msg = f"删除分类「{name}」及其所有工种？"
-            if affected_bills:
-                warn_msg += (
-                    f"\n\n有 {len(affected_bills)} 条账单引用此分类下的工作项目，"
-                    "删除后将显示为「已删除」并保留最后已知金额（不再随单价变化）。"
-                )
-        if not self._confirm_delete("确认", warn_msg):
-            return
-
-        if deleting:
-            for ti in deleting:
-                tid = ti.get("id", "")
-                ti_billing = read_billing(ti)
-                for b in p.get("bills", []) or []:
-                    if b.get("trade_item_id") == tid:
-                        b["frozen_snapshot"] = {
-                            "name": ti.get("name", ""),
-                            "category": _trade_item_category_name(ti, p, category_maps),
-                            "has_unit": ti_billing.has_unit,
-                            "unit_price": ti_billing.unit_price,
-                            "unit": ti_billing.unit,
-                        }
-                        b["frozen_total"] = recompute_bill_total(
-                            {**b.to_dict(), "trade_item_id": tid} if hasattr(b, "to_dict")
-                            else {**b, "trade_item_id": tid},
-                            items,
-                            self._op_map,
-                        )
-                        b["trade_item_id"] = ""
-                        b["_needs_attention"] = True
-
-        p["trade_items"] = [
-            ti for ti in items
-            if _trade_item_category_name(ti, p, category_maps) != name
-        ]
-        co = p.get("category_order", []) or []
-        p["category_order"] = [c for c in co if _category_name(c) != name]
-        self._save_bridge.schedule(self.current_uuid, self.project_data)
-        if self._selected_category == name:
-            self._selected_category = None
-        self._render_workers()
-        self._render_bills()
 
     # ── 分类列宽比例持久化 ──────────────────────────────────────────────────
 
-    def _on_category_splitter_moved(self, _pos: int, _index: int) -> None:
-        self._category_ratio_timer.start()
-
-    def _on_category_ratio_timeout(self) -> None:
-        if not self._category_splitter or not self.current_uuid:
-            return
-        sizes = self._category_splitter.sizes()
-        total = sizes[0] + sizes[1]
-        if total <= 0:
-            return
-        ratio = round(sizes[0] / total, 6)
-        try:
-            cfg = load_app()
-            old = cfg.get("category_list_width_ratio", 0)
-            if abs(old - ratio) > 1e-6:
-                cfg["category_list_width_ratio"] = ratio
-                save_app(cfg)
-        except Exception as e:
-            logger.warning("[category] 保存列宽比例失败: %s", e)
-
-    def _apply_category_ratio(self) -> None:
-        if not self._category_ratio_pending or not self.current_uuid:
-            return
-        total = self._category_splitter.width()
-        if total <= 0:
-            return
-        self._category_ratio_pending = False
-        ratio = float(self._app_config.get("category_list_width_ratio", 0.22))
-        left = int(total * ratio)
-        left = max(120, min(left, max(total - 280, 120)))
-        self._category_splitter.setSizes([left, max(total - left, 1)])
 
     def _restore_defaults(self) -> None:
         """恢复默认工作类型：以 app_config 默认数据重置 trade_items/category_order。"""
@@ -1536,56 +582,6 @@ class QtContentArea(QWidget):
         self._render_bills()
         self.toast.emit("已恢复默认工作类型")
 
-    def _clear_all_categories(self) -> None:
-        """清空所有分类：移除全部工作类型，受影响账单冻结为孤儿（与 Tk 一致）。"""
-        if not self._editable or not self.project_data:
-            return
-        p = self.project_data
-        items = p.get("trade_items", []) or []
-        deleting_ids = {ti.get("id", "") for ti in items}
-        affected_bills = [
-            b for b in p.get("bills", []) or []
-            if b.get("trade_item_id") in deleting_ids
-        ]
-        warn_msg = "确定清空所有分类及其工作数据？此操作不可撤销。"
-        if affected_bills:
-            warn_msg = (
-                f"有 {len(affected_bills)} 条账单引用工作项目，"
-                "清空后将显示为「已删除」并保留最后已知金额（不再随单价变化）。\n\n"
-                + warn_msg
-            )
-        if not self._confirm_delete("确认清空", warn_msg):
-            return
-
-        if items:
-            category_maps = _category_maps(p)
-            for ti in items:
-                tid = ti.get("id", "")
-                ti_billing = read_billing(ti)
-                for b in p.get("bills", []) or []:
-                    if b.get("trade_item_id") == tid:
-                        b["frozen_snapshot"] = {
-                            "name": ti.get("name", ""),
-                            "category": _trade_item_category_name(ti, p, category_maps),
-                            "has_unit": ti_billing.has_unit,
-                            "unit_price": ti_billing.unit_price,
-                            "unit": ti_billing.unit,
-                        }
-                        b["frozen_total"] = recompute_bill_total(
-                            {**b.to_dict(), "trade_item_id": tid} if hasattr(b, "to_dict")
-                            else {**b, "trade_item_id": tid},
-                            items,
-                            self._op_map,
-                        )
-                        b["trade_item_id"] = ""
-                        b["_needs_attention"] = True
-        p["category_order"] = []
-        p["trade_items"] = []
-        self._save_bridge.schedule(self.current_uuid, p)
-        self._selected_category = None
-        self._render_workers()
-        self._render_bills()
-        self.toast.emit("已清空全部分类")
 
     # ── 通用 ───────────────────────────────────────────────────────────────
 
@@ -1621,6 +617,10 @@ class QtContentArea(QWidget):
 
     def flush_project_save(self, timeout: float = 2.0) -> bool:
         return self._save_bridge.flush(timeout)
+
+    def shutdown(self) -> None:
+        """停止后台任务（窗口关闭时由 MainWindow 调用，须先于对象销毁）。"""
+        self._save_bridge.close()
 
     def _show_toast(self, text: str, level: str = "success") -> None:
         from .feedback import show_toast

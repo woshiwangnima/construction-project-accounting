@@ -28,11 +28,9 @@ class QtBillTable(QtBaseTable):
         if trade_items is not None:
             self._trade_items = list(trade_items)
         self._model.set_data(bills, self._trade_items, self._op_map, calculations)
+        self.measure_content_mins()
         self._layout_pending = True
         self._apply_layout()
-
-    def set_columns(self, columns: list[str], hidden: list[str]) -> None:
-        self._model.set_columns(columns, hidden)
 
     # ── 右键菜单扩展：审核切换 ──
 

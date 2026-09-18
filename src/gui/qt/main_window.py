@@ -335,6 +335,10 @@ class MainWindow(QMainWindow):
                 content.flush_project_save()
             except Exception as exc:
                 logger.warning("关闭前刷新项目保存队列失败: %s", exc)
+            try:
+                content.shutdown()
+            except Exception as exc:
+                logger.warning("关闭内容区后台任务失败: %s", exc)
 
         try:
             self._save_window_geometry()

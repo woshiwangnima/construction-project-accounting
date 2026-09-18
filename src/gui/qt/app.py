@@ -31,6 +31,28 @@ def _apply_app_icon(app: QApplication) -> None:
             logger.warning("Failed to set AppUserModelID", exc_info=True)
 
 
+def _align_fluent_theme() -> None:
+    """把 qfluentwidgets 局部组件的主题对齐到本应用的设计体系。
+
+    SwitchButton / InfoBar / MessageBox / TeachingTip 这些零散组件由
+    qfluentwidgets 自绘，用的是它自己的主题色（默认青色 #009faa）和明暗设置，
+    不跟随 ``theme.py``。不显式对齐的话，界面里会出现第二种蓝色；
+    系统处于深色模式时，这些弹窗还会变成深色，与全浅色的主界面割裂。
+    """
+    try:
+        from qfluentwidgets import Theme, setTheme, setThemeColor
+    except Exception:
+        logger.debug("qfluentwidgets 不可用，跳过主题对齐", exc_info=True)
+        return
+    from ..theme import ACCENT
+    try:
+        setTheme(Theme.LIGHT)
+        setThemeColor(ACCENT)
+        logger.debug("qfluentwidgets 主题已对齐到 %s", ACCENT)
+    except Exception:
+        logger.warning("qfluentwidgets 主题对齐失败", exc_info=True)
+
+
 def main() -> None:
     setup_logger()
     instance_lock = SingleInstanceLock()
@@ -41,6 +63,7 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("施工项目记账程序")
     _apply_app_icon(app)
+    _align_fluent_theme()
     try:
         copied, failures = migrate_legacy_data()
         if copied:

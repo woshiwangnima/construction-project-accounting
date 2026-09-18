@@ -1,16 +1,13 @@
-"""FontManager: dynamic font resolution with live-update support.
+"""FontManager: dynamic font resolution with live-update support (Qt).
 
 Usage:
     from .font_manager import font_manager
-
-    # After Tk root is created (main_window.py):
-    font_manager.init(root)
 
     # Qt 应用（src.gui.qt）：
     font_manager.init_qt(on_refresh=cb)
 
     # In widgets:
-    font=font_manager.get("body")          # → tk.font.Font / QFont
+    font=font_manager.get("body")          # → QFont
     fg=font_manager.get_color("body")      # → theme.TEXT_PRIMARY
 
     # Settings panel triggers refresh after save:
@@ -94,24 +91,18 @@ _ROLE_DEFAULTS = {
 }
 
 
-def _cfg_to_font_kwargs(cfg: dict) -> dict:
-    """Convert a user_config font entry to tk.font.Font kwargs."""
-    return {
-        "family": cfg.get("family", "Microsoft YaHei UI"),
-        "size": int(cfg.get("size", 14)),
-        "weight": "bold" if cfg.get("bold") else "normal",
-        "slant": "italic" if cfg.get("italic") else "roman",
-        "underline": 1 if cfg.get("underline") else 0,
-        "overstrike": 1 if cfg.get("overstrike") else 0,
-    }
-
-
 def _build_qfont(cfg: dict):
-    """Convert a merged font config dict to a QFont."""
+    """Convert a merged font config dict to a QFont.
+
+    字号统一按**像素**处理：角色 size 由 base_size(default_font_size, 单位 px)
+    乘以角色倍率算出，而 QSS 侧用的也是 ``font-size: Npx``。若这里用
+    ``setPointSize``，表格单元格（走 model 的 FontRole）会比界面其它文字
+    大约三分之一，造成同一屏内字号不一致、列宽被撑爆。
+    """
     from PySide6.QtGui import QFont
     font = QFont()
     font.setFamily(cfg.get("family", "Microsoft YaHei UI"))
-    font.setPointSize(int(cfg.get("size", 14)))
+    font.setPixelSize(max(1, int(cfg.get("size", 14))))
     font.setWeight(QFont.Weight.Bold if cfg.get("bold") else QFont.Weight.Normal)
     font.setItalic(bool(cfg.get("italic")))
     font.setUnderline(bool(cfg.get("underline")))
@@ -120,33 +111,26 @@ def _build_qfont(cfg: dict):
 
 
 class FontManager:
-    """Singleton font manager — creates and manages font objects.
-
-    双模式：Tk 模式创建 tk.font.Font（旧 GUI）；Qt 模式创建 QFont（新 GUI）。
-    """
+    """Singleton font manager — creates and manages QFont objects."""
 
     def __init__(self):
-        self._root: tk.Tk | None = None
         self._fonts: dict[str, object] = {}
         self._colors: dict[str, str] = {}
         self._initialized = False
-        self._mode: str | None = None  # "tk" | "qt"
         self._qt_refresh_callback = None
 
-    def init(self, root: tk.Tk | None = None) -> None:
-        """初始化字体对象。Tk 模式传入 root；Qt 模式传 None（或直接调 init_qt）。"""
+    def init_qt(self, on_refresh=None) -> None:
+        """Qt 模式初始化：on_refresh 为 refresh() 时的回调（重放字体/QSS）。
+
+        重复调用是安全的：回调始终会被更新，但字体只构建一次。
+        """
+        if on_refresh is not None:
+            self._qt_refresh_callback = on_refresh
         if self._initialized:
             return
-        self._mode = "qt" if root is None else "tk"
-        self._root = root
         self._build_fonts()
         self._initialized = True
-        logger.debug("[font_manager] initialized %d roles (mode=%s)", len(self._fonts), self._mode)
-
-    def init_qt(self, on_refresh=None) -> None:
-        """Qt 模式初始化：无需 root；on_refresh 为 refresh() 时回调（重放字体/QSS）。"""
-        self._qt_refresh_callback = on_refresh
-        self.init(None)
+        logger.debug("[font_manager] initialized %d roles", len(self._fonts))
 
     def _build_fonts(self) -> None:
         """Build (or rebuild) font objects from config + defaults.
@@ -166,16 +150,7 @@ class FontManager:
             user_no_size = {k: v for k, v in user.items() if k != "size"}
             merged = {**defaults, **user_no_size}
             color = merged.get("color", defaults["color"])
-            if self._mode == "qt":
-                self._fonts[role] = _build_qfont(merged)
-            else:
-                import tkinter.font as tkfont
-                font_kwargs = _cfg_to_font_kwargs(merged)
-                name = f"CPA_{role}"
-                if role in self._fonts:
-                    self._fonts[role].configure(**font_kwargs)
-                else:
-                    self._fonts[role] = tkfont.Font(root=self._root, name=name, **font_kwargs)
+            self._fonts[role] = _build_qfont(merged)
             self._colors[role] = color
 
     def _load_user_fonts(self) -> dict:
@@ -212,13 +187,9 @@ class FontManager:
         self.refresh()
 
     def get(self, role: str) -> object:
-        """Return the font object for a role (tk.font.Font / QFont). Falls back to 'body'."""
+        """Return the QFont for a role. Falls back to 'body'."""
         if not self._initialized:
-            if self._mode == "qt":
-                return _build_qfont(_ROLE_DEFAULTS.get(role, _ROLE_DEFAULTS["body"]))
-            # Before init, return a static tuple-like fallback
-            import tkinter.font as tkfont
-            return tkfont.Font(family="Microsoft YaHei UI", size=14)
+            return _build_qfont(_ROLE_DEFAULTS.get(role, _ROLE_DEFAULTS["body"]))
         return self._fonts.get(role, self._fonts.get("body"))
 
     def get_color(self, role: str) -> str:
@@ -227,50 +198,20 @@ class FontManager:
             return _ROLE_DEFAULTS.get(role, _ROLE_DEFAULTS["body"])["color"]
         return self._colors.get(role, _ROLE_DEFAULTS.get(role, _ROLE_DEFAULTS["body"])["color"])
 
-    def get_tuple(self, role: str) -> tuple:
-        """Return (family, size) or (family, size, 'bold') tuple — for places that need a tuple."""
-        f = self.get(role)
-        if self._mode == "qt":
-            family = f.family()
-            size = f.pointSize()
-            weight = f.weight()
-            if weight >= 600:  # QFont.Weight.DemiBold 及以上视为加粗
-                return (family, size, "bold")
-            return (family, size)
-        family = f.cget("family")
-        size = f.cget("size")
-        weight = f.cget("weight")
-        if weight == "bold":
-            return (family, size, "bold")
-        return (family, size)
-
     def refresh(self) -> None:
-        """Re-read user_config and update all font objects in-place.
+        """Re-read user_config and rebuild all QFont objects.
 
-        Since widgets hold a reference to the same tk.font.Font object,
-        calling .configure() on it automatically updates all widgets.
-        Qt 模式下 QFont 是值对象，通过 on_refresh 回调让应用重新应用字体/QSS。
+        QFont 是值对象，无法原地更新，因此通过 on_refresh 回调让应用重新应用字体/QSS。
         """
         if not self._initialized:
             return
         self._build_fonts()
-        if self._mode == "qt":
-            if callable(self._qt_refresh_callback):
-                try:
-                    self._qt_refresh_callback()
-                except Exception as e:
-                    logger.warning("[font_manager] qt refresh callback failed: %s", e)
-        else:
-            self._apply_ttk_styles()
+        if callable(self._qt_refresh_callback):
+            try:
+                self._qt_refresh_callback()
+            except Exception as e:
+                logger.warning("[font_manager] qt refresh callback failed: %s", e)
         logger.debug("[font_manager] refreshed %d roles", len(self._fonts))
-
-    def _apply_ttk_styles(self) -> None:
-        """Re-configure ttk styles to use updated fonts."""
-        try:
-            from .ttk_theme import apply_ttk_theme
-            apply_ttk_theme()
-        except Exception as e:
-            logger.warning("[font_manager] ttk style update failed: %s", e)
 
     def reset_all(self) -> None:
         """Remove font_settings from user_config and restore all defaults."""

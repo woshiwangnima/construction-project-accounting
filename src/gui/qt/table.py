@@ -3,21 +3,50 @@
 替代 Tk ListViewBase/RowActionButtons：QTableView + 列宽权重持久化 +
 拖拽行排序 + 右键菜单（复制/粘贴/上移/下移/删除）+ 排序指示。
 """
-from PySide6.QtCore import QRect, QTimer, Qt, Signal
-from PySide6.QtGui import QBrush, QColor
+from PySide6.QtCore import QRect, QSize, QTimer, Qt, Signal
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import (
-    QAbstractItemView, QHeaderView, QMenu, QStyledItemDelegate,
+    QAbstractItemView, QHeaderView, QMenu, QStyle, QStyledItemDelegate,
     QTableView, QToolTip,
 )
 
 from ...logger import logger
 from ..font_manager import font_manager
 from ..theme import (
-    DANGER, DANGER_HOVER, HIGHLIGHT_BG, TEXT_PRIMARY, TEXT_SECONDARY,
+    APP_BG, DANGER, DANGER_HOVER, HIGHLIGHT_BG, ROW_HOVER, TEXT_PRIMARY,
+    TEXT_SECONDARY,
 )
-from ..widgets.column_layout import ColumnSpec, capture_column_weights, compute_column_pixels
+from ..common.column_layout import ColumnSpec, capture_column_weights, compute_column_pixels
 
 ROW_ACTION_COLUMN = "操作"
+
+# 「操作」列要容纳 ↑ / ↓ / ✕ 三个按钮 + 内边距，权重再大也不该压到这个宽度以下。
+_ACTION_COL_MIN_WIDTH = 112
+
+# 各列的最小像素宽度：权重只决定“剩余空间怎么分”，这些值保证关键内容不被省略号截断。
+# 金额、工作内容、操作是记账场景的核心信息，必须优先保住。
+_COLUMN_MIN_WIDTHS = {
+    "#": 46,
+    "审核": 52,
+    "工作内容": 170,
+    "公式": 110,
+    "公式结果": 110,
+    "单价": 100,
+    "金额": 134,
+    "备注": 118,
+    "日期": 112,
+    "修改时间": 112,
+    "操作": _ACTION_COL_MIN_WIDTH,
+    "名称": 170,
+    "单位": 68,
+    "计费类型": 92,
+}
+_DEFAULT_COLUMN_MIN_WIDTH = 56
+
+
+def column_min_width(name: str) -> int:
+    """返回列的最小像素宽度，未登记的列使用默认值。"""
+    return _COLUMN_MIN_WIDTHS.get(name, _DEFAULT_COLUMN_MIN_WIDTH)
 
 
 class RowActionDelegate(QStyledItemDelegate):
@@ -49,13 +78,32 @@ class RowActionDelegate(QStyledItemDelegate):
 
     def paint(self, painter, option, index) -> None:
         painter.save()
-        painter.fillRect(option.rect, option.widget.palette().base()
-                         if hasattr(option.widget, "palette") else QBrush(QColor("#ffffff")))
+        # PySide6 6.11 起不能再通过实例访问嵌套枚举（painter.Antialiasing 会抛
+        # AttributeError，异常穿出 C++ 绘制栈后未 restore 直接段错误），
+        # 必须走 QPainter.RenderHint 类级枚举。
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        # 与普通单元格保持同一套底色规则：选中 > 斑马纹/审核底色 > 悬停 > 表底。
+        # 否则自定义绘制会让「操作」列变成一块突兀的白条。
+        selected = bool(option.state & QStyle.State_Selected)
+        hovered_row = bool(option.state & QStyle.State_MouseOver)
+        if selected:
+            painter.fillRect(option.rect, QColor(HIGHLIGHT_BG))
+        else:
+            brush = index.data(Qt.BackgroundRole)
+            if isinstance(brush, QBrush):
+                painter.fillRect(option.rect, brush)
+            elif isinstance(brush, QColor):
+                painter.fillRect(option.rect, brush)
+            elif hovered_row:
+                painter.fillRect(option.rect, QColor(ROW_HOVER))
+            else:
+                base = (option.widget.palette().base()
+                        if hasattr(option.widget, "palette") else QColor(APP_BG))
+                painter.fillRect(option.rect, base)
         if self._enabled:
             for i, (glyph, action) in enumerate(zip(self.GLYPHS, self.ACTIONS)):
                 r = self._button_rect(option.rect, i)
                 hovered = self._hover == (index.row(), action)
-                painter.setRenderHint(painter.Antialiasing)
                 if hovered:
                     painter.setBrush(QColor(HIGHLIGHT_BG))
                     painter.setPen(Qt.NoPen)
@@ -70,7 +118,11 @@ class RowActionDelegate(QStyledItemDelegate):
         painter.restore()
 
     def sizeHint(self, option, index):
-        return option.rect.size() or index.data(Qt.SizeHintRole)
+        size = option.rect.size()
+        if not size.isEmpty():
+            return size
+        fallback = index.data(Qt.SizeHintRole)
+        return fallback if fallback is not None else QSize(self.BTN_W, self.BTN_W)
 
     def editorEvent(self, event, model, option, index) -> bool:
         if not self._enabled:
@@ -129,6 +181,8 @@ class QtBaseTable(QTableView):
         self.setMouseTracking(True)
         self.viewport().setMouseTracking(True)
         self._action_col = ROW_ACTION_COLUMN
+        self._action_delegate = None
+        self._content_mins: dict[str, int] = {}
         self._weights: dict[str, float] = {}
         self._hidden: list[str] = []
         self._editable = True
@@ -167,9 +221,89 @@ class QtBaseTable(QTableView):
         model.rows_moved.connect(self.rows_moved)
         self._action_delegate = RowActionDelegate(self)
         self._action_delegate.action_triggered.connect(self._on_delegate_action)
-        self.setItemDelegateForColumn(
-            self.model().columnCount() - 1, self._action_delegate
-        )
+        self._rebind_action_delegate()
+
+    def _rebind_action_delegate(self) -> None:
+        """把行内操作 delegate 绑到「操作」列的真实下标。
+
+        必须按列名反查下标：模型在构造阶段列集合为空，若沿用
+        ``columnCount() - 1`` 会绑到 -1（非法列号），整列 ↑/↓/✕
+        按钮都不会出现。
+        """
+        model = self.model()
+        if model is None or self._action_delegate is None:
+            return
+        columns = getattr(model, "_columns", None) or []
+        if self._action_col in columns:
+            self.setItemDelegateForColumn(
+                columns.index(self._action_col), self._action_delegate
+            )
+
+    def set_columns(self, columns: list[str], hidden: list[str] | None = None) -> None:
+        """设置列集合/隐藏列，并重绑操作列 delegate。"""
+        model = self.model()
+        if model is None:
+            return
+        model.set_columns(list(columns), list(hidden or []))
+        # 项目切换后旧的实测值不再适用，清空避免拿上一份数据撑列宽。
+        self._content_mins = {}
+        self._rebind_action_delegate()
+
+    # ── 内容自适应列宽 ──
+
+    # 采样行数上限：内容最小宽度按样本极值估算，避免上千行时逐格测量拖慢渲染。
+    CONTENT_SAMPLE_ROWS = 120
+    # 实测内容宽度的上限：防止个别超长文本把整张表挤到横向滚动。
+    CONTENT_MIN_CEILING = 320
+    # 单元格左右内边距 + 排序指示器占位。
+    _CELL_PADDING = 28
+
+    def measure_content_mins(self) -> None:
+        """按真实单元格文本测量各列的内容最小宽度。
+
+        静态的「最小宽度」常量只是兜底；真正决定列会不会被截断的是内容本身。
+        在每次数据刷新后测量一次并缓存，``_apply_layout`` 直接取用，
+        这样金额、工作内容这类关键列不会再被权重分配压到省略号。
+        """
+        model = self.model()
+        if model is None:
+            return
+        columns = getattr(model, "_columns", None) or []
+        if not columns:
+            self._content_mins = {}
+            return
+        metrics = QFontMetrics(self.font())
+        row_count = model.rowCount()
+        step = max(1, row_count // self.CONTENT_SAMPLE_ROWS)
+        measured: dict[str, int] = {}
+        for col_idx, name in enumerate(columns):
+            if name == self._action_col:
+                continue
+            # 单元格实际用的是 model 的 FontRole，与视图自身字体未必相同，
+            # 必须按单元格字体测量，否则算出的宽度对不上真实绘制。
+            cell_font = self._cell_font(model, col_idx, row_count)
+            cell_metrics = QFontMetrics(cell_font) if cell_font is not None else metrics
+            widest = cell_metrics.horizontalAdvance(name)
+            for row in range(0, row_count, step):
+                text = model.data(model.index(row, col_idx), Qt.DisplayRole)
+                if text:
+                    widest = max(widest, cell_metrics.horizontalAdvance(str(text)))
+            measured[name] = widest + self._CELL_PADDING
+        self._content_mins = measured
+
+    @staticmethod
+    def _cell_font(model, col_idx: int, row_count: int):
+        """取该列单元格实际使用的 QFont（样本行里第一个非空 FontRole）。"""
+        for row in range(min(row_count, 8)):
+            font = model.data(model.index(row, col_idx), Qt.FontRole)
+            if isinstance(font, QFont):
+                return font
+        return None
+
+    def _content_min(self, name: str) -> int:
+        """列的最小宽度 = 静态兜底与实测内容宽度取大（实测值设上限）。"""
+        measured = min(self._content_mins.get(name, 0), self.CONTENT_MIN_CEILING)
+        return max(column_min_width(name), measured)
 
     def set_editable(self, editable: bool) -> None:
         self._editable = editable
@@ -201,16 +335,19 @@ class QtBaseTable(QTableView):
             return
         self._layout_pending = False
         total = max(self.viewport().width(), 640)
-        specs = [ColumnSpec(key=c) for c in columns]
-        pixels = compute_column_pixels(specs, self._weights, total)
+
+        # 隐藏列不参与宽度分配：否则空间会分给根本不显示列，把可见列挤到截断。
+        visible = [c for c in columns if c not in self._hidden or c == self._action_col]
+        specs = [ColumnSpec(key=c, min_width=self._content_min(c)) for c in visible]
+        weights = {k: v for k, v in self._weights.items() if k in set(visible)}
+        pixels = compute_column_pixels(specs, weights, total)
+
         header = self.horizontalHeader()
         for col, name in enumerate(columns):
-            width = pixels.get(name, 80)
-            if width <= 0:
-                width = 80
-            if name in ("日期", "改时", "修改时间") and width < 110:
-                width = 110
-            header.resizeSection(col, width)
+            width = pixels.get(name)
+            if width is None:
+                continue  # 隐藏列保持原宽度
+            header.resizeSection(col, max(int(width), 1))
 
     def showEvent(self, event) -> None:
         super().showEvent(event)

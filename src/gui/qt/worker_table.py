@@ -15,8 +15,6 @@ class QtWorkerTable(QtBaseTable):
 
     def update_data(self, items: list) -> None:
         self._model.set_data(items)
+        self.measure_content_mins()
         self._layout_pending = True
         self._apply_layout()
-
-    def set_columns(self, columns: list[str], hidden: list[str]) -> None:
-        self._model.set_columns(columns, hidden)

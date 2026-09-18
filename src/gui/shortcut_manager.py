@@ -1,18 +1,13 @@
-"""ShortcutManager: global keyboard shortcut management with user customization.
+"""ShortcutManager: global keyboard shortcut management with user customization (Qt).
 
 Usage:
     from .shortcut_manager import shortcut_manager
 
-    # In MainInterface.__init__:
     shortcut_manager.init(self)
-    shortcut_manager.bind_all_shortcuts(self.root)
+    shortcut_manager.bind_qt(self.window)  # 为每个 action 创建 QShortcut
 
     # In context menus:
     accelerator=shortcut_manager.get_accel("add_record")
-
-Qt (PySide6) usage:
-    shortcut_manager.init(self)
-    shortcut_manager.bind_qt(self.window)  # 为每个 action 创建 QShortcut
 """
 
 from ..logger import logger
@@ -57,9 +52,7 @@ class ShortcutManager:
     def __init__(self):
         self._main = None  # MainInterface reference
         self._root = None
-        self._bindings: list[str] = []  # Track bound events for cleanup
         self._qt_shortcuts: list = []  # Qt QShortcut 对象（QWidget 父对象引用保活）
-        self._qt_bound = False  # 当前绑定路径：True=Qt，False=Tkinter
 
     def init(self, main_interface) -> None:
         """Store MainInterface reference for action dispatch."""
@@ -105,45 +98,6 @@ class ShortcutManager:
         """Return the human-readable label for an action."""
         return DEFAULT_SHORTCUTS.get(action_id, {}).get("label", action_id)
 
-    def bind_all_shortcuts(self, root) -> None:
-        """Bind all shortcuts globally. Call once after root is created.
-
-        Tkinter 专用路径（旧 GUI 使用）；Qt 版用 bind_qt()。
-        """
-        import tkinter as tk
-        self._root = root
-        self._qt_bound = False
-        self._unbind_all()
-        for action_id, defaults in DEFAULT_SHORTCUTS.items():
-            event = self.get_event(action_id)
-            if event:
-                root.bind(event, lambda e, aid=action_id: self._dispatch(aid))
-                self._bindings.append(event)
-                # Also bind uppercase variant for letter keys
-                if "<Control-" in event and "-Shift-" not in event:
-                    upper = event.replace("<Control-", "<Control-Shift-").upper()
-                    # Only add uppercase binding for simple Ctrl+letter patterns
-                    if len(event) <= 18 and event[-2].isalpha():
-                        upper_event = event[:-2] + event[-2].upper() + event[-1]
-                        try:
-                            root.bind(upper_event, lambda e, aid=action_id: self._dispatch(aid))
-                            self._bindings.append(upper_event)
-                        except tk.TclError:
-                            pass
-        logger.debug("[shortcuts] bound %d shortcuts", len(self._bindings))
-
-    def _unbind_all(self) -> None:
-        """Remove all previously bound shortcuts."""
-        import tkinter as tk
-        if not self._root:
-            return
-        for event in self._bindings:
-            try:
-                self._root.unbind(event)
-            except tk.TclError:
-                pass
-        self._bindings.clear()
-
     # ── Qt (PySide6) 绑定路径 ────────────────────────────────────────────────
 
     _TK_TO_QT_KEY = {
@@ -179,7 +133,6 @@ class ShortcutManager:
             logger.warning("[shortcuts] bind_qt: QApplication 不存在，跳过绑定")
             return
         self._root = window
-        self._qt_bound = True
         self._unbind_qt()
         for action_id in DEFAULT_SHORTCUTS:
             qkey = self.get_qkey(action_id)
@@ -205,10 +158,7 @@ class ShortcutManager:
         """Re-read config and rebind all shortcuts."""
         if not self._root:
             return
-        if self._qt_bound:
-            self.bind_qt(self._root)
-        else:
-            self.bind_all_shortcuts(self._root)
+        self.bind_qt(self._root)
 
     def _dispatch(self, action_id: str) -> None:
         """Central dispatcher for keyboard shortcuts."""
