@@ -17,7 +17,13 @@ Usage:
 from __future__ import annotations
 
 from ..logger import logger
-from .theme import TEXT_PRIMARY, TEXT_SECONDARY
+from .theme import (
+    DEFAULT_FONT_SIZE,
+    FONT_SIZE_MULTIPLIERS,
+    TEXT_PRIMARY,
+    TEXT_SECONDARY,
+    clamp_base_font_size,
+)
 
 # ── 角色定义 ──────────────────────────────────────────────────────────────────
 # 每个角色对应一组 theme.py 常量，可独立配置字体族/字号/加粗/斜体/下划线/删除线/颜色。
@@ -53,25 +59,15 @@ ROLE_GROUPS = [
     ("辅助", ("small",)),
 ]
 
-# 字号乘数：effective_size = round(default_font_size * multiplier)
-_ROLE_SIZE_MULTIPLIERS = {
-    "icon_btn":    1.0,
-    "dialog_btn":  1.0,
-    "entry_item":  1.0,
-    "button":      1.0,
-    "calc_btn":    1.29,
-    "title":       1.57,
-    "heading":     1.2,
-    "subheading":  1.07,
-    "body":        1.0,
-    "body_bold":   1.0,
-    "tree":        1.0,
-    "tree_header": 1.0,
-    "small":       0.86,
-    "amount":      2.0,
-}
+# 字号倍率的**唯一真源在 theme.py**（FONT_SIZE_MULTIPLIERS）——QSS 与这里共用
+# 同一张表。曾经两边各写一份，导致同一个角色在界面和字体面板里显示成两个字号。
+# 保留本别名只为兼容旧的内部引用。
+_ROLE_SIZE_MULTIPLIERS = FONT_SIZE_MULTIPLIERS
 
-_DEFAULT_FONT_SIZE = 14
+_DEFAULT_FONT_SIZE = DEFAULT_FONT_SIZE
+
+# 单个角色的倍率允许区间：低于 0.5 读不清，高于 3.0 会撑爆表格列宽。
+_MULTIPLIER_MIN, _MULTIPLIER_MAX = 0.5, 3.0
 
 _ROLE_DEFAULTS = {
     "icon_btn":    {"family": "Microsoft YaHei UI", "size": 14, "bold": True,  "italic": False, "underline": False, "overstrike": False, "color": TEXT_PRIMARY},
@@ -132,23 +128,40 @@ class FontManager:
         self._initialized = True
         logger.debug("[font_manager] initialized %d roles", len(self._fonts))
 
+    @staticmethod
+    def _resolve_multiplier(role: str, user: dict, dfs: int) -> float:
+        """算出角色的最终字号倍率。
+
+        优先级：用户显式 multiplier > 用户 size 反算 > 默认倍率。
+        反算那条是为兼容历史配置——旧版本把面板里的 size 写进 user_config
+        却从不读取（纯哑炮），现在按当时的基准反算回倍率，既兑现面板的承诺，
+        又保证改默认字号时各角色仍等比缩放。
+        """
+        raw = user.get("multiplier")
+        if isinstance(raw, (int, float)) and raw > 0:
+            return max(_MULTIPLIER_MIN, min(_MULTIPLIER_MAX, float(raw)))
+        size = user.get("size")
+        if isinstance(size, (int, float)) and size > 0 and dfs > 0:
+            return max(_MULTIPLIER_MIN, min(_MULTIPLIER_MAX, float(size) / dfs))
+        return FONT_SIZE_MULTIPLIERS.get(role, 1.0)
+
     def _build_fonts(self) -> None:
         """Build (or rebuild) font objects from config + defaults.
 
-        Effective size = round(default_font_size * multiplier) for each role.
-        Size is always computed from the global multiplier — user overrides
-        apply to family, bold, italic, underline, overstrike, color, but NOT size.
+        Effective size = round(default_font_size × 角色倍率)，单位 px。
+        倍率可由用户在字体面板调节（写入 multiplier），family / bold / italic /
+        underline / overstrike / color 同样可被用户覆盖。
         """
         dfs = self._load_default_font_size()
         user_fonts = self._load_user_fonts()
         for role in ROLE_KEYS:
-            mult = _ROLE_SIZE_MULTIPLIERS.get(role, 1.0)
+            user = dict(user_fonts.get(role, {}) or {})
+            mult = self._resolve_multiplier(role, user, dfs)
             base_size = max(8, round(dfs * mult))
             defaults = {**_ROLE_DEFAULTS[role], "size": base_size}
-            user = user_fonts.get(role, {})
-            # Merge user overrides but ALWAYS use multiplier-computed size
-            user_no_size = {k: v for k, v in user.items() if k != "size"}
-            merged = {**defaults, **user_no_size}
+            overrides = {k: v for k, v in user.items()
+                         if k not in ("size", "multiplier")}
+            merged = {**defaults, **overrides, "size": base_size}
             color = merged.get("color", defaults["color"])
             self._fonts[role] = _build_qfont(merged)
             self._colors[role] = color
@@ -227,22 +240,24 @@ class FontManager:
     def get_all_settings(self) -> dict:
         """Return the effective font settings for all roles.
 
-        Size is always computed from default_font_size * multiplier.
-        User overrides apply to non-size properties only.
+        size = round(default_font_size × multiplier)，永远随默认字号缩放；
+        multiplier 是用户可改的那一项（字体面板写回的就是它）。
         """
         dfs = self._load_default_font_size()
         user = self._load_user_fonts()
         result = {}
         for role in ROLE_KEYS:
-            mult = _ROLE_SIZE_MULTIPLIERS.get(role, 1.0)
+            user_role = dict(user.get(role, {}) or {})
+            mult = self._resolve_multiplier(role, user_role, dfs)
             base_size = max(8, round(dfs * mult))
             defaults = {**_ROLE_DEFAULTS[role], "size": base_size}
-            user_role = user.get(role, {})
-            user_no_size = {k: v for k, v in user_role.items() if k != "size"}
-            merged = {**defaults, **user_no_size}
+            overrides = {k: v for k, v in user_role.items()
+                         if k not in ("size", "multiplier")}
+            merged = {**defaults, **overrides, "size": base_size}
             result[role] = {
                 "family": merged.get("family", defaults["family"]),
                 "size": int(merged.get("size", defaults["size"])),
+                "multiplier": round(mult, 3),
                 "bold": bool(merged.get("bold", defaults["bold"])),
                 "italic": bool(merged.get("italic", defaults["italic"])),
                 "underline": bool(merged.get("underline", defaults["underline"])),

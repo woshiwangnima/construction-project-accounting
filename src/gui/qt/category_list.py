@@ -3,7 +3,10 @@
 一行一个分类：名称 + "N项" 徽标 + 选中高亮（HIGHLIGHT_BG 底色 / ACCENT 指示条）。
 内置右键菜单：添加分类 / 上移 / 下移 / 编辑分类 / 删除分类。
 """
-from qtawesome import icon as qta_icon
+from .icons import (
+    ICON_EDIT, ICON_FOLDER_PLUS, ICON_MOVE_DOWN, ICON_MOVE_UP, ICON_TRASH,
+    icon as ui_icon,
+)
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
@@ -27,11 +30,11 @@ _ACTION_LABELS = {
 }
 
 _ACTION_ICONS = {
-    "add": "fa5s.folder-plus",
-    "up": "fa5s.arrow-up",
-    "down": "fa5s.arrow-down",
-    "edit": "fa5s.edit",
-    "delete": "fa5s.trash-alt",
+    "add": ICON_FOLDER_PLUS,
+    "up": ICON_MOVE_UP,
+    "down": ICON_MOVE_DOWN,
+    "edit": ICON_EDIT,
+    "delete": ICON_TRASH,
 }
 
 # 仅保留全局 QSS 未覆盖的必要项：选中态保持透明，
@@ -299,7 +302,7 @@ class QtCategoryList(QWidget):
 
     def _add_menu_action(self, menu: QMenu, action: str, name: str, enabled: bool) -> None:
         entry = menu.addAction(
-            qta_icon(_ACTION_ICONS[action]),
+            ui_icon(_ACTION_ICONS[action]),
             _ACTION_LABELS[action],
             lambda: self.menu_action.emit(name, action),
         )

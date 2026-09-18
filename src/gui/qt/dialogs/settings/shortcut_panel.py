@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 from ....shortcut_manager import (
     shortcut_manager, DEFAULT_SHORTCUTS, ACTION_GROUPS,
 )
-from ....theme import BORDER, TEXT_PRIMARY, TEXT_SECONDARY
+from ....theme import (BORDER, SURFACE_SUNKEN, TEXT_PRIMARY, TEXT_SECONDARY, font_px)
 from .base import BasePanel, separator
 
 _ARROW_DISPLAY = {"Up": "↑", "Down": "↓", "Left": "←", "Right": "→"}
@@ -107,7 +107,7 @@ class ClickableRow(QFrame):
 
 class ShortcutPanel(BasePanel):
     def title_text(self) -> str:
-        return "⌨ 快捷键设置"
+        return "快捷键设置"
 
     def hint_text(self) -> str:
         return "修改后立即保存并生效；点击行或「重新绑定」后按下新组合即可。"
@@ -118,7 +118,7 @@ class ShortcutPanel(BasePanel):
         for group_name, action_ids in ACTION_GROUPS:
             layout.addWidget(separator())
             group = QLabel(group_name)
-            group.setStyleSheet("font-size: 14px; font-weight: bold;")
+            group.setStyleSheet(f"font-size: {font_px('subheading')}px; font-weight: bold;")
             layout.addWidget(group)
             for action_id in action_ids:
                 if action_id not in DEFAULT_SHORTCUTS:
@@ -155,7 +155,7 @@ class ShortcutPanel(BasePanel):
 
         accel = QLabel(defaults["accel"])
         accel.setStyleSheet(
-            "background: #f2f2f7; border-radius: 6px; padding: 3px 10px;"
+            f"background: {SURFACE_SUNKEN}; border-radius: 6px; padding: 3px 10px;"
             f"color: {TEXT_PRIMARY}; font-weight: bold;"
         )
         row_layout.addWidget(accel)

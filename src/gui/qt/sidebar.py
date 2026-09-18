@@ -7,7 +7,6 @@ import os
 import subprocess
 import sys
 
-from qtawesome import icon as qta_icon
 from PySide6.QtGui import QColor
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -21,9 +20,16 @@ from ...project_status import ProjectStatus
 from .. import shortcut_manager as sm_module
 from ..font_manager import font_manager
 from ..theme import (
-    ACCENT, ACCENT_HOVER, ACCENT_PRESSED, APP_BG, HIGHLIGHT_BG, INFO_BG, SIDEBAR_BG, SIDEBAR_FG,
-    SIDEBAR_HOVER, SIDEBAR_ITEM_BORDER, STATUS_DONE_FG, STATUS_EDITING_FG, SUCCESS_BG,
-    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY,
+    ACCENT, ACCENT_HOVER, ACCENT_PRESSED, APP_BG, BORDER, BORDER_STRONG,
+    BTN_SECONDARY_BG, BTN_SECONDARY_HOVER, HIGHLIGHT_BG, INFO_BG, SIDEBAR_BG,
+    SIDEBAR_FG, SIDEBAR_HOVER, SIDEBAR_ITEM_BORDER, STATUS_DONE_FG,
+    STATUS_EDITING_FG, SUCCESS_BG, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY,
+    font_px,
+)
+from .icons import (
+    icon as ui_icon, ICON_COLLAPSE, ICON_EDIT, ICON_EXPAND, ICON_EXPORT,
+    ICON_FOLDER, ICON_IMPORT, ICON_PIN, ICON_PLUS, ICON_SEARCH, ICON_SETTINGS,
+    ICON_TRASH, ICON_UNDO,
 )
 
 sm = sm_module.shortcut_manager
@@ -60,7 +66,7 @@ class ProjectRow(QWidget):
         if self._selected:
             self._name_lbl.setFont(font_manager.get("entry_item"))
             self.setStyleSheet(
-                f"QWidget#project_row {{ background: #ebf5ff; border-radius: 8px; border: none; }}"
+                f"QWidget#project_row {{ background: {HIGHLIGHT_BG}; border-radius: 8px; border: none; }}"
                 f"QLabel {{ background: transparent; border: none; }}"
             )
             self._name_lbl.setStyleSheet(f"color: {ACCENT}; font-weight: bold; background: transparent; border: none;")
@@ -95,7 +101,7 @@ class ProjectRow(QWidget):
         self._status_lbl.setText(status.display_name)
         self._status_lbl.setStyleSheet(
             f"color: {fg}; background: {bg}; border: none; border-radius: 10px;"
-            f" padding: 3px 10px; font-size: 12px; font-weight: bold;"
+            f" padding: 3px 10px; font-size: {font_px('small')}px; font-weight: bold;"
         )
 
     def set_name(self, name: str) -> None:
@@ -168,11 +174,11 @@ class QtSidebar(QWidget):
         top_layout.setSpacing(8)
 
         new_btn = QPushButton(" + 新建工程项目 ")
-        new_btn.setIcon(qta_icon("fa5s.plus-circle"))
+        new_btn.setIcon(ui_icon(ICON_PLUS))
         new_btn.setIconSize(QSize(18, 18))
         new_btn.setStyleSheet(
             f"QPushButton {{ background: {ACCENT}; color: #ffffff; border: none; border-radius: 8px;"
-            f" padding: 10px 16px; font-weight: bold; font-size: 15px; min-height: 28px; }}"
+            f" padding: 10px 16px; font-weight: bold; font-size: {font_px('body_bold')}px; min-height: 28px; }}"
             f"QPushButton:hover {{ background: {ACCENT_HOVER}; }}"
             f"QPushButton:pressed {{ background: {ACCENT_PRESSED}; }}"
         )
@@ -182,7 +188,7 @@ class QtSidebar(QWidget):
         top_layout.addWidget(new_btn, 1)
 
         collapse_btn = QToolButton()
-        collapse_btn.setIcon(qta_icon("fa5s.angle-double-left"))
+        collapse_btn.setIcon(ui_icon(ICON_COLLAPSE))
         collapse_btn.setIconSize(QSize(16, 16))
         collapse_btn.setToolTip("收起/展开侧边栏（Ctrl+B）")
         collapse_btn.setAutoRaise(True)
@@ -199,14 +205,17 @@ class QtSidebar(QWidget):
         io_layout = QHBoxLayout(io_row)
         io_layout.setContentsMargins(0, 0, 0, 0)
         io_layout.setSpacing(8)
-        import_btn = QPushButton(" 📥 导入工程")
-        export_btn = QPushButton(" 📤 导出工程")
+        import_btn = QPushButton("导入工程")
+        export_btn = QPushButton("导出工程")
+        import_btn.setIcon(ui_icon(ICON_IMPORT))
+        export_btn.setIcon(ui_icon(ICON_EXPORT))
         for _b in (import_btn, export_btn):
             _b.setIconSize(QSize(14, 14))
             _b.setStyleSheet(
-                "QPushButton { background: #ffffff; color: #374151; border: 1px solid #d1d5db;"
-                " border-radius: 8px; padding: 8px 12px; font-weight: bold; font-size: 14px; min-height: 24px; }"
-                "QPushButton:hover { background: #f3f4f6; color: #111827; border-color: #9ca3af; }"
+                f"QPushButton {{ background: {BTN_SECONDARY_BG}; color: {TEXT_PRIMARY};"
+                f" border: 1px solid {BORDER}; border-radius: 8px; padding: 8px 12px;"
+                f" font-weight: bold; font-size: {font_px('body_bold')}px; min-height: 24px; }}"
+                f"QPushButton:hover {{ background: {BTN_SECONDARY_HOVER}; border-color: {BORDER_STRONG}; }}"
             )
         import_btn.clicked.connect(self._import_project)
         export_btn.clicked.connect(self._export_project)
@@ -217,11 +226,14 @@ class QtSidebar(QWidget):
         layout.addWidget(io_row)
 
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("🔍 查找工程项目...")
+        self.search_edit.setPlaceholderText("查找工程项目...")
+        self.search_edit.addAction(ui_icon(ICON_SEARCH), QLineEdit.LeadingPosition)
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.setStyleSheet(
-            "QLineEdit { background: #ffffff; color: #1f2937; border: 1px solid #d1d5db; border-radius: 8px; padding: 8px 12px; font-size: 14px; min-height: 24px; }"
-            "QLineEdit:focus { border-color: #007aff; background: #ffffff; }"
+            f"QLineEdit {{ background: {BTN_SECONDARY_BG}; color: {TEXT_PRIMARY};"
+            f" border: 1px solid {BORDER}; border-radius: 8px; padding: 8px 12px;"
+            f" font-size: {font_px('body')}px; min-height: 24px; }}"
+            f"QLineEdit:focus {{ border-color: {ACCENT}; }}"
         )
         self.search_edit.textChanged.connect(self._schedule_filter)
         layout.addWidget(self.search_edit)
@@ -233,12 +245,14 @@ class QtSidebar(QWidget):
         self.list_widget.currentItemChanged.connect(self._on_current_item_changed)
         layout.addWidget(self.list_widget, 1)
 
-        settings_btn = QPushButton(" ⚙️ 软件系统设置")
+        settings_btn = QPushButton("软件系统设置")
+        settings_btn.setIcon(ui_icon(ICON_SETTINGS))
         settings_btn.setIconSize(QSize(16, 16))
         settings_btn.setStyleSheet(
-            "QPushButton { background: #ffffff; color: #374151; border: 1px solid #d1d5db;"
-            " border-radius: 8px; padding: 9px 14px; font-weight: bold; font-size: 14px; min-height: 26px; }"
-            "QPushButton:hover { background: #f3f4f6; color: #111827; border-color: #9ca3af; }"
+            f"QPushButton {{ background: {BTN_SECONDARY_BG}; color: {TEXT_PRIMARY};"
+            f" border: 1px solid {BORDER}; border-radius: 8px; padding: 9px 14px;"
+            f" font-weight: bold; font-size: {font_px('body_bold')}px; min-height: 26px; }}"
+            f"QPushButton:hover {{ background: {BTN_SECONDARY_HOVER}; border-color: {BORDER_STRONG}; }}"
         )
         settings_btn.clicked.connect(self._open_settings)
         settings_btn.setToolTip("修改软件配置与字号")
@@ -256,7 +270,7 @@ class QtSidebar(QWidget):
         self._new_btn.setText("") if compact else self._new_btn.setText("新建项目")
         self._new_btn.setToolTip("新建项目")
         self._collapse_btn.setIcon(
-            qta_icon("fa5s.angle-double-right" if compact else "fa5s.angle-double-left")
+            ui_icon(ICON_EXPAND if compact else ICON_COLLAPSE)
         )
         self._collapse_btn.setToolTip(
             "展开侧栏（Ctrl+B）" if compact else "收起侧栏（Ctrl+B）"
@@ -413,21 +427,21 @@ class QtSidebar(QWidget):
 
         menu = QMenu(self)
         menu.addAction(
-            qta_icon("fa5s.thumbtack"),
+            ui_icon(ICON_PIN),
             "取消置顶" if is_pinned else "置顶固定",
             lambda: self._toggle_pin_project(uuid),
         )
-        menu.addAction(qta_icon("fa5s.folder-open"), "打开文件位置",
+        menu.addAction(ui_icon(ICON_FOLDER), "打开文件位置",
                        lambda: self._open_file_location(uuid))
         menu.addSeparator()
-        menu.addAction(qta_icon("fa5s.edit"), "编辑项目",
+        menu.addAction(ui_icon(ICON_EDIT), "编辑项目",
                        lambda: self._edit_project(uuid))\
             .setEnabled(status.is_editable)
-        menu.addAction(qta_icon("fa5s.undo"), "回滚项目",
+        menu.addAction(ui_icon(ICON_UNDO), "回滚项目",
                        lambda: self._open_rollback_dialog(uuid))\
             .setEnabled(status.is_editable)
         menu.addSeparator()
-        menu.addAction(qta_icon("fa5s.trash-alt"), "删除项目",
+        menu.addAction(ui_icon(ICON_TRASH), "删除项目",
                        lambda: self._delete_project(uuid, project))\
             .setEnabled(status.is_editable)
         menu.exec(self.list_widget.mapToGlobal(pos))

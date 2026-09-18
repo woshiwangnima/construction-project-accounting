@@ -4,22 +4,41 @@
 （公式展示、孤儿红字、审核底色、按单价/无单价等），但去 tkinter 依赖。
 """
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, Signal
-from PySide6.QtGui import QBrush, QColor
+from PySide6.QtGui import QBrush, QColor, QFont
 
 from ...calculator import to_canonical, to_display, MathParseError
 from ...billing import read_billing
 from ...bill_recompute import prepare_bill_calculations
 from ...bill_review import is_bill_reviewed
 from ..theme import (
-    APP_BG, REVIEW_BG, ROW_STRIPE, SYSTEM_GREEN, SYSTEM_RED, TEXT_PRIMARY,
-    TEXT_SECONDARY, TEXT_TERTIARY,
+    APP_BG, REVIEW_BG, ROW_STRIPE, SYSTEM_GREEN, SYSTEM_RED,
+    TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY,
 )
 
 # 孤儿账单行的文字色（红）+ 前缀图标（与 Tk 版一致）
 ORPHAN_FG = SYSTEM_RED
 ORPHAN_PREFIX = "⚠ "
-BILL_SECONDARY_FG = "#5f6368"
-BILL_TERTIARY_FG = "#6e6e73"
+# 两档灰色原本是 Google Material 的 #5f6368 / #6e6e73（第三套灰阶），
+# 已收编到统一暖灰。注意别改用 TEXT_TERTIARY——它只有 2.5:1，正文读不清。
+BILL_SECONDARY_FG = TEXT_SECONDARY
+BILL_TERTIARY_FG = TEXT_MUTED
+
+# 数字列（单价/金额/公式结果）右对齐：纵向对位扫读、小数位天然对齐。
+_ALIGN_RIGHT = Qt.AlignRight | Qt.AlignVCenter
+
+# 悬停行叠色：把原底色（斑马纹 / 审核绿）整体加深 ~6%。
+# 不能向某个固定灰色拉近——那会把审核绿 REVIEW_BG 中和掉（实测 g-r 归零）；
+# 按原色相整体加深则与任何底色共存：审核行 hover 后仍看得出绿调。
+_HOVER_DARKEN = 0.94
+
+
+def _hover_blend(bg_hex: str) -> str:
+    """把底色按比例加深，返回混合后的 #RRGGBB。"""
+    base = QColor(bg_hex)
+    r = round(base.red() * _HOVER_DARKEN)
+    g = round(base.green() * _HOVER_DARKEN)
+    b = round(base.blue() * _HOVER_DARKEN)
+    return f"#{r:02x}{g:02x}{b:02x}"
 
 
 def format_formula(content_raw: str, op_map: dict) -> str:
@@ -98,9 +117,9 @@ def bill_row_cells(idx: int, bill: dict, calc, op_map: dict) -> dict:
                  Qt.AlignCenter, "body_bold"),
         "工作内容": (display_name, ORPHAN_FG if orphan else TEXT_PRIMARY, Qt.AlignCenter, "body"),
         "公式": (qty_str, BILL_SECONDARY_FG, Qt.AlignCenter, "body"),
-        "公式结果": (formula_result_str, BILL_SECONDARY_FG, Qt.AlignCenter, "body"),
-        "单价": (price_str, ORPHAN_FG if orphan else TEXT_PRIMARY, Qt.AlignCenter, "body"),
-        "金额": (total_str, total_color, Qt.AlignCenter, "body_bold"),
+        "公式结果": (formula_result_str, BILL_SECONDARY_FG, _ALIGN_RIGHT, "numeric"),
+        "单价": (price_str, ORPHAN_FG if orphan else TEXT_PRIMARY, _ALIGN_RIGHT, "numeric"),
+        "金额": (total_str, total_color, _ALIGN_RIGHT, "numeric_bold"),
         "备注": (note, BILL_SECONDARY_FG, Qt.AlignCenter, "body"),
         "日期": (date, BILL_SECONDARY_FG, Qt.AlignCenter, "small"),
         "修改时间": (bill.get("record_time", "-"), BILL_SECONDARY_FG, Qt.AlignCenter, "small"),
@@ -123,7 +142,7 @@ def worker_row_cells(item: dict) -> dict:
         billing_color = TEXT_TERTIARY
     return {
         "名称": (name, TEXT_PRIMARY, Qt.AlignCenter, "body"),
-        "单价": (price_text, TEXT_PRIMARY, Qt.AlignCenter, "body_bold"),
+        "单价": (price_text, TEXT_PRIMARY, _ALIGN_RIGHT, "numeric_bold"),
         "单位": (unit_text, TEXT_PRIMARY, Qt.AlignCenter, "body"),
         "计费类型": (billing_text, billing_color, Qt.AlignCenter, "body"),
     }
@@ -142,6 +161,23 @@ class _RowTableModel(QAbstractTableModel):
         self._editable = True
         self._rows: list = []
         self._cache: dict[int, dict] = {}
+        self._hover_row = -1  # 鼠标悬停行；-1 表示不在表内
+
+    def set_hover_row(self, row: int) -> bool:
+        """记录鼠标悬停行（由 QtBaseTable 驱动）。返回是否发生变化。
+
+        只改 BackgroundRole 的取色，不动数据缓存；重绘由视图触发。
+        """
+        if self._hover_row == row:
+            return False
+        self._hover_row = row
+        return True
+
+    def _row_bg(self, row: int, base_bg: str | None) -> str | None:
+        """在底色上叠加悬停效果（选中态由视图/delegate 盖在上面，无需处理）。"""
+        if base_bg and row == self._hover_row:
+            return _hover_blend(base_bg)
+        return base_bg
 
     # ── 配置 ──
     def set_columns(self, columns: list[str], hidden_cols: list[str]) -> None:
@@ -258,7 +294,7 @@ class QtBillModel(_RowTableModel):
             font_role = cells.get(col, (None, None, None, "body"))[3]
             return _role_font(font_role)
         if role == Qt.BackgroundRole:
-            bg = cells["_bg"]
+            bg = self._row_bg(index.row(), cells["_bg"])
             return QBrush(QColor(bg)) if bg else None
         if role == Qt.ToolTipRole:
             if col == "公式":
@@ -289,11 +325,18 @@ class QtWorkerModel(_RowTableModel):
             return _role_font(font_role)
         if role == Qt.BackgroundRole:
             bg = ROW_STRIPE if index.row() % 2 == 1 else APP_BG
+            bg = self._row_bg(index.row(), bg)
             return QBrush(QColor(bg)) if bg else None
         return None
 
 
 _role_font_cache = {}
+
+# 数字列等宽数字：Consolas 数字等宽，￥/中文缺字形时自动回退系统字体，
+# 只影响数字部分的宽度一致性。不进 font_manager 角色体系（不暴露到设置面板），
+# 仅在 body/body_bold 基础上换字体族。
+_NUMERIC_BASE_ROLES = {"numeric": "body", "numeric_bold": "body_bold"}
+_NUMERIC_FAMILY = "Consolas"
 
 
 def _role_font(role: str):
@@ -301,6 +344,11 @@ def _role_font(role: str):
     font = _role_font_cache.get(role)
     if font is None:
         from ..font_manager import font_manager
-        font = font_manager.get(role)
+        base_role = _NUMERIC_BASE_ROLES.get(role)
+        if base_role is not None:
+            font = QFont(font_manager.get(base_role))
+            font.setFamily(_NUMERIC_FAMILY)
+        else:
+            font = font_manager.get(role)
         _role_font_cache[role] = font
     return font

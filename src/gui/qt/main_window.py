@@ -14,7 +14,11 @@ from ...updater import UpdateChecker
 from ...voice import get_voice
 from ..editability import EditabilityPolicy
 from ..font_manager import font_manager
-from ..theme import build_qss
+from ..theme import (
+    BORDER, DANGER, DANGER_FG, SIDEBAR_BG, SUCCESS_FG, TEXT_PRIMARY,
+    TEXT_SECONDARY, build_qss,
+    font_px,
+)
 from .. import shortcut_manager as sm_module
 from .sidebar import QtSidebar
 from .content import QtContentArea
@@ -97,14 +101,23 @@ class MainWindow(QMainWindow):
 
     # ── 状态栏：常驻保存状态 ────────────────────────────────────────────────
 
+    def _status_qss(self, fg: str, left: str = "none", weight: str = "normal") -> str:
+        """状态栏 QSS：底固定暖灰，靠文字色 + 左侧细条表达状态。
+
+        历史上失败/成功/常态会把整条状态栏刷成红/绿/蓝——那是界面里
+        最扎眼的杂色来源。改成底色恒定，语义只落在文字与左侧 3px 细条上。
+        """
+        return (
+            f"QStatusBar {{ background: {SIDEBAR_BG}; color: {fg};"
+            f" border-top: 1px solid {BORDER}; border-left: {left};"
+            f" font-size: {font_px('small')}px; font-weight: {weight}; padding: 4px 10px; }}"
+        )
+
     def _setup_status_bar(self) -> None:
         bar = self.statusBar()
         bar.setSizeGripEnabled(False)
-        bar.setStyleSheet(
-            "QStatusBar { background: #f8f8fa; color: #3a3a3c;"
-            " border-top: 1px solid #e5e5ea; font-size: 13px; font-weight: bold; padding: 4px 10px; }"
-        )
-        bar.showMessage("✓ 就绪 · 账单数据实时自动保存已开启")
+        bar.setStyleSheet(self._status_qss(TEXT_SECONDARY))
+        bar.showMessage("就绪 · 账单数据实时自动保存已开启")
         try:
             self.content._save_bridge.save_state.connect(self._on_save_state)
         except Exception as exc:
@@ -117,19 +130,12 @@ class MainWindow(QMainWindow):
         text = save_state_message(state, stamp)
         if state == "failed":
             self.statusBar().setStyleSheet(
-                "QStatusBar { background: #ffeceb; color: #d70015;"
-                " border-top: 1px solid #ff3b30; font-size: 13px; font-weight: bold; padding: 4px 10px; }"
+                self._status_qss(DANGER_FG, left=f"3px solid {DANGER}", weight="bold")
             )
         elif state == "saved":
-            self.statusBar().setStyleSheet(
-                "QStatusBar { background: #e8f8ee; color: #1c7333;"
-                " border-top: 1px solid #34c759; font-size: 13px; font-weight: bold; padding: 4px 10px; }"
-            )
+            self.statusBar().setStyleSheet(self._status_qss(SUCCESS_FG))
         else:
-            self.statusBar().setStyleSheet(
-                "QStatusBar { background: #ebf5ff; color: #007aff;"
-                " border-top: 1px solid #007aff; font-size: 13px; padding: 4px 10px; }"
-            )
+            self.statusBar().setStyleSheet(self._status_qss(TEXT_PRIMARY))
         self.statusBar().showMessage(text)
 
     def _schedule_onboarding(self) -> None:

@@ -4,7 +4,7 @@
 """
 import copy
 
-from qtawesome import icon as qta_icon
+from .icons import ICON_COLUMNS, ICON_IMAGE, ICON_PLUS, icon as ui_icon
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QMenu, QMessageBox
 
@@ -61,10 +61,10 @@ class BillViewMixin:
         self._metric_labels["amount"].setText(f"￥{total:.2f}")
         self._metric_labels["count"].setText(str(len(bills)))
         if err_cnt:
-            self._metric_labels["errors"].setText(f"⚠️ {err_cnt} 处错误")
+            self._metric_labels["errors"].setText(f"{err_cnt} 处错误")
             self._metric_labels["errors"].setStyleSheet(f"color: {DANGER}; font-weight: bold;")
         else:
-            self._metric_labels["errors"].setText("✓ 无错误")
+            self._metric_labels["errors"].setText("无错误")
             self._metric_labels["errors"].setStyleSheet(f"color: {SYSTEM_GREEN}; font-weight: bold;")
         self._bills_empty_hint.setVisible(len(bills) == 0)
         self._sync_action_bar()
@@ -211,7 +211,7 @@ class BillViewMixin:
         if not self.project_data or not self.current_uuid:
             return
         menu = QMenu(self)
-        submenu = menu.addMenu(qta_icon("fa5s.columns"), "列显示")
+        submenu = menu.addMenu(ui_icon(ICON_COLUMNS), "列显示")
         columns, _, hidden = resolve_bill_columns(self.project_data, self._app_config)
         data_cols = [c for c in columns if c != BILL_ACTION_COL]
         visible_set = set(data_cols) - set(hidden)
@@ -227,9 +227,9 @@ class BillViewMixin:
                 lambda _=False, c=col: self._toggle_bill_column_visibility(c)
             )
 
-        menu.addAction(qta_icon("fa5s.image"), "导出图片", self._export_image)
+        menu.addAction(ui_icon(ICON_IMAGE), "导出图片", self._export_image)
         menu.addSeparator()
-        add_action = menu.addAction(qta_icon("fa5s.plus-circle"), "添加记录", self._add_bill)
+        add_action = menu.addAction(ui_icon(ICON_PLUS), "添加记录", self._add_bill)
         add_action.setEnabled(self._editable)
         menu.exec(self._tab_buttons["bills"].mapToGlobal(
             self._tab_buttons["bills"].rect().bottomLeft()

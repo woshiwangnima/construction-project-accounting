@@ -1,19 +1,20 @@
 """基础设置面板：默认字号 / 备份数量 / 账单行颜色 / 符号映射展示。"""
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QPlainTextEdit, QSlider, QSpinBox, QVBoxLayout,
+    QApplication, QHBoxLayout, QLabel, QMainWindow, QPlainTextEdit,
+    QPushButton, QSlider, QSpinBox, QVBoxLayout,
 )
 
 from .....config_loader import load_app, save_app
 from .....symbol_mapping import DEFAULT_SYMBOL_MAPPING, normalize_symbol_mapping
 from ....font_manager import font_manager
-from ....theme import ACCENT, REVIEW_BG, TEXT_PRIMARY
+from ....theme import (ACCENT, REVIEW_BG, TEXT_PRIMARY, font_px, label_col_width)
 from .base import BasePanel, color_row, normalize_hex_color, section_hint, separator
 
 
 class BasicPanel(BasePanel):
     def title_text(self) -> str:
-        return "⚙ 基础设置"
+        return "基础设置"
 
     def hint_text(self) -> str:
         return "这些设置会写入 app_config.json，作为应用级默认值。"
@@ -24,7 +25,7 @@ class BasicPanel(BasePanel):
         size_row.setSpacing(8)
         label = QLabel("默认字号")
         label.setStyleSheet(f"color: {TEXT_PRIMARY};")
-        label.setFixedWidth(90)
+        label.setFixedWidth(label_col_width())
         size_row.addWidget(label)
 
         self._size_slider = QSlider()
@@ -44,7 +45,7 @@ class BasicPanel(BasePanel):
         backup_row.setSpacing(8)
         backup_label = QLabel("备份数量")
         backup_label.setStyleSheet(f"color: {TEXT_PRIMARY};")
-        backup_label.setFixedWidth(90)
+        backup_label.setFixedWidth(label_col_width())
         backup_row.addWidget(backup_label)
 
         self._backup_count = QSpinBox()
@@ -57,7 +58,7 @@ class BasicPanel(BasePanel):
 
         # ── 账单管理设置 ──
         title = QLabel("账单管理设置")
-        title.setStyleSheet("font-size: 14px; font-weight: bold;")
+        title.setStyleSheet(f"font-size: {font_px('subheading')}px; font-weight: bold;")
         layout.addWidget(title)
         layout.addWidget(section_hint("颜色值使用 #RRGGBB 格式；选中颜色优先于已审核行颜色。"))
         self._selection_color = color_row(layout, "选中行颜色", ACCENT, lambda c: None)
@@ -66,7 +67,7 @@ class BasicPanel(BasePanel):
 
         # ── 符号映射（只读展示） ──
         mapping_title = QLabel("符号映射")
-        mapping_title.setStyleSheet("font-size: 14px; font-weight: bold;")
+        mapping_title.setStyleSheet(f"font-size: {font_px('subheading')}px; font-weight: bold;")
         layout.addWidget(mapping_title)
         layout.addWidget(section_hint(
             "符号映射从 app_config.json 读取，仅在此展示；如需修改请编辑配置文件。"
@@ -77,6 +78,17 @@ class BasicPanel(BasePanel):
         self._symbol_display.setMinimumHeight(100)
         self._symbol_display.setMaximumHeight(220)
         layout.addWidget(self._symbol_display)
+        layout.addWidget(separator())
+
+        # ── 新手引导 ──
+        guide_title = QLabel("新手引导")
+        guide_title.setStyleSheet(f"font-size: {font_px('subheading')}px; font-weight: bold;")
+        layout.addWidget(guide_title)
+        layout.addWidget(section_hint("重新播放欢迎卡片与分步高亮引导。"))
+        guide_btn = QPushButton("重新查看新手引导")
+        guide_btn.setProperty("secondary", True)
+        guide_btn.clicked.connect(self._on_replay_onboarding)
+        layout.addWidget(guide_btn, 0, Qt.AlignLeft)
         layout.addStretch(1)
 
     # ── 加载 / 保存 ────────────────────────────────────────────────────
@@ -115,6 +127,28 @@ class BasicPanel(BasePanel):
                 f"{pair.get('voice_right_key', ')')}"
             )
         self._symbol_display.setPlainText("\n".join(lines))
+
+    # ── 新手引导 ───────────────────────────────────────────────────────
+
+    def _on_replay_onboarding(self) -> None:
+        """重置引导完成标记，并立即重播欢迎卡片 + 分步高亮。"""
+        from ...onboarding import maybe_show_onboarding, reset_onboarding
+        reset_onboarding()
+        main_window = next(
+            (w for w in QApplication.topLevelWidgets()
+             if isinstance(w, QMainWindow) and hasattr(w, "content")),
+            None,
+        )
+        if main_window is None:
+            return
+        # 先关设置窗口（走 closeEvent 统一落盘），再播引导，避免模态嵌套。
+        dialog = self.window()
+        if dialog is not main_window:
+            dialog.close()
+        QTimer.singleShot(
+            250,
+            lambda: maybe_show_onboarding(main_window, main_window.content, force=True),
+        )
 
     def _on_size_changed(self, value: int) -> None:
         self._size_value.setText(f"{value}px")

@@ -1,4 +1,5 @@
 """字体设置面板：各角色字体族 / 字号 / 样式 / 颜色 + 预览。"""
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QHBoxLayout, QLabel, QSpinBox, QVBoxLayout,
@@ -7,6 +8,7 @@ from PySide6.QtWidgets import (
 from ....font_manager import (
     font_manager, ROLE_GROUPS, ROLE_KEYS, ROLE_DISPLAY_NAMES,
 )
+from ....theme import font_px
 from .base import (
     BasePanel, ColorField, normalize_hex_color, separator,
 )
@@ -26,11 +28,11 @@ _PREFERRED_FAMILIES = (
 
 class FontPanel(BasePanel):
     def title_text(self) -> str:
-        return "🔤 字体设置"
+        return "字体设置"
 
     def hint_text(self) -> str:
-        return ("角色字号由「默认字号 × 倍率」计算；此处可改字体族与样式，"
-                "设置写入 user_config.json 的 font_settings。")
+        return ("字号按「默认字号 × 倍率」生效，会随基础设置里的默认字号等比缩放；"
+                "此处可调字体族、字号与样式，设置写入 user_config.json。")
 
     def build(self, layout: QVBoxLayout) -> None:
         # 只枚举白名单字体 + 用户当前使用的字体，避免几百个字体 × 14 下拉框
@@ -51,7 +53,7 @@ class FontPanel(BasePanel):
         for group_name, role_keys in ROLE_GROUPS:
             layout.addWidget(separator())
             group = QLabel(group_name)
-            group.setStyleSheet("font-size: 14px; font-weight: bold;")
+            group.setStyleSheet(f"font-size: {font_px('subheading')}px; font-weight: bold;")
             layout.addWidget(group)
             for role in role_keys:
                 if role not in ROLE_KEYS:
@@ -75,7 +77,12 @@ class FontPanel(BasePanel):
         family_row.addWidget(combo, 1)
 
         size_spin = QSpinBox()
-        size_spin.setRange(8, 72)
+        # 范围跟基准字号联动：倍率被限制在 0.5–3.0 倍，UI 直接约束到同一个区间，
+        # 免得用户填了 72 却被静默夹到 45 还以为是 bug。
+        base = max(1, font_manager.get_default_font_size())
+        size_spin.setRange(max(8, round(base * 0.5)), round(base * 3.0))
+        size_spin.setSuffix(" px")
+        size_spin.setToolTip("该角色的字号，随「默认字号」等比缩放")
         family_row.addWidget(size_spin)
 
         color_field = ColorField("#000000", on_change=lambda *_: self._on_change(role))
@@ -98,7 +105,10 @@ class FontPanel(BasePanel):
         layout.addLayout(style_row)
 
         preview = QLabel(_PREVIEW_TEXT)
-        preview.setFixedHeight(28)
+        # 高度跟着字号走：写死 28px 时切到「大数字(总金额)」那种 2 倍角色，
+        # 预览字会被裁掉一半。用 minHeight 让长字自己撑开。
+        preview.setMinimumHeight(round(font_px("body") * 1.8))
+        preview.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         layout.addWidget(preview)
 
         rv["family"] = combo
@@ -141,6 +151,7 @@ class FontPanel(BasePanel):
         font.setUnderline(bool(cfg.get("underline")))
         font.setStrikeOut(bool(cfg.get("overstrike")))
         rv["preview"].setFont(font)
+        rv["preview"].setMinimumHeight(max(28, round(int(cfg.get("size", 14)) * 1.7)))
         color = normalize_hex_color(cfg.get("color"), "#000000")
         rv["preview"].setStyleSheet(f"color: {color};")
 
@@ -164,9 +175,15 @@ class FontPanel(BasePanel):
             rv["_loaded"] = True
 
     def save(self) -> None:
+        dfs = max(1, font_manager.get_default_font_size())
         settings = {}
         for role in self._rows:
-            settings[role] = self._read_row(role)
+            cfg = self._read_row(role)
+            # 存倍率而不是绝对 px：这样用户改「默认字号」时该角色仍等比缩放，
+            # 不会出现"整体调大了、这一处却没动"。
+            cfg["multiplier"] = round(cfg["size"] / dfs, 3)
+            cfg.pop("size", None)
+            settings[role] = cfg
         font_manager.save_settings(settings)
         font_manager.refresh()
 
@@ -179,5 +196,5 @@ def _defaults_for(role: str) -> dict:
         "italic": False,
         "underline": False,
         "overstrike": False,
-        "color": "#1c1c1e",
+        "color": "#1f1e1d",
     }

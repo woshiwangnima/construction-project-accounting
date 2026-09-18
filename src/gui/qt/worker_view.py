@@ -4,7 +4,9 @@
 """
 import copy
 
-from qtawesome import icon as qta_icon
+from .icons import (
+    ICON_ERASER, ICON_FOLDER_PLUS, ICON_UNDO, icon as ui_icon,
+)
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QInputDialog, QLabel, QMenu, QMessageBox
 
@@ -75,12 +77,12 @@ class WorkerViewMixin:
         labels["kinds"].setText(str(len(items)))
         labels["priced"].setText(str(priced))
         if unpriced:
-            labels["unpriced"].setText(f"⚠️ {unpriced} 个")
+            labels["unpriced"].setText(f"{unpriced} 个")
             labels["unpriced"].setStyleSheet(
                 f"color: {DANGER}; font-weight: bold; border: none;"
             )
         else:
-            labels["unpriced"].setText("✓ 全部已设")
+            labels["unpriced"].setText("全部已设")
             labels["unpriced"].setStyleSheet(
                 f"color: {SYSTEM_GREEN}; font-weight: bold; border: none;"
             )
@@ -311,13 +313,13 @@ class WorkerViewMixin:
         self.toast.emit(f"已粘贴工作「{new_ti['name']}」（Ctrl+V）")
     def _show_worker_mode_menu(self) -> None:
         menu = QMenu(self)
-        add_cat = menu.addAction(qta_icon("fa5s.folder-plus"), "添加分类", self._add_category)
+        add_cat = menu.addAction(ui_icon(ICON_FOLDER_PLUS), "添加分类", self._add_category)
         add_cat.setEnabled(self._editable)
         menu.addSeparator()
-        restore = menu.addAction(qta_icon("fa5s.undo"), "恢复默认", self._restore_defaults)
+        restore = menu.addAction(ui_icon(ICON_UNDO), "恢复默认", self._restore_defaults)
         restore.setEnabled(self._editable)
         menu.addSeparator()
-        clear = menu.addAction(qta_icon("fa5s.eraser"), "清空分类", self._clear_all_categories)
+        clear = menu.addAction(ui_icon(ICON_ERASER), "清空分类", self._clear_all_categories)
         clear.setEnabled(self._editable)
         menu.exec(self._tab_buttons["workers"].mapToGlobal(
             self._tab_buttons["workers"].rect().bottomLeft()

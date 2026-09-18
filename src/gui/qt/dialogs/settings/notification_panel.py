@@ -2,7 +2,7 @@
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSpinBox, QVBoxLayout
 
 from .....config_loader import load_app, save_app
-from ....theme import TEXT_PRIMARY
+from ....theme import (TEXT_PRIMARY, font_px)
 from .base import BasePanel, section_hint, separator
 
 _KEY = "toast_settings"
@@ -17,7 +17,7 @@ _DEFAULTS = {
 
 class NotificationPanel(BasePanel):
     def title_text(self) -> str:
-        return "🔔 通知"
+        return "通知"
 
     def hint_text(self) -> str:
         return "配置 Toast 通知的显示时长与排队间隔，写入 app_config.json。"
@@ -25,7 +25,7 @@ class NotificationPanel(BasePanel):
     def build(self, layout: QVBoxLayout) -> None:
         # 飘动持续时间
         duration_title = QLabel("飘动持续时间（秒）")
-        duration_title.setStyleSheet("font-size: 14px; font-weight: bold;")
+        duration_title.setStyleSheet(f"font-size: {font_px('subheading')}px; font-weight: bold;")
         layout.addWidget(duration_title)
         dur_row = QHBoxLayout()
         dur_row.setSpacing(8)
@@ -39,7 +39,7 @@ class NotificationPanel(BasePanel):
 
         # 队列间隔时间
         queue_title = QLabel("队列间隔时间（秒）")
-        queue_title.setStyleSheet("font-size: 14px; font-weight: bold;")
+        queue_title.setStyleSheet(f"font-size: {font_px('subheading')}px; font-weight: bold;")
         layout.addWidget(queue_title)
         queue_row = QHBoxLayout()
         queue_row.setSpacing(8)

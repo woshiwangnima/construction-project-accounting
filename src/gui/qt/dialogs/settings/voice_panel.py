@@ -9,7 +9,7 @@ from qfluentwidgets import SwitchButton
 
 from .....config_loader import load_app, save_app
 from .....voice import get_voice
-from ....theme import TEXT_PRIMARY, TEXT_SECONDARY
+from ....theme import (TEXT_PRIMARY, TEXT_SECONDARY, font_px)
 from .base import BasePanel, section_hint, separator
 
 VOL_MIN, VOL_MAX = 0, 100
@@ -18,7 +18,7 @@ RATE_MIN, RATE_MAX = 50, 400
 
 class VoicePanel(BasePanel):
     def title_text(self) -> str:
-        return "🎙 语音播报"
+        return "语音播报"
 
     def hint_text(self) -> str:
         return "设置写入 app_config.json::voice；保存后立即生效。"
@@ -29,8 +29,8 @@ class VoicePanel(BasePanel):
         layout.addWidget(separator())
 
         # 音量
-        vol_title = QLabel("🔊 音量")
-        vol_title.setStyleSheet("font-size: 14px; font-weight: bold;")
+        vol_title = QLabel("音量")
+        vol_title.setStyleSheet(f"font-size: {font_px('subheading')}px; font-weight: bold;")
         layout.addWidget(vol_title)
         layout.addWidget(section_hint("影响按键音（WAV）和公式朗读音量。"))
         self._volume, self._volume_value = self._make_slider(
@@ -39,19 +39,19 @@ class VoicePanel(BasePanel):
         layout.addWidget(separator())
 
         # 语速
-        rate_title = QLabel("🗣 公式朗读语速")
-        rate_title.setStyleSheet("font-size: 14px; font-weight: bold;")
+        rate_title = QLabel("公式朗读语速")
+        rate_title.setStyleSheet(f"font-size: {font_px('subheading')}px; font-weight: bold;")
         layout.addWidget(rate_title)
-        layout.addWidget(section_hint("仅影响 🔊 朗读按钮；不影响 0–9、运算符等按键音速度。"))
+        layout.addWidget(section_hint("仅影响朗读按钮；不影响 0–9、运算符等按键音速度。"))
         self._rate, self._rate_value = self._make_slider(
             layout, RATE_MIN, RATE_MAX, " 词/分"
         )
         layout.addWidget(separator())
 
         self._preview_text = QLabel("")
-        self._preview_text.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px;")
+        self._preview_text.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: {font_px('small')}px;")
         self._preview_text.setWordWrap(True)
-        preview_btn = QPushButton("▶ 试播示例")
+        preview_btn = QPushButton("试播示例")
         preview_btn.setProperty("secondary", True)
         preview_btn.clicked.connect(self._on_preview)
         layout.addWidget(preview_btn)

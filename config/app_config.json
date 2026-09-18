@@ -138,8 +138,8 @@
     "text_colors": {
       "normal": "#000000",
       "muted": "#888888",
-      "formula": "#007aff",
-      "amount": "#ff3b30"
+      "formula": "#b5572f",
+      "amount": "#a63a2e"
     },
     "export_bg_color": "#ffffff",
     "export_strip_category": true,
@@ -231,8 +231,8 @@
     "计费类型": 0.2142857143,
     "操作": 0.06
   },
-  "selection_highlight_color": "#007aff",
-  "bill_reviewed_row_color": "#e8f8ee",
+  "selection_highlight_color": "#b5572f",
+  "bill_reviewed_row_color": "#eef3ec",
   "rollback_column_widths": {
     "序号": 0.0385706183,
     "上次修改时间": 0.1412365286,

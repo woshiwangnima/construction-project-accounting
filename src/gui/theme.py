@@ -20,56 +20,67 @@ from ..theme_tokens import (
 )
 
 # ── 颜色 ──────────────────────────────────────────────────────────────────────
-# Apple 风格系统色板（iOS/macOS 系统色近似）
-APP_BG = "#ffffff"
+# Claude 风收敛色板（2026-09-18）：一套暖灰 + 一个赤陶橙强调色。
+# 规则见 src/theme_tokens.py 顶部注释——新增硬编码 hex 之前先查这里。
+APP_BG = "#faf9f7"          # 页面底：暖白，不是纯白
 
-SIDEBAR_BG = "#edf0f4"
-SIDEBAR_FG = "#1c1c1e"
-SIDEBAR_HOVER = "#e5e5ea"
-SIDEBAR_HEADER_BG = "#007aff"
-SIDEBAR_HEADER_FG = "#ffffff"
-SIDEBAR_SELECTED_BG = "#ffffff"
-SIDEBAR_SELECTED_FG = "#007aff"
-SIDEBAR_ITEM_BORDER = "#e5e5ea"
+# 文本层：TEXT_PRIMARY / TEXT_SECONDARY / TEXT_TERTIARY 来自 theme_tokens。
+# TEXT_MUTED 比 secondary 弱一档但仍 ≥4.5:1，用于次要正文、未选中标记一类
+# 不能太浅的地方（TEXT_TERTIARY 只有 2.5:1，那些场合不够读）。
+TEXT_MUTED = "#757268"
 
-ACCENT = "#007aff"
-ACCENT_HOVER = "#0071e3"
-ACCENT_PRESSED = "#0066d6"
-ACCENT_LIGHT = "#ebf5ff"
-ACCENT_FOCUS = "#b3d9ff"
+# 强调色（赤陶橙系，单色相不同明度）
+# ACCENT 对白字 ≈ 4.8:1（按钮）；ACCENT_TEXT 更深，用于强调文字 ≈ 6.9:1
+ACCENT = "#b5572f"
+ACCENT_HOVER = "#9c4826"
+ACCENT_PRESSED = "#863b1d"
+ACCENT_TEXT = "#8f4522"
+ACCENT_LIGHT = "#f7e9e1"    # 极浅赤陶底：选中行 / 菜单 hover
+ACCENT_FOCUS = "#dfa98c"
 
-DANGER = "#ff3b30"
-DANGER_HOVER = "#ff453a"
-DANGER_PRESSED = "#d70015"
+DANGER = "#b0463a"
+DANGER_HOVER = "#9a382e"
+DANGER_PRESSED = "#822b23"
 
-# 文本层（值来自 theme_tokens）：
-#   TEXT_SECONDARY #6e6e73（对 #ffffff 对比度约 5.4:1）
-#   TEXT_TERTIARY  #c7c7cc（仅禁用态 / 占位）
-BORDER = "#e5e5ea"
-SEPARATOR = "#e5e5ea"
-HIGHLIGHT_BG = "#ebf5ff"
+# 边框 / 分隔（暖灰，比纯灰更贴暖白底）
+BORDER = "#e8e5df"
+BORDER_STRONG = "#cdc9c0"   # hover / 需要强调的边框
+SEPARATOR = "#edeae4"
+SURFACE_SUNKEN = "#f4f2ed"  # 只读输入框 / 内嵌凹槽面
+GRIDLINE = "#efece7"        # 表格网格线
+HIGHLIGHT_BG = ACCENT_LIGHT
 
-# 系统语义色
-SYSTEM_GREEN = "#34c759"
-SYSTEM_RED = "#ff3b30"
-SYSTEM_ORANGE = "#ff9500"
+# 系统语义色（低饱和暖调，仅用于真正需要语义区分处）
+SYSTEM_GREEN = "#4a7a55"
+SYSTEM_RED = "#b0463a"
+SYSTEM_ORANGE = "#a06a2c"
 
 # 语义色对（前景 + 浅底，值来自 theme_tokens）：SUCCESS/WARNING/DANGER/INFO
-# 项目状态徽章色对：STATUS_EDITING_*（蓝）/ STATUS_DONE_*（绿）
+# 项目状态徽章色对：STATUS_EDITING_*（赤陶）/ STATUS_DONE_*（墨绿）
 
 # 已审核行底色（极淡绿，保持可读性，避免饱和色整行冲击）
-REVIEW_BG = "#e8f8ee"
+REVIEW_BG = "#eef3ec"
+
+# 侧栏（暖灰底，不再用蓝色横幅）
+SIDEBAR_BG = "#f4f2ed"
+SIDEBAR_FG = "#1f1e1d"
+SIDEBAR_HOVER = "#eceae4"
+SIDEBAR_HEADER_BG = "#f4f2ed"
+SIDEBAR_HEADER_FG = "#1f1e1d"
+SIDEBAR_SELECTED_BG = "#ffffff"
+SIDEBAR_SELECTED_FG = ACCENT_TEXT
+SIDEBAR_ITEM_BORDER = "#e8e5df"
 
 # 列表视觉
-ROW_HOVER = "#f5f5f7"
-ROW_STRIPE = "#fafafc"
-TABLE_HEADER_BG = "#f2f2f7"
-TABLE_HEADER_FG = "#3a3a3c"
+ROW_HOVER = "#f4f2ed"
+ROW_STRIPE = "#fcfbf9"
+TABLE_HEADER_BG = "#f4f2ed"
+TABLE_HEADER_FG = "#57544e"
 
 # Icon button colors (sidebar top-level buttons)
-ICON_BTN_BG = "#f2f2f7"
-ICON_BTN_HOVER = "#e5e5ea"
-ICON_BTN_ACTIVE = "#d1d1d6"
+ICON_BTN_BG = "#f4f2ed"
+ICON_BTN_HOVER = "#eceae4"
+ICON_BTN_ACTIVE = "#dedbd3"
 
 # ── 圆角与间距 tokens（Qt 侧主要使用）──────────────────────────────────────────
 RADIUS_SM = 6
@@ -87,31 +98,107 @@ GAP_LG = 12
 
 # ── 组件语义色（Qt QSS 统一使用）──────────────────────────────────────────────
 CARD_BG = "#ffffff"
-CARD_BORDER = "#e5e5ea"
+CARD_BORDER = "#e8e5df"
 BTN_SECONDARY_BG = "#ffffff"
-BTN_SECONDARY_HOVER = "#f5f5f7"
-BTN_DISABLED_BG = "#e5e5ea"
-BTN_DISABLED_FG = "#a1a1a6"
-SEGMENT_BG = "#f2f2f7"
+BTN_SECONDARY_HOVER = "#f4f2ed"
+BTN_DISABLED_BG = "#f0eee9"
+BTN_DISABLED_FG = "#a8a49c"
+SEGMENT_BG = "#f0eee9"
 SEGMENT_SELECTED_BG = "#ffffff"
-TOOLTIP_BG = "#1c1c1e"
+TOOLTIP_BG = "#1f1e1d"
 TOOLTIP_FG = "#ffffff"
 MENU_BG = "#ffffff"
-MENU_HOVER = "#ebf5ff"
-ITEM_SELECTED_BG = "#ebf5ff"
-LIST_EMPTY_FG = "#c7c7cc"
+MENU_HOVER = ACCENT_LIGHT
+ITEM_SELECTED_BG = ACCENT_LIGHT
+LIST_EMPTY_FG = "#a8a49c"
 
-# ── 字体 ──────────────────────────────────────────────────────────────────────
-FONT_TITLE = ("Microsoft YaHei UI", 22, "bold")
-FONT_HEADING = ("Microsoft YaHei UI", 17, "bold")
-FONT_SUBHEADING = ("Microsoft YaHei UI", 15, "bold")
-FONT_BODY = ("Microsoft YaHei UI", 13)
-FONT_BODY_BOLD = ("Microsoft YaHei UI", 14, "bold")
-FONT_SMALL = ("Microsoft YaHei UI", 12)
-FONT_BUTTON = ("Microsoft YaHei UI", 14, "bold")
-FONT_TREE = ("Microsoft YaHei UI", 14)
-FONT_TREE_HEADER = ("Microsoft YaHei UI", 14, "bold")
-FONT_CALC_BTN = ("Microsoft YaHei UI", 18, "bold")
+# ── 字号 ──────────────────────────────────────────────────────────────────────
+# 倍率表是**全库唯一真源**：QSS（build_qss）与 QFont（font_manager）都从这里取。
+# 有效字号 = round(默认字号 × 倍率)，单位 px。
+#
+# 为什么必须统一成 px：QSS 侧写的是 font-size: Npx，若另一条通道改用
+# setPointSize，表格单元格（走 model 的 FontRole）会比界面其它文字大约三分之一，
+# 同一屏里就会看到两种大小的正文。
+FONT_SIZE_MULTIPLIERS = {
+    "icon_btn":    1.0,
+    "dialog_btn":  1.0,
+    "entry_item":  1.0,
+    "button":      1.0,
+    "calc_btn":    1.29,
+    "title":       1.57,
+    "heading":     1.2,
+    "subheading":  1.07,
+    "body":        1.0,
+    "body_bold":   1.0,
+    "tree":        1.0,
+    "tree_header": 1.0,
+    "small":       0.86,
+    "amount":      2.0,
+}
+
+DEFAULT_FONT_SIZE = 14
+FONT_FAMILY = FONT_FALLBACK[0]
+
+
+def clamp_base_font_size(size) -> int:
+    """把默认字号收进制定的可用区间（px）；非法值回退 DEFAULT_FONT_SIZE。"""
+    try:
+        value = int(size)
+    except (TypeError, ValueError):
+        value = DEFAULT_FONT_SIZE
+    return max(10, min(30, value))
+
+
+def base_font_size() -> int:
+    """当前正文基准字号（px），读 app_config 的 default_font_size。"""
+    try:
+        from ..config_loader import load_app
+        return clamp_base_font_size(
+            load_app().get("default_font_size", DEFAULT_FONT_SIZE)
+        )
+    except Exception:
+        return DEFAULT_FONT_SIZE
+
+
+def font_px(role: str = "body", base_size: int | None = None) -> int:
+    """按角色返回实际字号（px）。
+
+    组件里不要再写 ``font-size: 14px`` 这类字面量——那等于脱离配置，
+    用户在设置里改默认字号时它纹丝不动。用::
+
+        f"font-size: {font_px('subheading')}px;"
+
+    ``base_size`` 用于在一次渲染内复用同一基准（build_qss 传参用），
+    省略则实时读配置。
+    """
+    base = base_font_size() if base_size is None else clamp_base_font_size(base_size)
+    return max(8, round(base * FONT_SIZE_MULTIPLIERS.get(role, 1.0)))
+
+
+def label_col_width(chars: int = 6, role: str = "body") -> int:
+    """表单里「标签列」的固定宽度（px），按最长标签字数随字号缩放。
+
+    这类标签列是为了让多行控件左边缘对齐才固定宽度的，但**不能写死**：
+    原先值 90px，默认字号调到 20 时「已审核行颜色」需要约 120px，
+    结果被截成「已审核行颜…」。90 是给老字号的保底下限。
+    """
+    return max(90, round(font_px(role) * chars))
+
+
+# 旧 Tk 时代的 (family, size, weight) 元组常量。仍保留，但**按默认字号派生**，
+# 保证不会与 font_px 分叉——这里手写的 FONT_BODY=13 曾与 font_manager 的
+# body=14 长期打架，就是"同一屏两种正文字号"的来源之一。
+# 新代码请直接用 font_px() 或 font_manager.get(role)。
+FONT_TITLE = (FONT_FAMILY, font_px("title", DEFAULT_FONT_SIZE), "bold")
+FONT_HEADING = (FONT_FAMILY, font_px("heading", DEFAULT_FONT_SIZE), "bold")
+FONT_SUBHEADING = (FONT_FAMILY, font_px("subheading", DEFAULT_FONT_SIZE), "bold")
+FONT_BODY = (FONT_FAMILY, font_px("body", DEFAULT_FONT_SIZE), "")
+FONT_BODY_BOLD = (FONT_FAMILY, font_px("body_bold", DEFAULT_FONT_SIZE), "bold")
+FONT_SMALL = (FONT_FAMILY, font_px("small", DEFAULT_FONT_SIZE), "")
+FONT_BUTTON = (FONT_FAMILY, font_px("button", DEFAULT_FONT_SIZE), "bold")
+FONT_TREE = (FONT_FAMILY, font_px("tree", DEFAULT_FONT_SIZE), "")
+FONT_TREE_HEADER = (FONT_FAMILY, font_px("tree_header", DEFAULT_FONT_SIZE), "bold")
+FONT_CALC_BTN = (FONT_FAMILY, font_px("calc_btn", DEFAULT_FONT_SIZE), "bold")
 
 # ── Qt (PySide6) 侧定义：字体规格与 QSS 生成 ──────────────────────────────────
 from dataclasses import dataclass
@@ -140,17 +227,12 @@ def build_qss(base_size: int | None = None) -> str:
     （setFont 会被 QSS 的 font-size 覆盖），因此这里跟随配置，
     设置面板调整默认字号即可整体放大/缩小 UI。
     """
-    if base_size is None:
-        try:
-            from ..config_loader import load_app
-            base_size = int(load_app().get("default_font_size", 14))
-        except Exception:
-            base_size = 14
-    base_size = max(10, min(30, base_size))
-    # 关键角色按 base_size 等比放大，恢复标题/大数字层级
-    title_px = max(base_size, round(base_size * 1.57))
-    heading_px = max(base_size, round(base_size * 1.2))
-    amount_px = max(base_size, round(base_size * 2.0))
+    base_size = base_font_size() if base_size is None else clamp_base_font_size(base_size)
+    # 角色字号统一由倍率表推导（与 font_manager 同源），不在 QSS 里写死任何 px
+    title_px = font_px("title", base_size)
+    heading_px = font_px("heading", base_size)
+    amount_px = font_px("amount", base_size)
+    small_px = font_px("small", base_size)
     font_family = ", ".join(FONT_FALLBACK)
     return f"""
 * {{ outline: none; }}
@@ -188,9 +270,9 @@ QPushButton {{
 QPushButton:hover {{ background: {ACCENT_HOVER}; border-color: {ACCENT_HOVER}; }}
 QPushButton:pressed {{ background: {ACCENT_PRESSED}; border-color: {ACCENT_PRESSED}; }}
 QPushButton:disabled {{
-    background: #e5e5ea;
-    border-color: #e5e5ea;
-    color: #a1a1a6;
+    background: {BTN_DISABLED_BG};
+    border-color: {BTN_DISABLED_BG};
+    color: {BTN_DISABLED_FG};
 }}
 QPushButton:focus {{ outline: none; border: 1px solid {ACCENT_FOCUS}; }}
 
@@ -199,7 +281,7 @@ QPushButton[secondary="true"] {{
     color: {TEXT_PRIMARY};
     border: 1px solid {CARD_BORDER};
 }}
-QPushButton[secondary="true"]:hover {{ background: {BTN_SECONDARY_HOVER}; border-color: #d1d1d6; }}
+QPushButton[secondary="true"]:hover {{ background: {BTN_SECONDARY_HOVER}; border-color: {BORDER_STRONG}; }}
 QPushButton[secondary="true"]:pressed {{ background: {ROW_STRIPE}; }}
 
 QPushButton[danger="true"] {{
@@ -265,14 +347,14 @@ QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QDateEdit, QPlainTextEdit, QText
     selection-color: white;
 }}
 QLineEdit:hover, QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover, QDateEdit:hover, QPlainTextEdit:hover, QTextEdit:hover {{
-    border-color: #b0b0b5;
+    border-color: {BORDER_STRONG};
 }}
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QDateEdit:focus, QPlainTextEdit:focus, QTextEdit:focus {{
     border: 1px solid {ACCENT};
     background: #ffffff;
 }}
 QLineEdit[readOnly="true"] {{
-    background: #f2f2f7;
+    background: {SURFACE_SUNKEN};
     color: {TEXT_SECONDARY};
 }}
 QComboBox::drop-down {{
@@ -331,7 +413,7 @@ QStatusBar {{
     background: {SIDEBAR_BG};
     color: {TEXT_SECONDARY};
     border-top: 1px solid {BORDER};
-    font-size: 12px;
+    font-size: {small_px}px;
     padding: 2px 8px;
 }}
 
@@ -399,7 +481,7 @@ QTableView {{
     alternate-background-color: {ROW_STRIPE};
     border: 1px solid {BORDER};
     border-radius: {RADIUS_MD}px;
-    gridline-color: #f0f0f5;
+    gridline-color: {GRIDLINE};
     selection-background-color: {HIGHLIGHT_BG};
     selection-color: {ACCENT};
     outline: none;
@@ -456,6 +538,43 @@ QScrollBar::handle:horizontal {{
 }}
 QScrollBar::handle:horizontal:hover {{ background: {TEXT_SECONDARY}; }}
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
+
+/* ── 滑条（原生 QSlider 在 Win11 会用系统强调色蓝，必须显式覆盖）── */
+QSlider::groove:horizontal {{
+    height: 4px;
+    background: {SURFACE_SUNKEN};
+    border-radius: 2px;
+}}
+QSlider::sub-page:horizontal {{
+    background: {ACCENT};
+    border-radius: 2px;
+}}
+QSlider::handle:horizontal {{
+    width: 16px;
+    height: 16px;
+    margin: -6px 0;
+    border-radius: 8px;
+    background: {CARD_BG};
+    border: 2px solid {ACCENT};
+}}
+QSlider::handle:horizontal:hover {{ border-color: {ACCENT_HOVER}; }}
+QSlider::groove:vertical {{
+    width: 4px;
+    background: {SURFACE_SUNKEN};
+    border-radius: 2px;
+}}
+QSlider::add-page:vertical {{
+    background: {ACCENT};
+    border-radius: 2px;
+}}
+QSlider::handle:vertical {{
+    height: 16px;
+    width: 16px;
+    margin: 0 -6px;
+    border-radius: 8px;
+    background: {CARD_BG};
+    border: 2px solid {ACCENT};
+}}
 
 /* ── 进度条 / 页签（P4 备用）── */
 QProgressBar {{

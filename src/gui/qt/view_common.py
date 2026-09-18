@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout
 
 from ...config_loader import load_app
 from ..font_manager import font_manager
-from ..theme import CARD_BG, CARD_BORDER, SEGMENT_BG, SYSTEM_GREEN, TEXT_PRIMARY, TEXT_SECONDARY
+from ..theme import (CARD_BG, CARD_BORDER, SEGMENT_BG, SYSTEM_GREEN, TEXT_PRIMARY, TEXT_SECONDARY, font_px)
 
 
 CARD_QSS = (
@@ -63,7 +63,7 @@ def _make_metric_card(icon_name: str, icon_color: str, title: str,
     box.setSpacing(2)
     title_lbl = QLabel(title)
     title_lbl.setStyleSheet(
-        f"color: {TEXT_SECONDARY}; font-size: 13px; font-weight: bold; border: none;"
+        f"color: {TEXT_SECONDARY}; font-size: {font_px('small')}px; font-weight: bold; border: none;"
     )
     value_lbl = QLabel("")
     if object_name:

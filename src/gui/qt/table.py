@@ -400,7 +400,15 @@ class QtBaseTable(QTableView):
         self._sync_hover_row()
 
     def _set_hover_row(self, row: int) -> None:
-        if self._action_delegate is not None and self._action_delegate.set_hover_row(row):
+        changed = False
+        if self._action_delegate is not None:
+            changed = self._action_delegate.set_hover_row(row)
+        model = self.model()
+        if model is not None and hasattr(model, "set_hover_row"):
+            # 模型负责整行 hover 底色（BackgroundRole 叠色），
+            # 与 delegate 的按钮显隐共用同一个行号来源，不会漂移。
+            changed = model.set_hover_row(row) or changed
+        if changed:
             self.viewport().update()
 
     def _sync_hover_row(self) -> None:

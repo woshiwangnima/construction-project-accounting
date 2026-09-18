@@ -12,7 +12,6 @@ import queue
 import threading
 from types import SimpleNamespace
 
-from qtawesome import icon as qta_icon
 from PySide6.QtCore import QObject, QSize, Qt, Signal, QTimer
 from PySide6.QtGui import QFont, QFontMetrics
 from PySide6.QtWidgets import (
@@ -35,7 +34,8 @@ from ...billing_resolver import resolve_label
 from ..font_manager import font_manager
 from ..theme import (
     ACCENT, ACCENT_HOVER, ACCENT_PRESSED, APP_BG, CARD_BG, CARD_BORDER, DANGER, SEGMENT_BG, SEPARATOR,
-    SYSTEM_GREEN, TEXT_PRIMARY, TEXT_SECONDARY,
+    SYSTEM_GREEN, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY,
+    font_px,
 )
 from ..clipboard import AppClipboard
 from ..common.reorder import move_item, reorder_subset_by_ids
@@ -52,6 +52,10 @@ from .category_utils import (
 )
 from .bill_view import BillViewMixin
 from .worker_view import WorkerViewMixin
+from .icons import (
+    icon as ui_icon, ICON_BILL, ICON_CHECK, ICON_LIST, ICON_PLUS, ICON_PRICE,
+    ICON_WARNING, ICON_WORKER,
+)
 from .status_badge import QtStatusBadge
 from .bill_table import QtBillTable
 from .worker_table import QtWorkerTable
@@ -62,15 +66,17 @@ from .action_bar import ActionBar
 
 
 # 指标卡片规格：(key, icon, icon_color, title, value_font_role, value_color, object_name)
+# 图标统一中性灰，只有「总金额」用强调色——三张卡各一种颜色是最扎眼的杂色来源。
+# 语义（如未设单价）由数值文字表达，不给图标上色。
 _BILL_METRIC_SPECS = (
-    ("amount", "fa5s.wallet", ACCENT, "总金额", "amount", ACCENT, "amount_value"),
-    ("count", "fa5s.list-alt", TEXT_SECONDARY, "明细记录", "subheading", None, ""),
-    ("errors", "fa5s.shield-alt", SYSTEM_GREEN, "数据校验", "subheading", None, ""),
+    ("amount", ICON_BILL, ACCENT, "总金额", "amount", ACCENT, "amount_value"),
+    ("count", ICON_LIST, TEXT_SECONDARY, "明细记录", "subheading", None, ""),
+    ("errors", ICON_CHECK, TEXT_SECONDARY, "数据校验", "subheading", None, ""),
 )
 _WORKER_METRIC_SPECS = (
-    ("kinds", "fa5s.tasks", ACCENT, "工作类型", "subheading", None, ""),
-    ("priced", "fa5s.tags", TEXT_SECONDARY, "按单价计费", "subheading", None, ""),
-    ("unpriced", "fa5s.exclamation-triangle", DANGER, "未设单价", "subheading", None, ""),
+    ("kinds", ICON_WORKER, ACCENT, "工作类型", "subheading", None, ""),
+    ("priced", ICON_PRICE, TEXT_SECONDARY, "按单价计费", "subheading", None, ""),
+    ("unpriced", ICON_WARNING, TEXT_SECONDARY, "未设单价", "subheading", None, ""),
 )
 
 
@@ -141,7 +147,7 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
         # 背景用 objectName 限定，避免局部 QSS 级联覆盖子控件
         # （否则「记一笔」等主按钮会被刷成与内容区同色，全局按钮配色失效）。
         self.setObjectName("content")
-        self.setStyleSheet("QWidget#content { background: #f7f8fa; }")
+        self.setStyleSheet(f"QWidget#content {{ background: {APP_BG}; }}")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 12, 24, 12)
         layout.setSpacing(6)
@@ -158,13 +164,13 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
         self._toggle_badge = QtStatusBadge()
         self._toggle_badge.mousePressEvent = lambda e: self._toggle_status()
         header.addWidget(self._toggle_badge)
-        self._bill_add_btn = QPushButton(" + 记一笔新账 ")
-        self._bill_add_btn.setIcon(qta_icon("fa5s.plus-circle"))
+        self._bill_add_btn = QPushButton("记一笔新账")
+        self._bill_add_btn.setIcon(ui_icon(ICON_PLUS, "#ffffff"))
         self._bill_add_btn.setIconSize(QSize(18, 18))
         self._bill_add_btn.clicked.connect(self._add_bill)
         self._bill_add_btn.setStyleSheet(
             f"QPushButton {{ background: {ACCENT}; color: #ffffff; border: none; border-radius: 8px;"
-            f" padding: 8px 18px; font-weight: bold; font-size: 15px; min-height: 38px; }}"
+            f" padding: 8px 18px; font-weight: bold; font-size: {font_px('body_bold')}px; min-height: 38px; }}"
             f"QPushButton:hover {{ background: {ACCENT_HOVER}; }}"
             f"QPushButton:pressed {{ background: {ACCENT_PRESSED}; }}"
         )
@@ -190,8 +196,8 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
         self._tab_group.setExclusive(True)
         self._tab_buttons: dict[str, QPushButton] = {}
         for value, text, menu_fn in (
-            ("bills", " 📋 账单管理 ", self._show_bill_mode_menu),
-            ("workers", " 👷 工作类型设置 ", self._show_worker_mode_menu),
+            ("bills", "账单管理", self._show_bill_mode_menu),
+            ("workers", "工作类型设置", self._show_worker_mode_menu),
         ):
             btn = QPushButton(text)
             btn.setCheckable(True)
@@ -218,9 +224,9 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
         self._mode_group.setExclusive(True)
         self._mode_buttons: dict[str, QPushButton] = {}
         for m_val, m_text in (
-            ("simple", "⚡ 极简速览 (推荐)"),
-            ("audit", "📋 查账模式"),
-            ("complex", "🔍 显示全部"),
+            ("simple", "极简速览 (推荐)"),
+            ("audit", "查账模式"),
+            ("complex", "显示全部"),
         ):
             m_btn = QPushButton(m_text)
             m_btn.setCheckable(True)
@@ -249,7 +255,7 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
         w_card_layout.setContentsMargins(36, 28, 36, 28)
         w_card_layout.setSpacing(16)
         w_icon = QLabel()
-        w_icon.setPixmap(qta_icon("fa5s.hand-sparkles").pixmap(48, 48))
+        w_icon.setPixmap(ui_icon(ICON_BILL, TEXT_TERTIARY).pixmap(48, 48))
         w_icon.setAlignment(Qt.AlignCenter)
         w_card_layout.addWidget(w_icon)
         w_title = QLabel("欢迎使用")
@@ -263,7 +269,7 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
         w_hint.setStyleSheet(f"color: {TEXT_SECONDARY}; background: transparent; border: none;")
         w_card_layout.addWidget(w_hint)
         w_new_btn = QPushButton("新建项目")
-        w_new_btn.setIcon(qta_icon("fa5s.plus"))
+        w_new_btn.setIcon(ui_icon(ICON_PLUS))
         w_new_btn.setIconSize(QSize(16, 16))
         w_new_btn.setMinimumWidth(150)
         if self._on_new_project is not None:

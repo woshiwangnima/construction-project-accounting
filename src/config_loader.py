@@ -30,10 +30,10 @@ _DEFAULT_CONFIGS = {
                 "price_width": 10,
             },
             "text_colors": {
-                "normal": "#000000",
-                "muted": "#888888",
-                "formula": "#007aff",
-                "amount": "#ff3b30",
+                "normal": "#1f1e1d",
+                "muted": "#757268",
+                "formula": "#b5572f",
+                "amount": "#a63a2e",
             },
             "export_bg_color": "#ffffff",
             "export_strip_category": True,
@@ -73,9 +73,9 @@ _DEFAULT_CONFIGS = {
         },
         # 列表中单条数据选中后的高亮底色。
         # 覆盖范围：账单管理（BillListView）+ 工作类型（worker Treeview）。
-        # Apple 风格系统蓝 #007aff 淡底变体。
-        "selection_highlight_color": "#007aff",
-        "bill_reviewed_row_color": "#e8f8ee",
+        # 2026-09-18 起随主题色板收敛：赤陶橙 / 淡墨绿。
+        "selection_highlight_color": "#b5572f",
+        "bill_reviewed_row_color": "#eef3ec",
         "rollback_column_widths": {
             "序号": 0.07,
             "上次修改时间": 0.17,

@@ -3,7 +3,7 @@
 单元格格式、审核底色、孤儿红字、列宽权重、拖拽排序、右键菜单与
 Tk 版保持行为一致；排序/审核切换等副作用由 QtContentArea 持久化。
 """
-from qtawesome import icon as qta_icon
+from .icons import ICON_CHECK, icon as ui_icon
 from PySide6.QtWidgets import QMenu
 
 from ...logger import logger
@@ -38,10 +38,10 @@ class QtBillTable(QtBaseTable):
         if self._editable and len(rows) == 1:
             menu.addSeparator()
             menu.addAction(
-                qta_icon("fa5s.check-circle"), "切换审核状态",
+                ui_icon(ICON_CHECK), "切换审核状态",
                 lambda: self.review_toggle_requested.emit(rows[0]),
             )
             menu.addAction(
-                qta_icon("fa5s.check-circle"), "全部标记为审核",
+                ui_icon(ICON_CHECK), "全部标记为审核",
                 lambda: self.review_toggle_requested.emit(-1),
             )

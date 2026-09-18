@@ -12,7 +12,11 @@ from PySide6.QtWidgets import (
 
 from .....config_loader import load_app, load_user, save_user
 from .....logger import logger
-from ....theme import APP_BG, SIDEBAR_BG, TEXT_PRIMARY
+from ....theme import (
+    ACCENT_LIGHT, ACCENT_TEXT, APP_BG, BORDER, SIDEBAR_BG, TEXT_PRIMARY,
+    TEXT_SECONDARY,
+    font_px,
+)
 from .basic_panel import BasicPanel
 from .font_panel import FontPanel
 from .shortcut_panel import ShortcutPanel
@@ -64,9 +68,9 @@ class SettingsDialog(QDialog):
         )
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(20, 0, 20, 0)
-        title = QLabel("⚙ 设置")
+        title = QLabel("设置")
         title.setStyleSheet(
-            f"color: {TEXT_PRIMARY}; font-size: 17px; font-weight: bold;"
+            f"color: {TEXT_PRIMARY}; font-size: {font_px('heading')}px; font-weight: bold;"
         )
         title_layout.addWidget(title)
         layout.addWidget(title_bar)
@@ -82,7 +86,7 @@ class SettingsDialog(QDialog):
         self._nav.setStyleSheet(
             f"QListWidget#settingsNav {{ background: {SIDEBAR_BG}; border: none; outline: none; padding: 12px 8px; }}"
             "QListWidget#settingsNav::item { padding: 8px 12px; margin: 2px 0; border-radius: 7px; }"
-            "QListWidget#settingsNav::item:selected { background: #ebf5ff; color: #0060df; font-weight: bold; }"
+            f"QListWidget#settingsNav::item:selected {{ background: {ACCENT_LIGHT}; color: {ACCENT_TEXT}; font-weight: bold; }}"
         )
         self._nav.currentRowChanged.connect(self._on_nav_changed)
         main_layout.addWidget(self._nav)
@@ -90,7 +94,7 @@ class SettingsDialog(QDialog):
         self._stack = QStackedWidget()
         self._stack.setObjectName("settingsStack")
         self._stack.setStyleSheet(
-            f"QStackedWidget#settingsStack {{ background: {APP_BG}; border-left: 1px solid #e5e5ea; }}"
+            f"QStackedWidget#settingsStack {{ background: {APP_BG}; border-left: 1px solid {BORDER}; }}"
         )
         main_layout.addWidget(self._stack, 1)
         layout.addWidget(main, 1)
@@ -176,13 +180,13 @@ class SettingsDialog(QDialog):
                         error_layout.setContentsMargins(32, 32, 32, 32)
                         error_layout.setSpacing(10)
                         title = QLabel("此设置页暂时无法加载")
-                        title.setStyleSheet("font-size: 17px; font-weight: bold;")
+                        title.setStyleSheet(f"font-size: {font_px('heading')}px; font-weight: bold;")
                         detail = QLabel(
                             f"页面：{dict((k, label) for k, label, _ in _PANELS).get(key, key)}\n"
                             "请重试；如果问题持续，请查看日志。"
                         )
                         detail.setWordWrap(True)
-                        detail.setStyleSheet("color: #6e6e73;")
+                        detail.setStyleSheet(f"color: {TEXT_SECONDARY};")
                         error_layout.addWidget(title)
                         error_layout.addWidget(detail)
                         error_layout.addStretch(1)

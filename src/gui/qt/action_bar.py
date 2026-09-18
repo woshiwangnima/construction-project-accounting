@@ -3,11 +3,14 @@
 无选择 / 单选 / 多选 / 只读（已完成项目）四种状态自动切换按钮可用性，
 功能与右键菜单一致（右键保留给熟手），新手无需发现右键即可操作。
 """
-from qtawesome import icon as qta_icon
 from PySide6.QtCore import QSize, Signal
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton
 
 from ..font_manager import font_manager
+from .icons import (
+    ICON_COPY, ICON_EDIT, ICON_MOVE_DOWN, ICON_MOVE_UP, ICON_PASTE,
+    ICON_TRASH, icon as ui_icon,
+)
 from ..theme import CARD_BG, CARD_BORDER, DANGER_FG, TEXT_SECONDARY
 
 BTN_TEXT = {
@@ -20,12 +23,12 @@ BTN_TEXT = {
 }
 
 BTN_ICON = {
-    "edit": "fa5s.edit",
-    "up": "fa5s.arrow-up",
-    "down": "fa5s.arrow-down",
-    "copy": "fa5s.copy",
-    "paste": "fa5s.clipboard",
-    "delete": "fa5s.trash-alt",
+    "edit": ICON_EDIT,
+    "up": ICON_MOVE_UP,
+    "down": ICON_MOVE_DOWN,
+    "copy": ICON_COPY,
+    "paste": ICON_PASTE,
+    "delete": ICON_TRASH,
 }
 
 
@@ -53,7 +56,7 @@ class ActionBar(QFrame):
         def _make(action: str, slot) -> QPushButton:
             btn = QPushButton(BTN_TEXT[action])
             btn.setProperty("secondary", True)
-            btn.setIcon(qta_icon(BTN_ICON[action]))
+            btn.setIcon(ui_icon(BTN_ICON[action]))
             btn.setIconSize(QSize(16, 16))
             btn.clicked.connect(slot)
             layout.addWidget(btn)

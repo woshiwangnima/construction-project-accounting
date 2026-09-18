@@ -6,21 +6,21 @@ from PySide6.QtWidgets import (
 
 from .....config_loader import load_app, load_user, save_user
 from .....export_config import ExportDefaults, PriceListSettings, TextColors
-from ....theme import TEXT_PRIMARY
+from ....theme import (TEXT_PRIMARY, font_px)
 from .base import BasePanel, ColorField, normalize_hex_color, separator
 
 
 class ExportPanel(BasePanel):
     def title_text(self) -> str:
-        return "🖼 导出图片"
+        return "导出图片"
 
     def hint_text(self) -> str:
         return "这些选项作为导出图片对话框的默认值，写入 user_config.json。"
 
     def build(self, layout: QVBoxLayout) -> None:
         # ── 价目表 ──
-        pl_title = QLabel("📋 价目表导出设置")
-        pl_title.setStyleSheet("font-size: 14px; font-weight: bold;")
+        pl_title = QLabel("价目表导出设置")
+        pl_title.setStyleSheet(f"font-size: {font_px('subheading')}px; font-weight: bold;")
         layout.addWidget(pl_title)
 
         self._show_trade = QCheckBox("显示价目表")
@@ -51,16 +51,17 @@ class ExportPanel(BasePanel):
         layout.addWidget(separator())
 
         # ── 文字颜色 ──
-        tc_title = QLabel("🎨 文字颜色")
-        tc_title.setStyleSheet("font-size: 14px; font-weight: bold;")
+        tc_title = QLabel("文字颜色")
+        tc_title.setStyleSheet(f"font-size: {font_px('subheading')}px; font-weight: bold;")
         layout.addWidget(tc_title)
         colors = QGridLayout()
         colors.setHorizontalSpacing(14)
         colors.setVerticalSpacing(4)
-        self._normal_color = ColorField("#000000")
-        self._muted_color = ColorField("#888888")
-        self._formula_color = ColorField("#007aff")
-        self._amount_color = ColorField("#ff3b30")
+        # 默认值与 config_loader._DEFAULTS["export_image"]["text_colors"] 保持一致
+        self._normal_color = ColorField("#1f1e1d")
+        self._muted_color = ColorField("#757268")
+        self._formula_color = ColorField("#b5572f")
+        self._amount_color = ColorField("#a63a2e")
         for row, (label, field) in enumerate((
                 ("普通文字", self._normal_color),
                 ("不重要文字", self._muted_color),
@@ -74,8 +75,8 @@ class ExportPanel(BasePanel):
         layout.addWidget(separator())
 
         # ── 日期显示 ──
-        date_title = QLabel("📅 日期显示")
-        date_title.setStyleSheet("font-size: 14px; font-weight: bold;")
+        date_title = QLabel("日期显示")
+        date_title.setStyleSheet(f"font-size: {font_px('subheading')}px; font-weight: bold;")
         layout.addWidget(date_title)
         self._show_date = QCheckBox("显示项目日期")
         self._show_project_created_at = QCheckBox("显示项目存档创建日期")
@@ -88,8 +89,8 @@ class ExportPanel(BasePanel):
         layout.addWidget(separator())
 
         # ── 其他设置 ──
-        other_title = QLabel("⚙ 其他设置")
-        other_title.setStyleSheet("font-size: 14px; font-weight: bold;")
+        other_title = QLabel("其他设置")
+        other_title.setStyleSheet(f"font-size: {font_px('subheading')}px; font-weight: bold;")
         layout.addWidget(other_title)
         self._strip_cat = QCheckBox("精简分类信息")
         self._append_note_to_title = QCheckBox("备注追加到条目标题")

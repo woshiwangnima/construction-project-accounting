@@ -8,18 +8,20 @@ from PySide6.QtWidgets import (
     QSizePolicy, QVBoxLayout, QWidget,
 )
 
-from ....theme import BORDER, TEXT_PRIMARY, TEXT_SECONDARY
+from ....theme import (
+    BORDER, TEXT_PRIMARY, TEXT_SECONDARY, font_px, label_col_width,
+)
 
 
 def section_title(text: str) -> QLabel:
     label = QLabel(text)
-    label.setStyleSheet("font-size: 16px; font-weight: bold;")
+    label.setStyleSheet(f"font-size: {font_px('heading')}px; font-weight: bold;")
     return label
 
 
 def section_hint(text: str) -> QLabel:
     label = QLabel(text)
-    label.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px;")
+    label.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: {font_px('small')}px;")
     label.setWordWrap(True)
     return label
 
@@ -95,7 +97,7 @@ def color_row(
     row.setSpacing(8)
     name = QLabel(label)
     name.setStyleSheet(f"color: {TEXT_PRIMARY};")
-    name.setFixedWidth(90)
+    name.setFixedWidth(label_col_width())
     row.addWidget(name)
     field = ColorField(initial, on_change=on_change)
     row.addWidget(field)

@@ -32,9 +32,9 @@ def now_stamp() -> str:
 
 
 SAVE_STATE_TEXTS = {
-    "saving": "⏳ 正在自动保存中…",
-    "saved": "✓ 所有修改已于 {stamp} 成功自动保存",
-    "failed": "⚠ 保存失败，请检查文件权限或重试",
+    "saving": "正在自动保存中…",
+    "saved": "所有修改已于 {stamp} 成功自动保存",
+    "failed": "保存失败，请检查文件权限或重试",
 }
 
 

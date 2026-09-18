@@ -22,7 +22,7 @@ from ....config_loader import load_app, load_user
 from ....export_config import ExportDefaults
 from ....image_output import save_styled_image
 from ....logger import logger
-from ...theme import SYSTEM_RED, TEXT_PRIMARY, TEXT_SECONDARY
+from ...theme import (SYSTEM_RED, TEXT_PRIMARY, TEXT_SECONDARY, font_px)
 
 
 def _category_name(category) -> str:
@@ -275,7 +275,7 @@ class ExportImageDialog(QDialog):
         layout.setSpacing(10)
 
         title = QLabel("导出记账图片")
-        title.setStyleSheet("font-size: 18px; font-weight: bold;")
+        title.setStyleSheet(f"font-size: {font_px('heading')}px; font-weight: bold;")
         layout.addWidget(title)
 
         hint = QLabel("勾选导出选项后选择保存位置。")
@@ -327,7 +327,7 @@ class ExportImageDialog(QDialog):
 
     def _section(self, parent_layout, text: str) -> QGridLayout:
         label = QLabel(text)
-        label.setStyleSheet("font-size: 14px; font-weight: bold;")
+        label.setStyleSheet(f"font-size: {font_px('subheading')}px; font-weight: bold;")
         parent_layout.addWidget(label)
         grid = QGridLayout()
         grid.setContentsMargins(4, 0, 0, 0)
@@ -338,7 +338,7 @@ class ExportImageDialog(QDialog):
 
     def _build_sections(self, body, body_layout):
         # 价目表
-        pl = self._section(body_layout, "📋 价目表导出设置")
+        pl = self._section(body_layout, "价目表导出设置")
         self._show_trade = QCheckBox("显示价目表")
         self._show_no_unit = QCheckBox("显示无单价项目")
         self._show_empty_cats = QCheckBox("显示无工作条目的分类")
@@ -361,7 +361,7 @@ class ExportImageDialog(QDialog):
         self._align_price_list.toggled.connect(self._sync_price_list_deps)
 
         # 文字颜色
-        tc = self._section(body_layout, "🎨 文字颜色")
+        tc = self._section(body_layout, "文字颜色")
         self._normal_color = _readonly_line_edit()
         self._muted_color = _readonly_line_edit()
         self._formula_color = _readonly_line_edit()
@@ -375,7 +375,7 @@ class ExportImageDialog(QDialog):
             tc.addWidget(editor, row, 1)
 
         # 日期显示
-        dates = self._section(body_layout, "📅 日期显示")
+        dates = self._section(body_layout, "日期显示")
         self._show_date = QCheckBox("显示项目日期")
         self._show_project_created_at = QCheckBox("显示项目存档创建日期")
         self._show_record_time = QCheckBox("显示每条账单记录的录入时间")
@@ -386,7 +386,7 @@ class ExportImageDialog(QDialog):
         dates.addWidget(self._show_export_time, 1, 1)
 
         # 其他设置
-        other = self._section(body_layout, "⚙ 其他设置")
+        other = self._section(body_layout, "其他设置")
         self._strip_cat = QCheckBox("精简分类信息")
         self._append_note_to_title = QCheckBox("备注追加到条目标题")
         self._bg_color = _readonly_line_edit()

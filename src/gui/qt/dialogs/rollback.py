@@ -20,13 +20,13 @@ from ....config_loader import load_app, load_user
 from ....logger import logger
 from ....project_manager import get_project, _backup_project
 from ....project_uuid import project_file_path
-from ...theme import BORDER, TEXT_SECONDARY
+from ...theme import (BORDER, TEXT_SECONDARY, font_px, label_col_width)
 from .confirm import confirm_dialog
 
 _VALIDITY_LABELS = {
-    VALIDITY_OK: "✔ 有效",
-    VALIDITY_HAS_ORPHANS: "⚠ 含孤儿",
-    VALIDITY_INVALID_JSON: "✗ 存档损坏",
+    VALIDITY_OK: "有效",
+    VALIDITY_HAS_ORPHANS: "含孤儿",
+    VALIDITY_INVALID_JSON: "存档损坏",
 }
 
 _DEFAULT_SIZE = (980, 560)
@@ -58,7 +58,7 @@ def _format_size(size: int) -> str:
 
 def _validity_text(backup: BackupInfo) -> str:
     if backup.validity == VALIDITY_HAS_ORPHANS:
-        return f"⚠ 含 {backup.orphan_count} 条孤儿账单"
+        return f"含 {backup.orphan_count} 条孤儿账单"
     return _VALIDITY_LABELS.get(backup.validity, "未知")
 
 
@@ -86,7 +86,7 @@ class RollbackDialog(QDialog):
         layout.setSpacing(10)
 
         title = QLabel("回滚存档")
-        title.setStyleSheet("font-size: 18px; font-weight: bold;")
+        title.setStyleSheet(f"font-size: {font_px('heading')}px; font-weight: bold;")
         layout.addWidget(title)
 
         info = QLabel(f"项目：{project_name}")
@@ -120,7 +120,7 @@ class RollbackDialog(QDialog):
         summary_layout.setSpacing(8)
 
         summary_title = QLabel("存档摘要")
-        summary_title.setStyleSheet("font-size: 15px; font-weight: bold;")
+        summary_title.setStyleSheet(f"font-size: {font_px('subheading')}px; font-weight: bold;")
         summary_layout.addWidget(summary_title)
 
         self._summary_labels: dict[str, QLabel] = {}
@@ -135,7 +135,7 @@ class RollbackDialog(QDialog):
             row = QHBoxLayout()
             name = QLabel(label)
             name.setStyleSheet(f"color: {TEXT_SECONDARY};")
-            name.setFixedWidth(90)
+            name.setFixedWidth(label_col_width())
             value = QLabel("-")
             value.setWordWrap(True)
             value.setTextInteractionFlags(Qt.TextSelectableByMouse)
