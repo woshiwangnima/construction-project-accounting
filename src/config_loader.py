@@ -51,17 +51,17 @@ _DEFAULT_CONFIGS = {
         },
         "backup_count": 10,
         "default_bill_column_widths_data": [
-            {"name": "#",       "weight": 0.045, "show_in_simple": True},
-            {"name": "审核",     "weight": 0.045, "show_in_simple": True},
-            {"name": "工作内容",  "weight": 0.13,  "show_in_simple": True},
-            {"name": "公式",     "weight": 0.10,  "show_in_simple": True},
-            {"name": "公式结果",  "weight": 0.09,  "show_in_simple": False},
-            {"name": "单价",     "weight": 0.09,  "show_in_simple": True},
-            {"name": "金额",     "weight": 0.09,  "show_in_simple": True},
-            {"name": "备注",     "weight": 0.14,  "show_in_simple": True},
-            {"name": "日期",     "weight": 0.07,  "show_in_simple": False},
-            {"name": "修改时间",  "weight": 0.06,  "show_in_simple": False},
-            {"name": "操作",     "weight": 0.06,  "show_in_simple": True},
+            {"name": "#",       "weight": 0.045, "show_in_simple": True,  "show_in_audit": False},
+            {"name": "审核",     "weight": 0.045, "show_in_simple": True,  "show_in_audit": True},
+            {"name": "工作内容",  "weight": 0.13,  "show_in_simple": True,  "show_in_audit": True},
+            {"name": "公式",     "weight": 0.10,  "show_in_simple": True,  "show_in_audit": True},
+            {"name": "公式结果",  "weight": 0.09,  "show_in_simple": False, "show_in_audit": True},
+            {"name": "单价",     "weight": 0.09,  "show_in_simple": True,  "show_in_audit": True},
+            {"name": "金额",     "weight": 0.09,  "show_in_simple": True,  "show_in_audit": True},
+            {"name": "备注",     "weight": 0.14,  "show_in_simple": True,  "show_in_audit": True},
+            {"name": "日期",     "weight": 0.07,  "show_in_simple": False, "show_in_audit": True},
+            {"name": "修改时间",  "weight": 0.06,  "show_in_simple": False, "show_in_audit": False},
+            {"name": "操作",     "weight": 0.06,  "show_in_simple": True,  "show_in_audit": True},
         ],
         # 工作类型表的默认列宽（被「工作类型」界面读取，与项目文件 worker_column_widths 互不冲突）
         "default_worker_column_widths": {
@@ -141,6 +141,30 @@ def load_json(filename: str) -> dict:
         return copy.deepcopy(_DEFAULT_CONFIGS.get(filename, {}))
 
 
+def _repair_column_flags(rows: list, defaults: list) -> list:
+    """按列名补齐旧配置里缺失的显隐标记。
+
+    ``default_bill_column_widths_data`` 是列表，``_deep_merge`` 对列表是整体替换
+    而不是逐行合并，所以老版本写下的行会一直缺 ``show_in_audit``；
+    而 ``resolve_bill_columns`` 在标记缺失时按"显示"处理，「查账模式」于是
+    与「显示全部」完全没有区别。这里按列名回填默认值（用户已有值优先）。
+    """
+    base = {
+        d["name"]: d
+        for d in defaults
+        if isinstance(d, dict) and "name" in d
+    }
+    repaired = []
+    for row in rows:
+        if not isinstance(row, dict) or row.get("name") not in base:
+            repaired.append(row)
+            continue
+        merged = copy.deepcopy(base[row["name"]])
+        merged.update(row)
+        repaired.append(merged)
+    return repaired
+
+
 _app_cache: dict | None = None
 
 
@@ -155,7 +179,12 @@ def load_app():
     if _app_cache is None:
         defaults = copy.deepcopy(_DEFAULT_CONFIGS.get("app_config.json", {}))
         file_data = load_json("app_config.json")
-        _app_cache = _deep_merge(defaults, file_data)
+        merged = _deep_merge(defaults, file_data)
+        merged["default_bill_column_widths_data"] = _repair_column_flags(
+            merged.get("default_bill_column_widths_data", []),
+            defaults.get("default_bill_column_widths_data", []),
+        )
+        _app_cache = merged
     return copy.deepcopy(_app_cache)
 
 

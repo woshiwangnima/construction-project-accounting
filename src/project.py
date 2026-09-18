@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import MISSING, dataclass, field, fields as dataclass_fields
 
 from .bill import Bill
 from .category import Category
@@ -183,6 +183,27 @@ class Project:
             self.bills = [b if isinstance(b, Bill) else Bill.from_dict(b) for b in value]
             return
         setattr(self, key, value)
+
+    def __delitem__(self, key: str) -> None:
+        """映射协议的删除语义：把字段重置回缺省值。
+
+        dataclass 字段无法真正移除，但消费方（如 ``resolve_bill_columns``）
+        对「空列表」与「键不存在」的处理一致，所以重置等价于删除。
+        缺了这个方法时 ``del project["bill_visible_columns"]`` 会抛
+        ``AttributeError: __delitem__``，而 ``__contains__`` 又用 hasattr
+        判定为 True，调用方无从预判。
+        """
+        if key == "_path":
+            return
+        target = next((f for f in dataclass_fields(self) if f.name == key), None)
+        if target is None:
+            raise KeyError(key)
+        if target.default is not MISSING:
+            setattr(self, key, target.default)
+        elif target.default_factory is not MISSING:
+            setattr(self, key, target.default_factory())
+        else:
+            raise KeyError(key)
 
     def setdefault(self, key: str, default):
         current = self.get(key)
