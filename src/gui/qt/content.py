@@ -7,60 +7,76 @@ P3：账单/工种 QTableView 列表（列宽权重、显隐预设、排序、�
 列解析逻辑镜像 Tk content.py（resolve_bill_columns 等），P5 清理时合并。
 分类主-从窗格（P4 前半）已接入；编辑对话框/导出图片仍为 P4 范围，留占位回调。
 """
-import copy
-import queue
-import threading
+
+from contextlib import suppress
 from types import SimpleNamespace
 
-from PySide6.QtCore import QObject, QSize, Qt, Signal, QTimer
-from PySide6.QtGui import QFont, QFontMetrics
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QButtonGroup, QFrame, QHBoxLayout, QInputDialog, QLabel, QMenu,
-    QMessageBox, QPushButton, QSizePolicy, QSplitter, QStackedWidget,
-    QVBoxLayout, QWidget,
+    QButtonGroup,
+    QFrame,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QSizePolicy,
+    QSplitter,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
+from ...config_loader import load_app
 from ...logger import logger
-from ...project_manager import get_project, update_project
+from ...project_manager import get_project
 from ...project_status import ProjectStatus
-from ...config_loader import load_app, save_app
-from ...billing import read_billing
-from ...bill_recompute import (
-    prepare_bill_calculations, recompute_bill_total, summarize_bill_calculations,
-)
-from ...bill_review import apply_bulk_review, is_bill_reviewed, set_bill_reviewed
-from ...paste_actions import paste_bill, paste_trade_item, unique_category_after_paste
-from ...billing_resolver import resolve_label
+from ..clipboard import AppClipboard
 from ..font_manager import font_manager
 from ..theme import (
-    ACCENT, ACCENT_HOVER, ACCENT_PRESSED, APP_BG, CARD_BG, CARD_BORDER, DANGER, SEGMENT_BG, SEPARATOR,
-    SYSTEM_GREEN, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY,
+    ACCENT,
+    ACCENT_LIGHT,
+    APP_BG,
+    BORDER,
+    CARD_BG,
+    CARD_BORDER,
+    SEGMENT_BG,
+    SEPARATOR,
+    TEXT_SECONDARY,
+    TEXT_TERTIARY,
+    TOOLTIP_QSS,
     font_px,
 )
-from ..clipboard import AppClipboard
-from ..common.reorder import move_item, reorder_subset_by_ids
-from .save_bridge import ProjectSaveBridge
-from .view_common import (
-    CARD_QSS, SEGMENT_QSS, _amount_px, _build_metric_row,
-    _make_metric_card, _metric_card_height,
-)
-from .category_utils import (
-    _category_maps, _category_name, _category_id,
-    _project_category_names, _safe_positive_float,
-    _trade_item_category_name, resolve_bill_columns,
-    resolve_worker_column_weights,
-)
-from .bill_view import BillViewMixin
-from .worker_view import WorkerViewMixin
-from .icons import (
-    icon as ui_icon, ICON_BILL, ICON_CHECK, ICON_LIST, ICON_PLUS, ICON_PRICE,
-    ICON_WARNING, ICON_WORKER,
-)
-from .status_badge import QtStatusBadge
-from .bill_table import QtBillTable
-from .worker_table import QtWorkerTable
-from .category_list import QtCategoryList
 from .action_bar import ActionBar
+from .bill_table import QtBillTable
+from .bill_view import BillViewMixin
+from .category_list import QtCategoryList
+from .icons import (
+    ICON_BILL,
+    ICON_CHECK,
+    ICON_LIST,
+    ICON_PLUS,
+    ICON_PRICE,
+    ICON_SEARCH,
+    ICON_STREAM,
+    ICON_TABLE,
+    ICON_WARNING,
+    ICON_WORKER,
+)
+from .icons import (
+    icon as ui_icon,
+)
+from .save_bridge import ProjectSaveBridge
+from .status_badge import QtStatusBadge
+from .view_common import (
+    SEGMENT_QSS,
+    _build_metric_row,
+)
+from .worker_table import QtWorkerTable
+from .worker_view import WorkerViewMixin
+
+# 兼容测试及外部调用方对历史模块路径的 patch。
+_QT_DIALOG_EXPORTS = (QInputDialog,)
 
 # ── 统一卡片 / 分段容器 QSS（与 theme.build_qss 全局体系一致的补充规则）─────────
 
@@ -93,12 +109,11 @@ BILL_PRESET_QUICK_VIEW = ("审核", "工作内容", "公式", "单价", "金额"
 
 
 class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
-    name_changed = Signal(str, str)    # (uuid, new_name)
+    name_changed = Signal(str, str)  # (uuid, new_name)
     status_changed = Signal(str, str)  # (uuid, status_value)
     toast = Signal(str)
 
-    def __init__(self, on_name_change=None, on_status_change=None,
-                 on_new_project=None):
+    def __init__(self, on_name_change=None, on_status_change=None, on_new_project=None):
         super().__init__()
         self.current_uuid = None
         self.project_data = None
@@ -147,7 +162,7 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
         # 背景用 objectName 限定，避免局部 QSS 级联覆盖子控件
         # （否则「记一笔」等主按钮会被刷成与内容区同色，全局按钮配色失效）。
         self.setObjectName("content")
-        self.setStyleSheet(f"QWidget#content {{ background: {APP_BG}; }}")
+        self.setStyleSheet(f"QWidget#content {{ background: {APP_BG}; }}{TOOLTIP_QSS}")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 12, 24, 12)
         layout.setSpacing(6)
@@ -158,21 +173,25 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
         self._header_name_lbl = QLabel("")
         self._header_name_lbl.setObjectName("page_title")
         self._header_name_lbl.setFont(font_manager.get("title"))
-        self._header_name_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self._header_name_lbl.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Preferred
+        )
         self._header_name_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
         header.addWidget(self._header_name_lbl, 1)
         self._toggle_badge = QtStatusBadge()
-        self._toggle_badge.mousePressEvent = lambda e: self._toggle_status()
+        self._toggle_badge.clicked.connect(self._toggle_status)
         header.addWidget(self._toggle_badge)
         self._bill_add_btn = QPushButton("记一笔新账")
-        self._bill_add_btn.setIcon(ui_icon(ICON_PLUS, "#ffffff"))
-        self._bill_add_btn.setIconSize(QSize(18, 18))
+        self._bill_add_btn.setIcon(ui_icon(ICON_PLUS, ACCENT))
+        self._bill_add_btn.setIconSize(QSize(17, 17))
         self._bill_add_btn.clicked.connect(self._add_bill)
+        # 高频主操作保留强调色识别，但改用轻量色块，避免压过项目标题和数据。
         self._bill_add_btn.setStyleSheet(
-            f"QPushButton {{ background: {ACCENT}; color: #ffffff; border: none; border-radius: 8px;"
-            f" padding: 8px 18px; font-weight: bold; font-size: {font_px('body_bold')}px; min-height: 38px; }}"
-            f"QPushButton:hover {{ background: {ACCENT_HOVER}; }}"
-            f"QPushButton:pressed {{ background: {ACCENT_PRESSED}; }}"
+            f"QPushButton {{ background: {ACCENT_LIGHT}; color: {ACCENT};"
+            f" border: 1px solid {BORDER}; border-radius: 8px;"
+            f" padding: 7px 16px; font-weight: bold; font-size: {font_px('body_bold')}px; min-height: 32px; }}"
+            f"QPushButton:hover {{ background: {CARD_BG}; border-color: {ACCENT}; }}"
+            f"QPushButton:pressed {{ background: {SEGMENT_BG}; }}"
         )
         header.addWidget(self._bill_add_btn)
         layout.addLayout(header)
@@ -183,30 +202,43 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
         header_sep.setFixedHeight(1)
         layout.addWidget(header_sep)
 
-        # 页签：账单管理 / 工作类型（右侧提供直观的列显示模式选择）
+        # 两个一级入口刻意分开呈现，避免被误认为一句连续文字。
         tabs = QHBoxLayout()
         tabs.setSpacing(4)
         tab_segment = QFrame()
-        tab_segment.setStyleSheet(SEGMENT_QSS)
+        tab_segment.setStyleSheet("background: transparent; border: none;")
         self._tab_segment = tab_segment
         seg_layout = QHBoxLayout(tab_segment)
         seg_layout.setContentsMargins(0, 0, 0, 0)
-        seg_layout.setSpacing(2)
+        seg_layout.setSpacing(8)
         self._tab_group = QButtonGroup(self)
         self._tab_group.setExclusive(True)
         self._tab_buttons: dict[str, QPushButton] = {}
-        for value, text, menu_fn in (
-            ("bills", "账单管理", self._show_bill_mode_menu),
-            ("workers", "工作类型设置", self._show_worker_mode_menu),
+        for value, text, icon_name, tip, menu_fn in (
+            (
+                "bills",
+                "账单明细",
+                ICON_BILL,
+                "查看和记录每一笔工程账单",
+                self._show_bill_mode_menu,
+            ),
+            (
+                "workers",
+                "工种与单价",
+                ICON_PRICE,
+                "管理施工工种、计费方式和默认单价",
+                self._show_worker_mode_menu,
+            ),
         ):
             btn = QPushButton(text)
+            btn.setIcon(ui_icon(icon_name, TEXT_SECONDARY))
+            btn.setIconSize(QSize(16, 16))
+            btn.setToolTip(tip)
             btn.setCheckable(True)
-            btn.setProperty("tab", True)
+            btn.setProperty("navigation", True)
             btn.clicked.connect(lambda _=False, v=value: self._switch_tab(v))
             btn.setContextMenuPolicy(Qt.CustomContextMenu)
-            btn.customContextMenuRequested.connect(
-                lambda _pos, fn=menu_fn: fn()
-            )
+            btn.customContextMenuRequested.connect(lambda _pos, fn=menu_fn: fn())
             self._tab_group.addButton(btn)
             self._tab_buttons[value] = btn
             seg_layout.addWidget(btn)
@@ -223,15 +255,17 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
         self._mode_group = QButtonGroup(self)
         self._mode_group.setExclusive(True)
         self._mode_buttons: dict[str, QPushButton] = {}
-        for m_val, m_text in (
-            ("simple", "极简速览 (推荐)"),
-            ("audit", "查账模式"),
-            ("complex", "显示全部"),
+        for m_val, m_text, m_icon, m_tip in (
+            ("simple", "极简速览", ICON_STREAM, "只显示记账时最常用的核心列（推荐）"),
+            ("audit", "查账模式", ICON_SEARCH, "显示审核、日期与修改时间等查账列"),
+            ("complex", "显示全部", ICON_TABLE, "显示账单的全部可用列"),
         ):
             m_btn = QPushButton(m_text)
+            m_btn.setIcon(ui_icon(m_icon, TEXT_SECONDARY))
+            m_btn.setIconSize(QSize(15, 15))
             m_btn.setCheckable(True)
-            m_btn.setProperty("tab", True)
-            m_btn.setToolTip(f"切换至【{m_text}】表格显示列")
+            m_btn.setProperty("viewMode", True)
+            m_btn.setToolTip(m_tip)
             m_btn.clicked.connect(lambda _=False, v=m_val: self._switch_bill_mode(v))
             self._mode_group.addButton(m_btn)
             self._mode_buttons[m_val] = m_btn
@@ -266,7 +300,9 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
         w_hint = QLabel("点击左侧【新建项目】开始记账\n或选择一个已有项目查看")
         w_hint.setAlignment(Qt.AlignCenter)
         w_hint.setWordWrap(True)
-        w_hint.setStyleSheet(f"color: {TEXT_SECONDARY}; background: transparent; border: none;")
+        w_hint.setStyleSheet(
+            f"color: {TEXT_SECONDARY}; background: transparent; border: none;"
+        )
         w_card_layout.addWidget(w_hint)
         w_new_btn = QPushButton("新建项目")
         w_new_btn.setIcon(ui_icon(ICON_PLUS))
@@ -301,7 +337,9 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
         )
         empty_layout = QHBoxLayout(self._bills_empty_hint)
         empty_layout.setContentsMargins(16, 10, 16, 10)
-        empty_lbl = QLabel("还没有账单。先到【工作类型】添加工作项目，再点「记一笔」开始记账。")
+        empty_lbl = QLabel(
+            "还没有账单。先到【工作类型】添加工作项目，再点「记一笔」开始记账。"
+        )
         empty_lbl.setStyleSheet(f"color: {TEXT_SECONDARY};")
         empty_layout.addWidget(empty_lbl)
         empty_layout.addStretch(1)
@@ -392,7 +430,9 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
         )
         hint_layout = QVBoxLayout(self._workers_empty_hint)
         hint_layout.setContentsMargins(16, 16, 16, 16)
-        hint_lbl = QLabel("还没有工作类型。\n在左侧列表空白处点右键，或点击【工作类型】页签选「添加分类」，\n然后添加工种和单价，例如：瓦工 300元/天。")
+        hint_lbl = QLabel(
+            "还没有工作类型。\n在左侧列表空白处点右键，或点击【工作类型】页签选「添加分类」，\n然后添加工种和单价，例如：瓦工 300元/天。"
+        )
         hint_lbl.setStyleSheet(f"color: {TEXT_SECONDARY};")
         hint_lbl.setWordWrap(True)
         hint_layout.addWidget(hint_lbl)
@@ -414,17 +454,24 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
 
         # 底部提示条（可关闭，关闭后不再显示）
         from .onboarding import TipBar
+
         self._tip_bar = TipBar(self)
         layout.addWidget(self._tip_bar)
 
     # ── 状态切换 ────────────────────────────────────────────────────────────
 
-    def _toggle_status(self) -> None:
+    def _toggle_status(self, checked: bool | None = None) -> None:
         if not self.project_data:
             return
-        now = ProjectStatus.from_value(self.project_data.get("status"))
-        new_status = (ProjectStatus.DONE if now == ProjectStatus.EDITING
-                      else ProjectStatus.EDITING)
+        if checked is None:
+            now = ProjectStatus.from_value(self.project_data.get("status"))
+            new_status = (
+                ProjectStatus.DONE
+                if now == ProjectStatus.EDITING
+                else ProjectStatus.EDITING
+            )
+        else:
+            new_status = ProjectStatus.DONE if checked else ProjectStatus.EDITING
         self.project_data["status"] = new_status.value
         self._save_bridge.schedule(self.current_uuid, self.project_data)
         self._toggle_badge.set_status(new_status)
@@ -477,20 +524,16 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
     def _sync_action_bar(self) -> None:
         if getattr(self, "_action_bar", None) is None:
             return
-        try:
+        with suppress(RuntimeError):
             self._action_bar.set_rows(self._selected_bill_rows(), self._editable)
-        except RuntimeError:
-            pass
 
     def _sync_worker_action_bar(self) -> None:
         if getattr(self, "_worker_action_bar", None) is None:
             return
-        try:
+        with suppress(RuntimeError):
             self._worker_action_bar.set_rows(
                 self._selected_worker_rows(), self._editable
             )
-        except RuntimeError:
-            pass
 
     # ── 欢迎 / 加载 / 清理 ─────────────────────────────────────────────────
 
@@ -535,48 +578,42 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
     def clear(self) -> None:
         self._show_welcome()
 
-
     # ── 账单页渲染 ─────────────────────────────────────────────────────────
-
 
     # ── 账单操作 ───────────────────────────────────────────────────────────
 
-
     # ── 复制 / 粘贴：账单 ──
-
 
     # ── 工作类型操作 ────────────────────────────────────────────────────────
 
-
     # ── 复制 / 粘贴：工作类型 ──
-
 
     # ── 列显隐预设（右键账单页签）──────────────────────────────────────────
 
-
     # ── P4 业务对话框接线 ─────────────────────────────────────────────────
-
 
     def _export_image(self) -> None:
         if not self.project_data:
             return
         from .dialogs.export_image import ExportImageDialog
+
         dlg = ExportImageDialog(self, self.project_data, on_done=lambda: None)
         dlg.exec()
 
     # ── 分类管理（主-从窗格：右键菜单 / 页签菜单入口）──────────────────────
 
-
     # ── 分类列宽比例持久化 ──────────────────────────────────────────────────
-
 
     def _restore_defaults(self) -> None:
         """恢复默认工作类型：以 app_config 默认数据重置 trade_items/category_order。"""
         if not self._editable or not self.project_data:
             return
-        if not self._confirm_delete("确认", "恢复默认工作类型？当前所有工作类型将被替换。"):
+        if not self._confirm_delete(
+            "确认", "恢复默认工作类型？当前所有工作类型将被替换。"
+        ):
             return
-        from ...project_manager import _load_default_items, _load_default_categories
+        from ...project_manager import _load_default_categories, _load_default_items
+
         self.project_data["trade_items"] = _load_default_items()
         self.project_data["category_order"] = [
             c.to_dict() if hasattr(c, "to_dict") else dict(c)
@@ -588,7 +625,6 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
         self._render_bills()
         self.toast.emit("已恢复默认工作类型")
 
-
     # ── 通用 ───────────────────────────────────────────────────────────────
 
     def _confirm_delete(self, title: str, message: str) -> bool:
@@ -599,6 +635,7 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
 
     def _confirm(self, title: str, message: str, default_yes: bool) -> bool:
         from .dialogs.confirm import confirm_dialog
+
         return confirm_dialog(self, title, message, default_yes=default_yes)
 
     def _error_box(self, title: str, message: str) -> None:
@@ -630,6 +667,7 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
 
     def _show_toast(self, text: str, level: str = "success") -> None:
         from .feedback import show_toast
+
         show_toast(self, text, level)
 
     def _on_save_error(self, message: str) -> None:

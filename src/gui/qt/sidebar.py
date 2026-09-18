@@ -3,15 +3,26 @@
 P2 范围：新建/导入/导出/设置按钮、搜索过滤、项目列表 + 选中防抖、
 右键菜单（置顶/打开位置可用；编辑/回滚/删除 P4 接入对话框，暂为占位提示）。
 """
+
 import os
 import subprocess
 import sys
 
-from PySide6.QtGui import QColor
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QBoxLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QMenu, QMessageBox, QPushButton, QToolButton, QVBoxLayout, QWidget,
+    QBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
 )
 
 from ...logger import logger
@@ -20,16 +31,41 @@ from ...project_status import ProjectStatus
 from .. import shortcut_manager as sm_module
 from ..font_manager import font_manager
 from ..theme import (
-    ACCENT, ACCENT_HOVER, ACCENT_PRESSED, APP_BG, BORDER, BORDER_STRONG,
-    BTN_SECONDARY_BG, BTN_SECONDARY_HOVER, HIGHLIGHT_BG, INFO_BG, SIDEBAR_BG,
-    SIDEBAR_FG, SIDEBAR_HOVER, SIDEBAR_ITEM_BORDER, STATUS_DONE_FG,
-    STATUS_EDITING_FG, SUCCESS_BG, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY,
+    ACCENT,
+    BORDER,
+    BORDER_STRONG,
+    BTN_SECONDARY_BG,
+    BTN_SECONDARY_HOVER,
+    HIGHLIGHT_BG,
+    INFO_BG,
+    SIDEBAR_BG,
+    SIDEBAR_FG,
+    SIDEBAR_HOVER,
+    STATUS_DONE_FG,
+    STATUS_EDITING_FG,
+    SUCCESS_BG,
+    TEXT_PRIMARY,
+    TEXT_SECONDARY,
+    TEXT_TERTIARY,
+    TOOLTIP_QSS,
     font_px,
 )
 from .icons import (
-    icon as ui_icon, ICON_COLLAPSE, ICON_EDIT, ICON_EXPAND, ICON_EXPORT,
-    ICON_FOLDER, ICON_IMPORT, ICON_PIN, ICON_PLUS, ICON_SEARCH, ICON_SETTINGS,
-    ICON_TRASH, ICON_UNDO,
+    ICON_COLLAPSE,
+    ICON_EDIT,
+    ICON_EXPAND,
+    ICON_EXPORT,
+    ICON_FOLDER,
+    ICON_IMPORT,
+    ICON_PIN,
+    ICON_PLUS,
+    ICON_SEARCH,
+    ICON_SETTINGS,
+    ICON_TRASH,
+    ICON_UNDO,
+)
+from .icons import (
+    icon as ui_icon,
 )
 
 sm = sm_module.shortcut_manager
@@ -42,10 +78,13 @@ class ProjectRow(QWidget):
         super().__init__(parent)
         self.setObjectName("project_row")
         self._selected = False
-        self.setStyleSheet("QWidget#project_row { background: transparent; border-radius: 8px; } QLabel { background: transparent; border: none; }")
+        self.setStyleSheet(
+            "QWidget#project_row { background: transparent; border-radius: 8px; } QLabel { background: transparent; border: none; }"
+        )
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(10)
+        self._layout = layout
         self._indicator = QLabel(self)
         self._indicator.setFixedWidth(4)
         self._indicator.setFixedHeight(18)
@@ -69,17 +108,19 @@ class ProjectRow(QWidget):
                 f"QWidget#project_row {{ background: {HIGHLIGHT_BG}; border-radius: 8px; border: none; }}"
                 f"QLabel {{ background: transparent; border: none; }}"
             )
-            self._name_lbl.setStyleSheet(f"color: {ACCENT}; font-weight: bold; background: transparent; border: none;")
-            self._indicator.setStyleSheet(
-                f"background: {ACCENT}; border-radius: 2px;"
+            self._name_lbl.setStyleSheet(
+                f"color: {ACCENT}; font-weight: bold; background: transparent; border: none;"
             )
+            self._indicator.setStyleSheet(f"background: {ACCENT}; border-radius: 2px;")
         else:
             self._name_lbl.setFont(font_manager.get("body"))
             self.setStyleSheet(
-                f"QWidget#project_row {{ background: transparent; border-radius: 8px; border: none; }}"
-                f"QLabel {{ background: transparent; border: none; }}"
+                "QWidget#project_row { background: transparent; border-radius: 8px; border: none; }"
+                "QLabel { background: transparent; border: none; }"
             )
-            self._name_lbl.setStyleSheet(f"color: {TEXT_PRIMARY}; font-weight: 500; background: transparent; border: none;")
+            self._name_lbl.setStyleSheet(
+                f"color: {TEXT_PRIMARY}; font-weight: 500; background: transparent; border: none;"
+            )
             self._indicator.setStyleSheet("background: transparent;")
 
     def set_selected(self, selected: bool) -> None:
@@ -114,16 +155,20 @@ class ProjectRow(QWidget):
     def set_compact(self, compact: bool) -> None:
         """紧凑侧栏只保留项目首字母，完整名称通过工具提示提供。"""
         if compact:
-            name = self._name_lbl.text().strip()
+            name = self._name_lbl.toolTip() or self._name_lbl.text().strip()
             self._name_lbl.setText(name[:1] if name else "?")
             self._name_lbl.setToolTip(name)
             self._name_lbl.setAlignment(Qt.AlignCenter)
+            self._layout.setContentsMargins(0, 8, 0, 8)
+            self._layout.setSpacing(0)
             self._indicator.hide()
             self._status_lbl.hide()
         else:
             self._name_lbl.setText(self._name_lbl.toolTip() or self._name_lbl.text())
             self._name_lbl.setToolTip("")
             self._name_lbl.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+            self._layout.setContentsMargins(10, 8, 10, 8)
+            self._layout.setSpacing(10)
             self._indicator.show()
             self._status_lbl.show()
         self._apply_style()
@@ -132,8 +177,9 @@ class ProjectRow(QWidget):
 class QtSidebar(QWidget):
     compact_toggled = Signal(bool)
 
-    def __init__(self, on_select, editability=None, on_settings_closed=None,
-                 on_app_close=None):
+    def __init__(
+        self, on_select, editability=None, on_settings_closed=None, on_app_close=None
+    ):
         super().__init__()
         self.on_select = on_select
         self.selected_uuid = None
@@ -163,24 +209,29 @@ class QtSidebar(QWidget):
         self.setObjectName("sidebar")
         self.setStyleSheet(
             f"QWidget#sidebar {{ background: {SIDEBAR_BG}; color: {SIDEBAR_FG}; }}"
+            f"{TOOLTIP_QSS}"
         )
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 12, 14, 12)
         layout.setSpacing(10)
+        self._root_layout = layout
 
         top_row = QWidget()
         top_layout = QHBoxLayout(top_row)
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(8)
+        self._top_layout = top_layout
 
-        new_btn = QPushButton(" + 新建工程项目 ")
+        new_btn = QPushButton("新建工程项目")
         new_btn.setIcon(ui_icon(ICON_PLUS))
-        new_btn.setIconSize(QSize(18, 18))
+        new_btn.setIconSize(QSize(17, 17))
+        # 项目级新增属于低频入口，保持中性，不与当前页主操作争抢视线。
         new_btn.setStyleSheet(
-            f"QPushButton {{ background: {ACCENT}; color: #ffffff; border: none; border-radius: 8px;"
-            f" padding: 10px 16px; font-weight: bold; font-size: {font_px('body_bold')}px; min-height: 28px; }}"
-            f"QPushButton:hover {{ background: {ACCENT_HOVER}; }}"
-            f"QPushButton:pressed {{ background: {ACCENT_PRESSED}; }}"
+            f"QPushButton {{ background: {BTN_SECONDARY_BG}; color: {TEXT_PRIMARY};"
+            f" border: 1px solid {BORDER}; border-radius: 8px;"
+            f" padding: 8px 14px; font-weight: bold; font-size: {font_px('body_bold')}px; min-height: 28px; }}"
+            f"QPushButton:hover {{ background: {BTN_SECONDARY_HOVER}; border-color: {BORDER_STRONG}; }}"
+            f"QPushButton:pressed {{ background: {SIDEBAR_HOVER}; }}"
         )
         new_btn.clicked.connect(self._new_project)
         new_btn.setToolTip("创建新的记账项目")
@@ -212,10 +263,10 @@ class QtSidebar(QWidget):
         for _b in (import_btn, export_btn):
             _b.setIconSize(QSize(14, 14))
             _b.setStyleSheet(
-                f"QPushButton {{ background: {BTN_SECONDARY_BG}; color: {TEXT_PRIMARY};"
-                f" border: 1px solid {BORDER}; border-radius: 8px; padding: 8px 12px;"
-                f" font-weight: bold; font-size: {font_px('body_bold')}px; min-height: 24px; }}"
-                f"QPushButton:hover {{ background: {BTN_SECONDARY_HOVER}; border-color: {BORDER_STRONG}; }}"
+                f"QPushButton {{ background: transparent; color: {TEXT_SECONDARY};"
+                f" border: none; border-radius: 8px; padding: 7px 10px;"
+                f" font-weight: normal; font-size: {font_px('body')}px; min-height: 24px; }}"
+                f"QPushButton:hover {{ background: {BTN_SECONDARY_HOVER}; color: {TEXT_PRIMARY}; }}"
             )
         import_btn.clicked.connect(self._import_project)
         export_btn.clicked.connect(self._export_project)
@@ -249,10 +300,10 @@ class QtSidebar(QWidget):
         settings_btn.setIcon(ui_icon(ICON_SETTINGS))
         settings_btn.setIconSize(QSize(16, 16))
         settings_btn.setStyleSheet(
-            f"QPushButton {{ background: {BTN_SECONDARY_BG}; color: {TEXT_PRIMARY};"
-            f" border: 1px solid {BORDER}; border-radius: 8px; padding: 9px 14px;"
-            f" font-weight: bold; font-size: {font_px('body_bold')}px; min-height: 26px; }}"
-            f"QPushButton:hover {{ background: {BTN_SECONDARY_HOVER}; border-color: {BORDER_STRONG}; }}"
+            f"QPushButton {{ background: transparent; color: {TEXT_SECONDARY};"
+            f" border: none; border-radius: 8px; padding: 8px 12px;"
+            f" font-weight: normal; font-size: {font_px('body')}px; min-height: 26px; }}"
+            f"QPushButton:hover {{ background: {BTN_SECONDARY_HOVER}; color: {TEXT_PRIMARY}; }}"
         )
         settings_btn.clicked.connect(self._open_settings)
         settings_btn.setToolTip("修改软件配置与字号")
@@ -267,18 +318,27 @@ class QtSidebar(QWidget):
         if compact == self._compact:
             return
         self._compact = compact
+        self._root_layout.setContentsMargins(
+            8 if compact else 14, 12, 8 if compact else 14, 12
+        )
+        self._top_layout.setDirection(
+            QBoxLayout.Direction.TopToBottom
+            if compact
+            else QBoxLayout.Direction.LeftToRight
+        )
+        self._top_layout.setSpacing(6 if compact else 8)
         self._new_btn.setText("") if compact else self._new_btn.setText("新建项目")
         self._new_btn.setToolTip("新建项目")
-        self._collapse_btn.setIcon(
-            ui_icon(ICON_EXPAND if compact else ICON_COLLAPSE)
-        )
+        self._collapse_btn.setIcon(ui_icon(ICON_EXPAND if compact else ICON_COLLAPSE))
         self._collapse_btn.setToolTip(
             "展开侧栏（Ctrl+B）" if compact else "收起侧栏（Ctrl+B）"
         )
 
         self._io_row.setVisible(not compact)
         self.search_edit.setVisible(not compact)
-        self._settings_btn.setText("") if compact else self._settings_btn.setText("设置")
+        self._settings_btn.setText("") if compact else self._settings_btn.setText(
+            "设置"
+        )
         self._settings_btn.setToolTip("设置")
         for row in self._item_widgets.values():
             row.set_compact(compact)
@@ -296,7 +356,9 @@ class QtSidebar(QWidget):
             self._item_widgets = {}
             projects = list_projects()
             query = self.search_edit.text().strip().lower()
-            filtered = [p for p in projects if not query or query in p.get("name", "").lower()]
+            filtered = [
+                p for p in projects if not query or query in p.get("name", "").lower()
+            ]
             for p in filtered:
                 self._add_item(p)
             if not filtered:
@@ -305,7 +367,9 @@ class QtSidebar(QWidget):
                 empty.setTextAlignment(Qt.AlignCenter)
                 empty.setFont(font_manager.get("small"))
                 self.list_widget.addItem(empty)
-            self._set_selected(prev_selected if prev_selected in self._item_widgets else None)
+            self._set_selected(
+                prev_selected if prev_selected in self._item_widgets else None
+            )
             self._update_row_selection(self.selected_uuid)
         finally:
             self.list_widget.blockSignals(False)
@@ -408,7 +472,11 @@ class QtSidebar(QWidget):
 
     def _project_for_menu(self, uuid: str):
         for p in list_projects():
-            p_uuid = p.get("project_uuid") if isinstance(p, dict) else getattr(p, "project_uuid", None)
+            p_uuid = (
+                p.get("project_uuid")
+                if isinstance(p, dict)
+                else getattr(p, "project_uuid", None)
+            )
             if p_uuid == uuid:
                 return p
         return None
@@ -422,8 +490,16 @@ class QtSidebar(QWidget):
         project = self._project_for_menu(uuid)
         if project is None:
             return
-        status = ProjectStatus.from_value(project.get("status") if isinstance(project, dict) else getattr(project, "status", None))
-        is_pinned = bool(project.get("is_pinned", False) if isinstance(project, dict) else getattr(project, "is_pinned", False))
+        status = ProjectStatus.from_value(
+            project.get("status")
+            if isinstance(project, dict)
+            else getattr(project, "status", None)
+        )
+        is_pinned = bool(
+            project.get("is_pinned", False)
+            if isinstance(project, dict)
+            else getattr(project, "is_pinned", False)
+        )
 
         menu = QMenu(self)
         menu.addAction(
@@ -431,19 +507,20 @@ class QtSidebar(QWidget):
             "取消置顶" if is_pinned else "置顶固定",
             lambda: self._toggle_pin_project(uuid),
         )
-        menu.addAction(ui_icon(ICON_FOLDER), "打开文件位置",
-                       lambda: self._open_file_location(uuid))
+        menu.addAction(
+            ui_icon(ICON_FOLDER), "打开文件位置", lambda: self._open_file_location(uuid)
+        )
         menu.addSeparator()
-        menu.addAction(ui_icon(ICON_EDIT), "编辑项目",
-                       lambda: self._edit_project(uuid))\
-            .setEnabled(status.is_editable)
-        menu.addAction(ui_icon(ICON_UNDO), "回滚项目",
-                       lambda: self._open_rollback_dialog(uuid))\
-            .setEnabled(status.is_editable)
+        menu.addAction(
+            ui_icon(ICON_EDIT), "编辑项目", lambda: self._edit_project(uuid)
+        ).setEnabled(status.is_editable)
+        menu.addAction(
+            ui_icon(ICON_UNDO), "回滚项目", lambda: self._open_rollback_dialog(uuid)
+        ).setEnabled(status.is_editable)
         menu.addSeparator()
-        menu.addAction(ui_icon(ICON_TRASH), "删除项目",
-                       lambda: self._delete_project(uuid, project))\
-            .setEnabled(status.is_editable)
+        menu.addAction(
+            ui_icon(ICON_TRASH), "删除项目", lambda: self._delete_project(uuid, project)
+        ).setEnabled(status.is_editable)
         menu.exec(self.list_widget.mapToGlobal(pos))
 
     # ── 动作（P2 占位 + 已实现项）───────────────────────────────────────────
@@ -476,11 +553,13 @@ class QtSidebar(QWidget):
 
     def _new_project(self) -> None:
         from .dialogs import NewProjectDialog
+
         NewProjectDialog(self, self.refresh).exec()
 
     def _edit_project(self, uuid) -> None:
         from ...project_manager import get_project
         from .dialogs import NewProjectDialog
+
         project = get_project(uuid)
         if project is None:
             return
@@ -494,6 +573,7 @@ class QtSidebar(QWidget):
 
     def _open_rollback_dialog(self, uuid) -> None:
         from .dialogs.rollback import RollbackDialog
+
         dlg = RollbackDialog(self, uuid, on_rollback=self._on_rollback_done)
         dlg.exec()
 
@@ -503,8 +583,9 @@ class QtSidebar(QWidget):
             self.on_select(uuid)
 
     def _delete_project(self, uuid, project) -> None:
-        from .dialogs.confirm import confirm_dialog
         from ...project_manager import delete_project
+        from .dialogs.confirm import confirm_dialog
+
         if hasattr(project, "name"):
             name = getattr(project, "name", "")
         elif isinstance(project, dict):
@@ -524,7 +605,7 @@ class QtSidebar(QWidget):
         ):
             return
         if delete_project(uuid):
-            is_current = (self.selected_uuid == uuid)
+            is_current = self.selected_uuid == uuid
             self.refresh()
             if is_current:
                 if self._item_widgets:
@@ -537,7 +618,9 @@ class QtSidebar(QWidget):
 
     def _import_project(self) -> None:
         from PySide6.QtWidgets import QFileDialog
+
         from ...project_manager import import_project
+
         path, _ = QFileDialog.getOpenFileName(
             self, "导入项目", "", "JSON文件 (*.json);;所有文件 (*.*)"
         )
@@ -564,11 +647,13 @@ class QtSidebar(QWidget):
             QMessageBox.information(self, "提示", "请先选择一个项目")
             return
         from .dialogs.import_export import export_project_dialog
+
         export_project_dialog(self, self.selected_uuid, on_done=lambda: None)
 
     def _open_settings(self) -> None:
-        from .dialogs.settings import SettingsDialog
         from ...voice import get_voice
+        from .dialogs.settings import SettingsDialog
+
         get_voice().stop()
         SettingsDialog(self, on_close=self._on_settings_closed).exec()
 

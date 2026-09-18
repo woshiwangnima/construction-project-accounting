@@ -3,16 +3,24 @@
 单元格格式化逻辑与 Tk bill_list_view.py / worker_list_view.py 保持一致
 （公式展示、孤儿红字、审核底色、按单价/无单价等），但去 tkinter 依赖。
 """
+
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont
 
-from ...calculator import to_canonical, to_display, MathParseError
-from ...billing import read_billing
 from ...bill_recompute import prepare_bill_calculations
 from ...bill_review import is_bill_reviewed
+from ...billing import read_billing
+from ...calculator import MathParseError, to_canonical, to_display
 from ..theme import (
-    APP_BG, REVIEW_BG, ROW_STRIPE, SYSTEM_GREEN, SYSTEM_RED,
-    TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_TERTIARY,
+    APP_BG,
+    REVIEW_BG,
+    ROW_STRIPE,
+    SYSTEM_GREEN,
+    SYSTEM_RED,
+    TEXT_MUTED,
+    TEXT_PRIMARY,
+    TEXT_SECONDARY,
+    TEXT_TERTIARY,
 )
 
 # 孤儿账单行的文字色（红）+ 前缀图标（与 Tk 版一致）
@@ -72,7 +80,6 @@ def format_bill_date(b: dict) -> str:
 def bill_row_cells(idx: int, bill: dict, calc, op_map: dict) -> dict:
     """计算一行各列 (文本, 前景色, 对齐, 字体角色)。与 Tk 版逐列对齐。"""
     reviewed = is_bill_reviewed(bill)
-    bg = REVIEW_BG if reviewed else (ROW_STRIPE if idx % 2 == 1 else APP_BG)
     content = bill.get("content", "")
     note = bill.get("note", "")
     date = format_bill_date(bill)
@@ -113,16 +120,35 @@ def bill_row_cells(idx: int, bill: dict, calc, op_map: dict) -> dict:
 
     return {
         "#": (str(idx + 1), TEXT_PRIMARY, Qt.AlignCenter, "body"),
-        "审核": ("☑" if reviewed else "☐", SYSTEM_GREEN if reviewed else BILL_TERTIARY_FG,
-                 Qt.AlignCenter, "body_bold"),
-        "工作内容": (display_name, ORPHAN_FG if orphan else TEXT_PRIMARY, Qt.AlignCenter, "body"),
+        "审核": (
+            "☑" if reviewed else "☐",
+            SYSTEM_GREEN if reviewed else BILL_TERTIARY_FG,
+            Qt.AlignCenter,
+            "body_bold",
+        ),
+        "工作内容": (
+            display_name,
+            ORPHAN_FG if orphan else TEXT_PRIMARY,
+            Qt.AlignCenter,
+            "body",
+        ),
         "公式": (qty_str, BILL_SECONDARY_FG, Qt.AlignCenter, "body"),
         "公式结果": (formula_result_str, BILL_SECONDARY_FG, _ALIGN_RIGHT, "numeric"),
-        "单价": (price_str, ORPHAN_FG if orphan else TEXT_PRIMARY, _ALIGN_RIGHT, "numeric"),
+        "单价": (
+            price_str,
+            ORPHAN_FG if orphan else TEXT_PRIMARY,
+            _ALIGN_RIGHT,
+            "numeric",
+        ),
         "金额": (total_str, total_color, _ALIGN_RIGHT, "numeric_bold"),
         "备注": (note, BILL_SECONDARY_FG, Qt.AlignCenter, "body"),
         "日期": (date, BILL_SECONDARY_FG, Qt.AlignCenter, "small"),
-        "修改时间": (bill.get("record_time", "-"), BILL_SECONDARY_FG, Qt.AlignCenter, "small"),
+        "修改时间": (
+            bill.get("record_time", "-"),
+            BILL_SECONDARY_FG,
+            Qt.AlignCenter,
+            "small",
+        ),
     }
 
 
@@ -198,9 +224,12 @@ class _RowTableModel(QAbstractTableModel):
         return 0 if parent.isValid() else len(self._columns)
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
-        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
-            if 0 <= section < len(self._columns):
-                return self._columns[section]
+        if (
+            orientation == Qt.Horizontal
+            and role == Qt.DisplayRole
+            and 0 <= section < len(self._columns)
+        ):
+            return self._columns[section]
         return None
 
     def flags(self, index):
@@ -216,6 +245,7 @@ class _RowTableModel(QAbstractTableModel):
 
     def mimeData(self, indexes):
         from PySide6.QtCore import QMimeData
+
         rows = sorted({i.row() for i in indexes if i.isValid()})
         if not rows:
             return None
@@ -229,8 +259,13 @@ class _RowTableModel(QAbstractTableModel):
     def dropMimeData(self, data, action, row, column, parent):
         if action == Qt.IgnoreAction or not data.hasFormat(self.MIME_TYPE):
             return False
-        src_rows = [int(r) for r in data.data(self.MIME_TYPE).decode().split(",")]
-        target = row if row >= 0 else (parent.row() if parent.isValid() else self.rowCount())
+        try:
+            src_rows = [int(r) for r in data.data(self.MIME_TYPE).decode().split(",")]
+        except (UnicodeDecodeError, ValueError):
+            return False
+        target = (
+            row if row >= 0 else (parent.row() if parent.isValid() else self.rowCount())
+        )
         self.rows_moved.emit(src_rows, target)
         return True
 
@@ -250,8 +285,13 @@ class QtBillModel(_RowTableModel):
         self._trade_items: list = []
         self._calculations: list = []
 
-    def set_data(self, bills: list, trade_items: list | None = None,
-                 op_map: dict | None = None, calculations=None) -> None:
+    def set_data(
+        self,
+        bills: list,
+        trade_items: list | None = None,
+        op_map: dict | None = None,
+        calculations=None,
+    ) -> None:
         self._rows = list(bills or [])
         if op_map is not None:
             self._op_map = op_map
@@ -272,7 +312,8 @@ class QtBillModel(_RowTableModel):
                 row, self._rows[row], self._calculations[row], self._op_map
             )
             cells["_bg"] = cells.get("_bg") or (
-                REVIEW_BG if is_bill_reviewed(self._rows[row])
+                REVIEW_BG
+                if is_bill_reviewed(self._rows[row])
                 else (ROW_STRIPE if row % 2 == 1 else APP_BG)
             )
             self._cache[row] = cells
@@ -289,16 +330,15 @@ class QtBillModel(_RowTableModel):
             color = cells.get(col, (None, None, None, None))[1]
             return QColor(color) if color else None
         if role == Qt.TextAlignmentRole:
-            return cells.get(col, (None, None, None, None))[2]
+            return Qt.AlignCenter
         if role == Qt.FontRole:
             font_role = cells.get(col, (None, None, None, "body"))[3]
             return _role_font(font_role)
         if role == Qt.BackgroundRole:
             bg = self._row_bg(index.row(), cells["_bg"])
             return QBrush(QColor(bg)) if bg else None
-        if role == Qt.ToolTipRole:
-            if col == "公式":
-                return str(self._rows[index.row()].get("content", ""))
+        if role == Qt.ToolTipRole and col == "公式":
+            return str(self._rows[index.row()].get("content", ""))
         return None
 
 
@@ -314,14 +354,20 @@ class QtWorkerModel(_RowTableModel):
             return None
         col = self._columns[index.column()]
         if role == Qt.DisplayRole or role == Qt.EditRole:
-            return worker_row_cells(self._rows[index.row()]).get(col, (None, None, None, None))[0]
+            return worker_row_cells(self._rows[index.row()]).get(
+                col, (None, None, None, None)
+            )[0]
         if role == Qt.ForegroundRole:
-            color = worker_row_cells(self._rows[index.row()]).get(col, (None, None, None, None))[1]
+            color = worker_row_cells(self._rows[index.row()]).get(
+                col, (None, None, None, None)
+            )[1]
             return QColor(color) if color else None
         if role == Qt.TextAlignmentRole:
-            return worker_row_cells(self._rows[index.row()]).get(col, (None, None, None, None))[2]
+            return Qt.AlignCenter
         if role == Qt.FontRole:
-            font_role = worker_row_cells(self._rows[index.row()]).get(col, (None, None, None, "body"))[3]
+            font_role = worker_row_cells(self._rows[index.row()]).get(
+                col, (None, None, None, "body")
+            )[3]
             return _role_font(font_role)
         if role == Qt.BackgroundRole:
             bg = ROW_STRIPE if index.row() % 2 == 1 else APP_BG
@@ -344,6 +390,7 @@ def _role_font(role: str):
     font = _role_font_cache.get(role)
     if font is None:
         from ..font_manager import font_manager
+
         base_role = _NUMERIC_BASE_ROLES.get(role)
         if base_role is not None:
             font = QFont(font_manager.get(base_role))

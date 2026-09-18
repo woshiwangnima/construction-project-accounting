@@ -8,9 +8,17 @@ class ThemeQtTests(unittest.TestCase):
     def test_build_qss_contains_all_palette_colors(self):
         qss = build_qss()
         for name in (
-            "APP_BG", "ACCENT", "ACCENT_HOVER", "BORDER", "TEXT_PRIMARY",
-            "TEXT_SECONDARY", "TEXT_TERTIARY", "HIGHLIGHT_BG", "ROW_STRIPE",
-            "TABLE_HEADER_BG", "TABLE_HEADER_FG",
+            "APP_BG",
+            "ACCENT",
+            "ACCENT_HOVER",
+            "BORDER",
+            "TEXT_PRIMARY",
+            "TEXT_SECONDARY",
+            "TEXT_TERTIARY",
+            "HIGHLIGHT_BG",
+            "ROW_STRIPE",
+            "TABLE_HEADER_BG",
+            "TABLE_HEADER_FG",
         ):
             value = getattr(theme, name)
             self.assertIn(value, qss, name)
@@ -18,11 +26,24 @@ class ThemeQtTests(unittest.TestCase):
     def test_build_qss_covers_primary_widget_types(self):
         qss = build_qss()
         for selector in (
-            "QMainWindow", "QDialog", "QPushButton", "QLineEdit",
-            "QComboBox", "QSpinBox", "QDateEdit", "QTableView",
-            "QHeaderView::section", "QScrollBar:vertical",
+            "QMainWindow",
+            "QDialog",
+            "QPushButton",
+            "QLineEdit",
+            "QComboBox",
+            "QSpinBox",
+            "QDateEdit",
+            "QTableView",
+            "QHeaderView::section",
+            "QScrollBar:vertical",
         ):
             self.assertIn(selector, qss, selector)
+
+    def test_tooltip_uses_centralized_high_contrast_pair(self):
+        qss = build_qss()
+        self.assertNotEqual(theme.TOOLTIP_BG, theme.TOOLTIP_FG)
+        self.assertIn(f"background-color: {theme.TOOLTIP_BG}", qss)
+        self.assertIn(f"color: {theme.TOOLTIP_FG}", qss)
 
     def test_font_spec_from_tuple(self):
         spec = FontSpec.from_tuple(theme.FONT_BODY)
@@ -57,8 +78,11 @@ class ThemeQtTests(unittest.TestCase):
         「五颜六色」的根因。现在强调色只有赤陶橙一个色相，这条守住它。
         """
         blues = [
-            name for name, value in vars(theme).items()
-            if isinstance(value, str) and len(value) == 7 and value.startswith("#")
+            name
+            for name, value in vars(theme).items()
+            if isinstance(value, str)
+            and len(value) == 7
+            and value.startswith("#")
             and int(value[5:7], 16) - int(value[1:3], 16) > 30
         ]
         self.assertEqual(blues, [], f"色板出现蓝色系色值（第二色相）: {blues}")

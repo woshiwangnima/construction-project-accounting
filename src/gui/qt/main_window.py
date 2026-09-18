@@ -3,27 +3,52 @@
 P2 范围：窗口几何持久化（JSON window_sizes.main）、QSplitter 侧栏比例、
 全局 QSS + 字体、快捷键绑定、更新检查（发现结果仅记日志，P4 接对话框）。
 """
+
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QSplitter, QVBoxLayout, QWidget,
+    QApplication,
+    QMainWindow,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
 )
 
-from ...logger import logger
 from ...config_loader import load_app, save_app
+from ...logger import logger
 from ...updater import UpdateChecker
 from ...voice import get_voice
+from .. import shortcut_manager as sm_module
 from ..editability import EditabilityPolicy
 from ..font_manager import font_manager
 from ..theme import (
-    BORDER, DANGER, DANGER_FG, SIDEBAR_BG, SUCCESS_FG, TEXT_PRIMARY,
-    TEXT_SECONDARY, build_qss,
+    BORDER,
+    DANGER,
+    DANGER_FG,
+    SIDEBAR_BG,
+    SUCCESS_FG,
+    TEXT_PRIMARY,
+    TEXT_SECONDARY,
+    build_qss,
     font_px,
 )
-from .. import shortcut_manager as sm_module
-from .sidebar import QtSidebar
 from .content import QtContentArea
+from .sidebar import QtSidebar
 
 sm = sm_module.shortcut_manager
+
+
+def _safe_int(value, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(value, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 class MainWindow(QMainWindow):
@@ -56,10 +81,10 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         app_config = load_app()
-        ratio = app_config.get("sidebar_width_ratio", 0.22)
+        ratio = _safe_float(app_config.get("sidebar_width_ratio", 0.22), 0.22)
         compact = bool(app_config.get("sidebar_compact", False))
         ww = max(self.width(), 800)
-        sidebar_w = 68 if compact else max(270, min(420, int(ww * ratio)))
+        sidebar_w = 68 if compact else max(270, min(420, round(ww * ratio)))
 
         self.sidebar = QtSidebar(
             self._on_project_select,
@@ -127,6 +152,7 @@ class MainWindow(QMainWindow):
         if self._closed:
             return
         from .feedback import save_state_message
+
         text = save_state_message(state, stamp)
         if state == "failed":
             self.statusBar().setStyleSheet(
@@ -142,9 +168,11 @@ class MainWindow(QMainWindow):
         def _show():
             try:
                 from .onboarding import maybe_show_onboarding
+
                 maybe_show_onboarding(self, self.content)
             except Exception as exc:
                 logger.warning("[onboarding] 触发失败: %s", exc)
+
         QTimer.singleShot(2000, _show)
 
     # ── 主题 / 字体刷新 ─────────────────────────────────────────────────────
@@ -164,7 +192,8 @@ class MainWindow(QMainWindow):
         cfg = load_app()
         saved = cfg.get("window_sizes", {}).get(self.WINDOW_KEY)
         if saved and isinstance(saved, list) and len(saved) == 2:
-            w, h = int(saved[0]), int(saved[1])
+            w = _safe_int(saved[0], 0)
+            h = _safe_int(saved[1], 0)
             sw = self.screen().availableGeometry()
             if w > 200 and h > 200:
                 w = min(w, sw.width())
@@ -231,7 +260,7 @@ class MainWindow(QMainWindow):
                 cfg["sidebar_expanded_width"] = sizes[0]
             self._splitter.setSizes([68, max(self.width() - 68, 400)])
         else:
-            expanded = int(cfg.get("sidebar_expanded_width", 280))
+            expanded = _safe_int(cfg.get("sidebar_expanded_width", 280), 280)
             expanded = max(260, min(420, expanded))
             self.sidebar.setMinimumWidth(260)
             self.sidebar.setMaximumWidth(420)
@@ -250,14 +279,14 @@ class MainWindow(QMainWindow):
     def _on_project_name_change(self, uuid: str, new_name: str) -> None:
         try:
             self.sidebar.update_item_name(uuid, new_name)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("同步侧栏项目名称失败: %s", exc)
 
     def _on_project_status_change(self, uuid: str, new_status) -> None:
         try:
             self.sidebar.update_item_status(uuid, new_status)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("同步侧栏项目状态失败: %s", exc)
 
     def _on_settings_closed(self) -> None:
         get_voice().stop()
@@ -300,7 +329,9 @@ class MainWindow(QMainWindow):
                     self._update_check_running = False
                     self._update_checker = None
                     if checker.result:
-                        logger.info("[updater] 发现新版本: %s", checker.result.latest_version)
+                        logger.info(
+                            "[updater] 发现新版本: %s", checker.result.latest_version
+                        )
                 else:
                     self._update_poll_after_id = QTimer(self)
                     self._update_poll_after_id.setSingleShot(True)
@@ -324,13 +355,17 @@ class MainWindow(QMainWindow):
         if self._closed:
             return
         self._closed = True
-        for timer_attr in ("_save_after_id", "_update_check_after_id", "_update_poll_after_id"):
+        for timer_attr in (
+            "_save_after_id",
+            "_update_check_after_id",
+            "_update_poll_after_id",
+        ):
             timer = getattr(self, timer_attr, None)
             if timer is not None:
                 try:
                     timer.stop()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("停止关闭定时器失败: %s", exc)
                 setattr(self, timer_attr, None)
         self._update_check_running = False
         self._update_checker = None
@@ -358,6 +393,7 @@ class MainWindow(QMainWindow):
 
         try:
             from ...voice import VoiceEngine
+
             if VoiceEngine._instance is not None:
                 VoiceEngine._instance.shutdown()
         except Exception as exc:

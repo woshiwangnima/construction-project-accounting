@@ -4,29 +4,54 @@
   basic / font / shortcut / voice / notification / export / about。
 窗口关闭时统一把各面板保存回 app_config.json（字体相关进 user_config.json）。
 """
+
 from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QApplication, QDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
-    QScrollArea, QStackedWidget, QVBoxLayout, QWidget,
+    QApplication,
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QScrollArea,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
 from .....config_loader import load_app, load_user, save_user
 from .....logger import logger
+from ....font_manager import font_manager
 from ....theme import (
-    ACCENT_LIGHT, ACCENT_TEXT, APP_BG, BORDER, SIDEBAR_BG, TEXT_PRIMARY,
+    ACCENT_LIGHT,
+    ACCENT_TEXT,
+    APP_BG,
+    BORDER,
+    SIDEBAR_BG,
+    TEXT_PRIMARY,
     TEXT_SECONDARY,
+    TOOLTIP_QSS,
     font_px,
 )
+from .about_panel import AboutPanel
 from .basic_panel import BasicPanel
+from .export_panel import ExportPanel
 from .font_panel import FontPanel
+from .notification_panel import NotificationPanel
 from .shortcut_panel import ShortcutPanel
 from .voice_panel import VoicePanel
-from .notification_panel import NotificationPanel
-from .export_panel import ExportPanel
-from .about_panel import AboutPanel
 
 _DEFAULT_SIZE = (800, 600)
 _MIN_SIZE = (720, 520)
+
+
+def _safe_size_value(value, fallback: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
+
 
 _PANELS = (
     ("basic", "基础设置", BasicPanel),
@@ -53,6 +78,11 @@ class SettingsDialog(QDialog):
 
         self.setWindowTitle("设置")
         self.setModal(True)
+        # 设置窗口及全部子控件统一继承正文角色，禁止回退到系统默认字体。
+        body_font = font_manager.get("body")
+        if isinstance(body_font, QFont):
+            self.setFont(body_font)
+        self.setStyleSheet(TOOLTIP_QSS)
         self.setMinimumSize(*_MIN_SIZE)
         self.resize(*self._resolve_size())
 
@@ -63,12 +93,13 @@ class SettingsDialog(QDialog):
         title_bar = QWidget()
         title_bar.setObjectName("settingsTitleBar")
         title_bar.setFixedHeight(52)
-        title_bar.setStyleSheet(
-            f"QWidget#settingsTitleBar {{ background: {APP_BG}; }}"
-        )
+        title_bar.setStyleSheet(f"QWidget#settingsTitleBar {{ background: {APP_BG}; }}")
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(20, 0, 20, 0)
         title = QLabel("设置")
+        heading_font = font_manager.get("heading")
+        if isinstance(heading_font, QFont):
+            title.setFont(heading_font)
         title.setStyleSheet(
             f"color: {TEXT_PRIMARY}; font-size: {font_px('heading')}px; font-weight: bold;"
         )
@@ -82,6 +113,8 @@ class SettingsDialog(QDialog):
 
         self._nav = QListWidget()
         self._nav.setObjectName("settingsNav")
+        if isinstance(body_font, QFont):
+            self._nav.setFont(body_font)
         self._nav.setFixedWidth(196)
         self._nav.setStyleSheet(
             f"QListWidget#settingsNav {{ background: {SIDEBAR_BG}; border: none; outline: none; padding: 12px 8px; }}"
@@ -116,7 +149,8 @@ class SettingsDialog(QDialog):
         for cfg in (load_user(), load_app()):
             size = (cfg.get("window_sizes") or {}).get("settings")
             if isinstance(size, list) and len(size) == 2:
-                w, h = max(_MIN_SIZE[0], int(size[0])), max(_MIN_SIZE[1], int(size[1]))
+                w = max(_MIN_SIZE[0], _safe_size_value(size[0], _DEFAULT_SIZE[0]))
+                h = max(_MIN_SIZE[1], _safe_size_value(size[1], _DEFAULT_SIZE[1]))
                 return self._clamp_to_screen(w, h)
         return _DEFAULT_SIZE
 
@@ -128,8 +162,8 @@ class SettingsDialog(QDialog):
                 area = screen.availableGeometry()
                 w = min(w, max(_MIN_SIZE[0], area.width()))
                 h = min(h, max(_MIN_SIZE[1], area.height()))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("[settings] 获取屏幕可用区域失败: %s", exc)
         return w, h
 
     def _save_size(self) -> None:
@@ -146,7 +180,7 @@ class SettingsDialog(QDialog):
     def _build_nav(self) -> None:
         for key, label, _panel_cls in _PANELS:
             item = QListWidgetItem(label)
-            item.setData(Qt.UserRole, key)
+            item.setData(Qt.ItemDataRole.UserRole, key)
             # 显式设置行高：不设置时 QListWidget 会用默认 14px，
             # 文字被压扁、导航项挤成一团。
             item.setSizeHint(item.sizeHint())
@@ -163,11 +197,11 @@ class SettingsDialog(QDialog):
                     # 长面板）可滚动查看，避免控件被压缩堆叠导致布局混乱。
                     scroll = QScrollArea()
                     scroll.setWidgetResizable(True)
-                    scroll.setFrameShape(QScrollArea.NoFrame)
+                    scroll.setFrameShape(QScrollArea.Shape.NoFrame)
                     scroll.setStyleSheet(
                         "QScrollArea { background: transparent; border: none; }"
                     )
-                    scroll.setAlignment(Qt.AlignTop)
+                    scroll.setAlignment(Qt.AlignmentFlag.AlignTop)
                     self._panel_views[key] = scroll
                     try:
                         panel = cls(scroll)
@@ -180,10 +214,11 @@ class SettingsDialog(QDialog):
                         error_layout.setContentsMargins(32, 32, 32, 32)
                         error_layout.setSpacing(10)
                         title = QLabel("此设置页暂时无法加载")
-                        title.setStyleSheet(f"font-size: {font_px('heading')}px; font-weight: bold;")
+                        title.setStyleSheet(
+                            f"font-size: {font_px('heading')}px; font-weight: bold;"
+                        )
                         detail = QLabel(
-                            f"页面：{dict((k, label) for k, label, _ in _PANELS).get(key, key)}\n"
-                            "请重试；如果问题持续，请查看日志。"
+                            f"页面：{_label}\n请重试；如果问题持续，请查看日志。"
                         )
                         detail.setWordWrap(True)
                         detail.setStyleSheet(f"color: {TEXT_SECONDARY};")
@@ -205,7 +240,7 @@ class SettingsDialog(QDialog):
         item = self._nav.item(row)
         if item is None:
             return
-        key = item.data(Qt.UserRole)
+        key = item.data(Qt.ItemDataRole.UserRole)
         if key is None or key == self._current_key:
             return
         panel = self._panel_for(key)
@@ -243,9 +278,10 @@ class SettingsDialog(QDialog):
     def _flush_all(self) -> None:
         for key, _label, _cls in _PANELS:
             panel = self._panels.get(key)
-            if panel is None or not hasattr(panel, "save"):
+            save = getattr(panel, "save", None)
+            if not callable(save):
                 continue
             try:
-                panel.save()
+                save()
             except Exception as exc:
                 logger.warning("设置面板保存失败 (%s): %s", key, exc)

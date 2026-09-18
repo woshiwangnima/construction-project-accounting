@@ -1,5 +1,7 @@
 """颜色、字体、间距与圆角 tokens 定义（Tk 与 Qt 共享）"""
 
+from dataclasses import dataclass
+
 from ..theme_tokens import (
     DANGER_BG,
     DANGER_FG,
@@ -19,10 +21,26 @@ from ..theme_tokens import (
     WARNING_FG,
 )
 
+# 这些 token 由本模块继续作为公共主题 API 导出。
+_TOKEN_EXPORTS = (
+    DANGER_BG,
+    DANGER_FG,
+    INFO_BG,
+    INFO_FG,
+    STATUS_DONE_BG,
+    STATUS_DONE_FG,
+    STATUS_EDITING_BG,
+    STATUS_EDITING_FG,
+    SUCCESS_BG,
+    SUCCESS_FG,
+    WARNING_BG,
+    WARNING_FG,
+)
+
 # ── 颜色 ──────────────────────────────────────────────────────────────────────
-# Claude 风收敛色板（2026-09-18）：一套暖灰 + 一个赤陶橙强调色。
+# 工程记账中性色板：暖灰提供结构，赤陶色只用于少量关键强调。
 # 规则见 src/theme_tokens.py 顶部注释——新增硬编码 hex 之前先查这里。
-APP_BG = "#faf9f7"          # 页面底：暖白，不是纯白
+APP_BG = "#faf9f7"  # 页面底：暖白，不是纯白
 
 # 文本层：TEXT_PRIMARY / TEXT_SECONDARY / TEXT_TERTIARY 来自 theme_tokens。
 # TEXT_MUTED 比 secondary 弱一档但仍 ≥4.5:1，用于次要正文、未选中标记一类
@@ -35,7 +53,7 @@ ACCENT = "#b5572f"
 ACCENT_HOVER = "#9c4826"
 ACCENT_PRESSED = "#863b1d"
 ACCENT_TEXT = "#8f4522"
-ACCENT_LIGHT = "#f7e9e1"    # 极浅赤陶底：选中行 / 菜单 hover
+ACCENT_LIGHT = "#f7e9e1"  # 极浅赤陶底：选中行 / 菜单 hover
 ACCENT_FOCUS = "#dfa98c"
 
 DANGER = "#b0463a"
@@ -44,10 +62,10 @@ DANGER_PRESSED = "#822b23"
 
 # 边框 / 分隔（暖灰，比纯灰更贴暖白底）
 BORDER = "#e8e5df"
-BORDER_STRONG = "#cdc9c0"   # hover / 需要强调的边框
+BORDER_STRONG = "#cdc9c0"  # hover / 需要强调的边框
 SEPARATOR = "#edeae4"
 SURFACE_SUNKEN = "#f4f2ed"  # 只读输入框 / 内嵌凹槽面
-GRIDLINE = "#efece7"        # 表格网格线
+GRIDLINE = "#efece7"  # 表格网格线
 HIGHLIGHT_BG = ACCENT_LIGHT
 
 # 系统语义色（低饱和暖调，仅用于真正需要语义区分处）
@@ -105,8 +123,15 @@ BTN_DISABLED_BG = "#f0eee9"
 BTN_DISABLED_FG = "#a8a49c"
 SEGMENT_BG = "#f0eee9"
 SEGMENT_SELECTED_BG = "#ffffff"
-TOOLTIP_BG = "#1f1e1d"
-TOOLTIP_FG = "#ffffff"
+# Tooltip 必须固定为高对比度深底浅字。Windows 原生样式与 qfluentwidgets
+# 可能分别接管背景或文字，因此 QSS 与 QApplication palette 必须同时设置。
+TOOLTIP_BG = TEXT_PRIMARY
+TOOLTIP_FG = CARD_BG
+TOOLTIP_QSS = (
+    f"QToolTip {{ background-color: {TOOLTIP_BG}; color: {TOOLTIP_FG};"
+    f" border: 1px solid {BORDER_STRONG}; border-radius: {RADIUS_SM}px;"
+    f" padding: {PAD_SM}px 8px; }}"
+)
 MENU_BG = "#ffffff"
 MENU_HOVER = ACCENT_LIGHT
 ITEM_SELECTED_BG = ACCENT_LIGHT
@@ -120,20 +145,20 @@ LIST_EMPTY_FG = "#a8a49c"
 # setPointSize，表格单元格（走 model 的 FontRole）会比界面其它文字大约三分之一，
 # 同一屏里就会看到两种大小的正文。
 FONT_SIZE_MULTIPLIERS = {
-    "icon_btn":    1.0,
-    "dialog_btn":  1.0,
-    "entry_item":  1.0,
-    "button":      1.0,
-    "calc_btn":    1.29,
-    "title":       1.57,
-    "heading":     1.2,
-    "subheading":  1.07,
-    "body":        1.0,
-    "body_bold":   1.0,
-    "tree":        1.0,
+    "icon_btn": 1.0,
+    "dialog_btn": 1.0,
+    "entry_item": 1.0,
+    "button": 1.0,
+    "calc_btn": 1.29,
+    "title": 1.57,
+    "heading": 1.2,
+    "subheading": 1.07,
+    "body": 1.0,
+    "body_bold": 1.0,
+    "tree": 1.0,
     "tree_header": 1.0,
-    "small":       0.86,
-    "amount":      2.0,
+    "small": 0.86,
+    "amount": 2.0,
 }
 
 DEFAULT_FONT_SIZE = 14
@@ -153,6 +178,7 @@ def base_font_size() -> int:
     """当前正文基准字号（px），读 app_config 的 default_font_size。"""
     try:
         from ..config_loader import load_app
+
         return clamp_base_font_size(
             load_app().get("default_font_size", DEFAULT_FONT_SIZE)
         )
@@ -200,13 +226,12 @@ FONT_TREE = (FONT_FAMILY, font_px("tree", DEFAULT_FONT_SIZE), "")
 FONT_TREE_HEADER = (FONT_FAMILY, font_px("tree_header", DEFAULT_FONT_SIZE), "bold")
 FONT_CALC_BTN = (FONT_FAMILY, font_px("calc_btn", DEFAULT_FONT_SIZE), "bold")
 
+
 # ── Qt (PySide6) 侧定义：字体规格与 QSS 生成 ──────────────────────────────────
-from dataclasses import dataclass
-
-
 @dataclass(frozen=True)
 class FontSpec:
     """Qt 字体规格：family/size/weight 三元组，与 FONT_* 元组结构一致。"""
+
     family: str
     size: int
     weight: str = ""
@@ -214,6 +239,16 @@ class FontSpec:
     @classmethod
     def from_tuple(cls, value: tuple) -> "FontSpec":
         return cls(*value)
+
+
+def apply_tooltip_palette(app) -> None:
+    """同步 Qt 原生 Tooltip 调色板，防止 QSS 与平台主题各应用一半。"""
+    from PySide6.QtGui import QColor, QPalette
+
+    palette = app.palette()
+    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(TOOLTIP_BG))
+    palette.setColor(QPalette.ColorRole.ToolTipText, QColor(TOOLTIP_FG))
+    app.setPalette(palette)
 
 
 def build_qss(base_size: int | None = None) -> str:
@@ -227,7 +262,16 @@ def build_qss(base_size: int | None = None) -> str:
     （setFont 会被 QSS 的 font-size 覆盖），因此这里跟随配置，
     设置面板调整默认字号即可整体放大/缩小 UI。
     """
-    base_size = base_font_size() if base_size is None else clamp_base_font_size(base_size)
+    base_size = (
+        base_font_size() if base_size is None else clamp_base_font_size(base_size)
+    )
+    # 平台主题和 QSS 可能分别接管 Tooltip 的底色与文字色；构建全局样式时
+    # 同步 palette，确保说明文字始终使用同一组高对比度颜色。
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is not None:
+        apply_tooltip_palette(app)
     # 角色字号统一由倍率表推导（与 font_manager 同源），不在 QSS 里写死任何 px
     title_px = font_px("title", base_size)
     heading_px = font_px("heading", base_size)
@@ -315,23 +359,29 @@ QPushButton[flat="true"]:hover {{
     color: {TEXT_PRIMARY};
 }}
 
-/* ── 分段页签（tab property）── */
-QPushButton[tab="true"] {{
+/* ── 页面导航与表格视图切换：中性色承担结构，强调色只标记主导航 ── */
+QPushButton[navigation="true"], QPushButton[viewMode="true"] {{
     background: transparent;
     color: {TEXT_SECONDARY};
     border: none;
     border-radius: {RADIUS_SM}px;
-    padding: 6px 14px;
+    padding: 6px 12px;
     font-weight: normal;
 }}
-QPushButton[tab="true"]:hover {{
+QPushButton[navigation="true"]:hover, QPushButton[viewMode="true"]:hover {{
     background: {ROW_HOVER};
     color: {TEXT_PRIMARY};
 }}
-QPushButton[tab="true"]:checked {{
+QPushButton[navigation="true"]:checked {{
+    background: {SEGMENT_BG};
+    color: {ACCENT_TEXT};
+    border: none;
+    font-weight: bold;
+}}
+QPushButton[viewMode="true"]:checked {{
     background: {SEGMENT_SELECTED_BG};
-    color: {ACCENT};
-    border: 1px solid {CARD_BORDER};
+    color: {TEXT_PRIMARY};
+    border: none;
     font-weight: bold;
 }}
 
@@ -438,13 +488,7 @@ QMenu::separator {{
 }}
 
 /* ── 提示 ── */
-QToolTip {{
-    background: {TOOLTIP_BG};
-    color: {TOOLTIP_FG};
-    border: none;
-    border-radius: {RADIUS_SM}px;
-    padding: {PAD_SM}px 8px;
-}}
+{TOOLTIP_QSS}
 QMessageBox {{ background: {APP_BG}; }}
 
 /* ── 分割条 ── */

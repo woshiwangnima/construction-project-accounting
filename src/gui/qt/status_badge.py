@@ -1,77 +1,48 @@
-"""Qt 状态徽章（替代 Tk StatusBadge / ClickableStatusBadge）。
+"""可勾选的项目完成状态控件。"""
 
-横向 pill 布局：左侧状态圆点 + 右侧文字，浅色底 + 深色加粗字，
-保证中年用户可读性。可点击版支持 on_click 回调。
-"""
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont
+from PySide6.QtWidgets import QCheckBox
 
 from ...project_status import ProjectStatus
 from ..font_manager import font_manager
-from ..theme import (
-    INFO_BG, STATUS_DONE_FG, STATUS_EDITING_FG, SUCCESS_BG,
-)
+from ..theme import TEXT_PRIMARY
 
 
-class QtStatusBadge(QWidget):
-    clicked = Signal()
+class QtStatusBadge(QCheckBox):
+    """用明确的复选框表达项目是否完成。
 
-    def __init__(self, parent=None, status=None, *, icon=None, text=None,
-                 color=None):
-        super().__init__(parent)
-        self._status = status
-        self._icon = icon
-        self._text = text
-        self._color = color
+    勾选表示“项目已完成”，未勾选表示项目仍在编辑。状态更新时会暂时
+    阻断信号，避免加载项目或保存回写时误触发用户操作回调。
+    """
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 4, 12, 4)
-        layout.setSpacing(6)
-        self._icon_lbl = QLabel()
-        self._icon_lbl.setAlignment(Qt.AlignCenter)
-        self._text_lbl = QLabel()
-        self._text_lbl.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self._icon_lbl)
-        layout.addWidget(self._text_lbl)
-        self.configure_status(status)
+    def __init__(self, parent=None, status=None, **_kwargs):
+        super().__init__("项目已完成", parent)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip("勾选后项目将标记为已完成；取消勾选可继续编辑")
+        self.setStyleSheet(
+            f"QCheckBox {{ color: {TEXT_PRIMARY}; background: transparent; spacing: 7px; }}"
+        )
+        self.set_status(status)
         self._apply_fonts()
 
     def configure_status(self, status: ProjectStatus | None) -> None:
-        self._status = status
-        if status is None:
-            self._icon_lbl.setText("")
-            self._text_lbl.setText("")
-            self.setStyleSheet("background: transparent;")
-            return
-        self._icon_lbl.setText(self._icon if self._icon is not None else status.icon)
-        self._text_lbl.setText(self._text if self._text is not None else status.display_name)
-        color = self._color if self._color is not None else status.color
-        if status == ProjectStatus.EDITING:
-            bg = INFO_BG
-        elif status == ProjectStatus.DONE:
-            bg = SUCCESS_BG
-        else:
-            bg = "transparent"
-        self.setStyleSheet(
-            f"background: {bg}; border: none; border-radius: 14px;"
-            f" color: {color};"
-        )
-        self._icon_lbl.setStyleSheet(f"color: {color}; background: transparent;")
-        self._text_lbl.setStyleSheet(f"color: {color}; background: transparent;")
+        self.set_status(status)
 
     def set_status(self, status: ProjectStatus | None) -> None:
-        self.configure_status(status)
+        previous = self.blockSignals(True)
+        try:
+            self.setChecked(status == ProjectStatus.DONE)
+        finally:
+            self.blockSignals(previous)
 
-    def set_bg(self, color: str) -> None:
-        self.setStyleSheet(f"background: {color};")
+    def set_bg(self, _color: str) -> None:
+        """保留旧接口；复选框不再使用状态色块。"""
 
-    def set_pill(self, background: str) -> None:
-        """pill 容器样式：圆角背景 + 内边距；未调用时保持透明（默认）。"""
-        self.setStyleSheet(
-            f"background: {background}; border-radius: 14px;"
-        )
+    def set_pill(self, _background: str) -> None:
+        """保留旧接口；复选框不再使用胶囊背景。"""
 
     def _apply_fonts(self) -> None:
-        body_bold = font_manager.get("body_bold")
-        self._icon_lbl.setFont(body_bold)
-        self._text_lbl.setFont(body_bold)
+        body = font_manager.get("body")
+        if isinstance(body, QFont):
+            self.setFont(body)

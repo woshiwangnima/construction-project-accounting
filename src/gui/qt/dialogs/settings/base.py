@@ -3,24 +3,46 @@
 面板在切换时保持实例缓存；设置统一在窗口关闭时由 SettingsDialog 依次
 调用 save() 落盘，避免切换导航时频繁写文件。
 """
+
+from contextlib import suppress
+
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QColorDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QSizePolicy, QVBoxLayout, QWidget,
+    QColorDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
 )
 
+from ....font_manager import font_manager
 from ....theme import (
-    BORDER, TEXT_PRIMARY, TEXT_SECONDARY, font_px, label_col_width,
+    BORDER,
+    TEXT_PRIMARY,
+    TEXT_SECONDARY,
+    font_px,
+    label_col_width,
 )
 
 
 def section_title(text: str) -> QLabel:
     label = QLabel(text)
+    heading = font_manager.get("heading")
+    if isinstance(heading, QFont):
+        label.setFont(heading)
     label.setStyleSheet(f"font-size: {font_px('heading')}px; font-weight: bold;")
     return label
 
 
 def section_hint(text: str) -> QLabel:
     label = QLabel(text)
+    small = font_manager.get("small")
+    if isinstance(small, QFont):
+        label.setFont(small)
     label.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: {font_px('small')}px;")
     label.setWordWrap(True)
     return label
@@ -28,7 +50,7 @@ def section_hint(text: str) -> QLabel:
 
 def separator() -> QFrame:
     line = QFrame()
-    line.setFrameShape(QFrame.HLine)
+    line.setFrameShape(QFrame.Shape.HLine)
     line.setStyleSheet(f"color: {BORDER}; background: {BORDER}; max-height: 1px;")
     return line
 
@@ -112,7 +134,10 @@ class BasePanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("settingsPanel")
-        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        body = font_manager.get("body")
+        if isinstance(body, QFont):
+            self.setFont(body)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(24, 20, 28, 24)
         self._layout.setSpacing(12)
@@ -128,10 +153,8 @@ class BasePanel(QWidget):
         self._body_layout.setSpacing(10)
         self._layout.addWidget(self._body)
         self.build(self._body_layout)
-        try:
+        with suppress(NotImplementedError):
             self.load()
-        except NotImplementedError:
-            pass
 
     # ── 子类接口 ───────────────────────────────────────────────────────
 

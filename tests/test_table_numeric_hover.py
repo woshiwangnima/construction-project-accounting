@@ -1,21 +1,25 @@
-"""数字列对齐/等宽字体 + 模型层整行悬停底色。
+"""表格数据居中/数字等宽字体 + 模型层整行悬停底色。
 
-- 「单价 / 金额 / 公式结果」列右对齐，便于纵向对位扫读、小数位对齐；
+- 所有数据列统一水平、垂直居中；
 - 数字列用等宽数字字体（Consolas，￥/中文缺字形自动回退系统字体）；
 - 模型 ``set_hover_row`` 后 BackgroundRole 在原底色（斑马纹 / 审核绿）
   上向暖灰叠色，与审核底色共存，而不是盖一层实色。
 """
+
 import os
 import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QBrush
+from PySide6.QtGui import QBrush, QFont
 from PySide6.QtWidgets import QApplication
 
 from src.gui.qt.table_models import (
-    _NUMERIC_FAMILY, _hover_blend, QtBillModel, QtWorkerModel,
+    _NUMERIC_FAMILY,
+    QtBillModel,
+    QtWorkerModel,
+    _hover_blend,
 )
 from src.gui.theme import APP_BG, REVIEW_BG, ROW_STRIPE
 
@@ -27,13 +31,30 @@ def setUpModule() -> None:
     _APP = QApplication.instance() or QApplication([])
 
 
-_BILL_COLUMNS = ["#", "审核", "工作内容", "公式", "公式结果", "单价", "金额",
-                 "备注", "日期", "修改时间", "操作"]
+_BILL_COLUMNS = [
+    "#",
+    "审核",
+    "工作内容",
+    "公式",
+    "公式结果",
+    "单价",
+    "金额",
+    "备注",
+    "日期",
+    "修改时间",
+    "操作",
+]
 _WORKER_COLUMNS = ["名称", "单价", "单位", "计费类型", "操作"]
 
 _TRADE_ITEMS = [
-    {"id": "ti-1", "category": "泥瓦工程", "name": "砌墙",
-     "has_unit": True, "unit_price": "12.50", "unit": "㎡"}
+    {
+        "id": "ti-1",
+        "category": "泥瓦工程",
+        "name": "砌墙",
+        "has_unit": True,
+        "unit_price": "12.50",
+        "unit": "㎡",
+    }
 ]
 
 
@@ -50,9 +71,9 @@ def _make_bill_model(bills=None) -> QtBillModel:
 def _make_worker_model() -> QtWorkerModel:
     model = QtWorkerModel()
     model.set_columns(_WORKER_COLUMNS, [])
-    model.set_data([
-        {"name": "砌墙", "has_unit": True, "unit_price": "12.50", "unit": "㎡"}
-    ])
+    model.set_data(
+        [{"name": "砌墙", "has_unit": True, "unit_price": "12.50", "unit": "㎡"}]
+    )
     return model
 
 
@@ -62,38 +83,38 @@ def _cell(model, row: int, col_name: str, role):
 
 
 def _bg_hex(model, row: int, col_name: str) -> str:
-    brush = _cell(model, row, col_name, Qt.BackgroundRole)
+    brush = _cell(model, row, col_name, Qt.ItemDataRole.BackgroundRole)
     assert isinstance(brush, QBrush)
     return brush.color().name()
 
 
 class NumericColumnTests(unittest.TestCase):
-    """数字列：右对齐 + 等宽数字字体。"""
+    """所有数据列居中，数字列继续使用等宽字体。"""
 
-    def test_bill_numeric_columns_right_aligned(self):
+    def test_bill_all_columns_centered(self):
         model = _make_bill_model()
-        for name in ("公式结果", "单价", "金额"):
-            align = _cell(model, 0, name, Qt.TextAlignmentRole)
-            self.assertTrue(align & Qt.AlignRight, f"{name} 应右对齐")
-            self.assertTrue(align & Qt.AlignVCenter, f"{name} 应垂直居中")
-
-    def test_bill_text_columns_stay_centered(self):
-        model = _make_bill_model()
-        for name in ("工作内容", "公式", "备注"):
-            align = _cell(model, 0, name, Qt.TextAlignmentRole)
-            self.assertFalse(align & Qt.AlignRight, f"{name} 不应右对齐")
+        for name in _BILL_COLUMNS[:-1]:
+            align = _cell(model, 0, name, Qt.ItemDataRole.TextAlignmentRole)
+            self.assertIsInstance(align, Qt.AlignmentFlag)
+            self.assertTrue(align & Qt.AlignmentFlag.AlignHCenter, f"{name} 应水平居中")
+            self.assertTrue(align & Qt.AlignmentFlag.AlignVCenter, f"{name} 应垂直居中")
 
     def test_bill_numeric_columns_use_monospace_font(self):
         model = _make_bill_model()
         for name in ("公式结果", "单价", "金额"):
-            font = _cell(model, 0, name, Qt.FontRole)
+            font = _cell(model, 0, name, Qt.ItemDataRole.FontRole)
+            self.assertIsInstance(font, QFont)
             self.assertEqual(font.family(), _NUMERIC_FAMILY, f"{name} 应用等宽数字字体")
 
-    def test_worker_price_column_right_aligned_monospace(self):
+    def test_worker_columns_centered_and_price_monospace(self):
         model = _make_worker_model()
-        align = _cell(model, 0, "单价", Qt.TextAlignmentRole)
-        self.assertTrue(align & Qt.AlignRight)
-        font = _cell(model, 0, "单价", Qt.FontRole)
+        for name in _WORKER_COLUMNS[:-1]:
+            align = _cell(model, 0, name, Qt.ItemDataRole.TextAlignmentRole)
+            self.assertIsInstance(align, Qt.AlignmentFlag)
+            self.assertTrue(align & Qt.AlignmentFlag.AlignHCenter, f"{name} 应水平居中")
+            self.assertTrue(align & Qt.AlignmentFlag.AlignVCenter, f"{name} 应垂直居中")
+        font = _cell(model, 0, "单价", Qt.ItemDataRole.FontRole)
+        self.assertIsInstance(font, QFont)
         self.assertEqual(font.family(), _NUMERIC_FAMILY)
 
 
@@ -119,7 +140,7 @@ class HoverRowTintTests(unittest.TestCase):
         model.set_hover_row(0)
         hovered = _bg_hex(model, 0, "金额")
         self.assertNotEqual(hovered, REVIEW_BG.lower())
-        r, g, b = (int(hovered[i:i + 2], 16) for i in (1, 3, 5))
+        r, g, b = (int(hovered[i : i + 2], 16) for i in (1, 3, 5))
         self.assertGreater(g - r, 3, "审核绿调在 hover 叠色后应仍可辨认")
 
     def test_worker_model_hover_tint(self):
@@ -137,6 +158,7 @@ class HoverRowTintTests(unittest.TestCase):
     def test_view_syncs_hover_row_to_model(self):
         """QtBaseTable._set_hover_row 同时驱动 delegate 与模型，行号不漂移。"""
         from src.gui.qt.table import QtBaseTable
+
         model = _make_worker_model()
         table = QtBaseTable()
         table.bind_model(model)

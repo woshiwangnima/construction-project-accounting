@@ -3,7 +3,7 @@
 供 src/gui/theme.py（Tk 与 Qt 共享色板）与 src/project_status.py 等
 非 GUI 模块引用，避免领域层反向依赖 GUI。
 
-── 色板约定（2026-09-18 起：Claude 风收敛）────────────────────────────────
+── 色板约定（2026-09-18 起：工程记账暖中性色）──────────────────────────────
 1. **一套中性色**：暖灰（warm gray），暖白底 #faf9f7 → 暖黑字 #1f1e1d。
    历史上 Apple 灰（#1c1c1e/#e5e5ea）、Tailwind 灰（#374151/#d1d5db）并存，
    已统一收回此处。新增任何硬编码 hex 之前先看这里有没有可用 token。
@@ -24,30 +24,30 @@ TEXT_TERTIARY = "#a8a49c"
 
 # ── 语义色对（前景 + 浅底成对，命名沿用 *_BG 后缀风格）──────────────────────
 # 前景对白底对比度均 ≥ 6:1，浅底只做极淡的区块区分。
-SUCCESS_FG = "#3f6b4a"   # 墨绿，6.1:1
+SUCCESS_FG = "#3f6b4a"  # 墨绿，6.1:1
 SUCCESS_BG = "#eaf1e9"
 
-WARNING_FG = "#8a5a1a"   # 暖褐，6.2:1
+WARNING_FG = "#8a5a1a"  # 暖褐，6.2:1
 WARNING_BG = "#fbf1de"
 
-DANGER_FG = "#a63a2e"    # 砖红，6.4:1
+DANGER_FG = "#a63a2e"  # 砖红，6.4:1
 DANGER_BG = "#faeceb"
 
-# 信息态并入强调色系（Claude 风不设蓝色相）
-INFO_FG = "#8f4522"      # 6.9:1
+# 信息态并入强调色系，避免为非关键状态引入第二种高辨识度色相
+INFO_FG = "#8f4522"  # 6.9:1
 INFO_BG = "#fbf1ec"
 
 # ── 项目状态徽章色对 ────────────────────────────────────────────────────────
-STATUS_EDITING_FG = INFO_FG      # 编辑中：赤陶
+STATUS_EDITING_FG = INFO_FG  # 编辑中：赤陶
 STATUS_EDITING_BG = INFO_BG
-STATUS_DONE_FG = SUCCESS_FG      # 已完成：墨绿
+STATUS_DONE_FG = SUCCESS_FG  # 已完成：墨绿
 STATUS_DONE_BG = SUCCESS_BG
 
 # ── 字体回退链（Qt QSS font-family / 其他支持列表字体的场景）─────────────────
 FONT_FALLBACK = (
-    "Microsoft YaHei UI",
-    "Microsoft YaHei",
-    "PingFang SC",
-    "Segoe UI",
-    "sans-serif",
+  "Microsoft YaHei UI",
+  "Microsoft YaHei",
+  "PingFang SC",
+  "Segoe UI",
+  "sans-serif",
 )
