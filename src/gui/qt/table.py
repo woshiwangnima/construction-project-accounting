@@ -4,7 +4,7 @@
 拖拽行排序 + 右键菜单（复制/粘贴/上移/下移/删除）+ 排序指示。
 """
 from PySide6.QtCore import QRect, QSize, QTimer, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter
+from PySide6.QtGui import QBrush, QColor, QCursor, QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import (
     QAbstractItemView, QHeaderView, QMenu, QStyle, QStyledItemDelegate,
     QTableView, QToolTip,
@@ -52,6 +52,8 @@ def column_min_width(name: str) -> int:
 class RowActionDelegate(QStyledItemDelegate):
     """在「操作」列绘制 ↑ / ↓ / ✕ 三个小按钮。
 
+    按钮默认不绘制，只有鼠标停在某一行（``set_hover_row``）时才在该行显现，
+    避免密密麻麻的图标把表格视觉压满；列宽始终保留，所以显隐不会引起列宽跳动。
     不拦截编辑事件：命中按钮时发射 action_triggered(row, action)。
     """
 
@@ -67,9 +69,23 @@ class RowActionDelegate(QStyledItemDelegate):
         super().__init__(parent)
         self._enabled = True
         self._hover = None  # (row, action)
+        self._hover_row = -1  # 鼠标所在行；-1 表示鼠标不在表内
 
     def set_enabled(self, enabled: bool) -> None:
         self._enabled = enabled
+
+    def set_hover_row(self, row: int) -> bool:
+        """记录鼠标所在行（由 QtBaseTable 驱动）。返回是否发生变化。"""
+        if self._hover_row == row:
+            return False
+        self._hover_row = row
+        # 换行后旧的按钮级高亮不再成立，清掉免得残留高亮。
+        if self._hover is not None and self._hover[0] != row:
+            self._hover = None
+        return True
+
+    def is_hovered_row(self, row: int) -> bool:
+        return self._enabled and row == self._hover_row
 
     def _button_rect(self, row_rect: QRect, idx: int) -> QRect:
         x = row_rect.x() + self.PAD + idx * (self.BTN_W + 4)
@@ -85,7 +101,7 @@ class RowActionDelegate(QStyledItemDelegate):
         # 与普通单元格保持同一套底色规则：选中 > 斑马纹/审核底色 > 悬停 > 表底。
         # 否则自定义绘制会让「操作」列变成一块突兀的白条。
         selected = bool(option.state & QStyle.State_Selected)
-        hovered_row = bool(option.state & QStyle.State_MouseOver)
+        row_hovered = index.row() == self._hover_row
         if selected:
             painter.fillRect(option.rect, QColor(HIGHLIGHT_BG))
         else:
@@ -94,13 +110,14 @@ class RowActionDelegate(QStyledItemDelegate):
                 painter.fillRect(option.rect, brush)
             elif isinstance(brush, QColor):
                 painter.fillRect(option.rect, brush)
-            elif hovered_row:
+            elif row_hovered:
                 painter.fillRect(option.rect, QColor(ROW_HOVER))
             else:
                 base = (option.widget.palette().base()
                         if hasattr(option.widget, "palette") else QColor(APP_BG))
                 painter.fillRect(option.rect, base)
-        if self._enabled:
+        # 只有鼠标所在行才画出按钮：其余行保持空白，表格看起来干净得多。
+        if self._enabled and row_hovered:
             for i, (glyph, action) in enumerate(zip(self.GLYPHS, self.ACTIONS)):
                 r = self._button_rect(option.rect, i)
                 hovered = self._hover == (index.row(), action)
@@ -358,6 +375,39 @@ class QtBaseTable(QTableView):
         super().resizeEvent(event)
         if self._layout_pending:
             self._apply_layout()
+
+    # ── 行悬停追踪（驱动「操作」列按钮的显隐） ──
+
+    def mouseMoveEvent(self, event) -> None:
+        super().mouseMoveEvent(event)
+        self._set_hover_row(self.indexAt(event.position().toPoint()).row())
+
+    def enterEvent(self, event) -> None:
+        super().enterEvent(event)
+        self._sync_hover_row()
+
+    def leaveEvent(self, event) -> None:
+        super().leaveEvent(event)
+        self._set_hover_row(-1)
+
+    def wheelEvent(self, event) -> None:
+        super().wheelEvent(event)
+        # 滚动后鼠标没动，但鼠标底下已经换了行，必须重新取一次。
+        self._sync_hover_row()
+
+    def scrollContentsBy(self, dx: int, dy: int) -> None:
+        super().scrollContentsBy(dx, dy)
+        self._sync_hover_row()
+
+    def _set_hover_row(self, row: int) -> None:
+        if self._action_delegate is not None and self._action_delegate.set_hover_row(row):
+            self.viewport().update()
+
+    def _sync_hover_row(self) -> None:
+        """按鼠标当前全局位置反查所在行（不依赖鼠标移动事件）。"""
+        pos = self.viewport().mapFromGlobal(QCursor.pos())
+        inside = self.viewport().rect().contains(pos)
+        self._set_hover_row(self.indexAt(pos).row() if inside else -1)
 
     def _emit_column_weights(self) -> None:
         model = self.model()
