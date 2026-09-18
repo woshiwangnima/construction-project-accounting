@@ -85,7 +85,10 @@ def _migrate_one(file_path: str, dry_run: bool, backups_dir: str) -> dict:
         old_id = it.get("id", "")
         is_v3_ti = bool(it.get("category_id")) and "category" not in it
         new_id = old_id if is_v3_ti and old_id else _gen_id("ti")
-        old_ti_id_to_new[old_id] = new_id
+        # 只登记非空旧 id：旧文件里缺 id 的工作项会占用 "" 这个键，
+        # 导致后续 trade_item_id 为空的孤儿账单被误判为"有关联"。
+        if old_id:
+            old_ti_id_to_new[old_id] = new_id
         category_name = it.get("category", "")
         category_id = it.get("category_id", "")
         if category_id and not category_name:
@@ -106,7 +109,7 @@ def _migrate_one(file_path: str, dry_run: bool, backups_dir: str) -> dict:
     new_bills: list[dict] = []
     for b in old_bills:
         old_ti_id = b.get("trade_item_id", "")
-        if old_ti_id in old_ti_id_to_new:
+        if old_ti_id and old_ti_id in old_ti_id_to_new:
             new_ti_id = old_ti_id_to_new[old_ti_id]
         elif old_ti_id in valid_new_ti_ids:
             new_ti_id = old_ti_id

@@ -31,7 +31,7 @@ class Bill:
             record_time=d.get("record_time", ""),
             frozen_snapshot=d.get("frozen_snapshot"),
             frozen_total=d.get("frozen_total"),
-            needs_attention=d.get("needs_attention", False),
+            needs_attention=bool(d.get("needs_attention") or d.get("_needs_attention")),
             reviewed=d.get("reviewed", False),
         )
 
