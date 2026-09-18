@@ -4,6 +4,7 @@
 单价乘法、孤儿账单回退 frozen_total、每行 ROUND_HALF_UP 等口径；
 自行求和会与 GUI 显示不一致。
 """
+
 from __future__ import annotations
 
 import argparse
@@ -37,8 +38,9 @@ def _trade_item_rows(project) -> list[dict]:
 def _bill_list(args: argparse.Namespace) -> dict:
     project = require_project(args.uuid)
     rows = _bill_rows(project)
-    # 只用于完整性校验：`total` 由下面按实际输出的行重新累加
-    calculations, _total, _error_count = summarize_bill_calculations(
+    # project_total 是项目整体金额（不受 --orphan-only 影响）；下面的 total
+    # 则按本次实际输出的行重新累加，避免筛选后 total 与结果对不上。
+    calculations, project_total, _error_count = summarize_bill_calculations(
         rows, _trade_item_rows(project), op_map()
     )
 
@@ -70,14 +72,13 @@ def _bill_list(args: argparse.Namespace) -> dict:
         }
         items.append(item)
 
-    # total / count 均针对"本次实际输出的行"，否则筛选后的 total 会包含
-    # 未显示的行，调用方拿到对不上自己结果的数字。
+    # total / count 均针对"本次实际输出的行"。
     return {
         "uuid": project.project_uuid,
         "name": project.name,
         "count": len(items),
         "total": shown_total,
-        "project_total": total,
+        "project_total": project_total,
         # 保留 GUI 的既有口径：非空公式且合计为 0 即视为计算告警
         "formula_error_count": shown_error_count,
         "bills": items,
@@ -101,8 +102,14 @@ def _bill_summary(args: argparse.Namespace) -> dict:
         key = calc.name or "（未命名）"
         bucket = by_trade_item.setdefault(
             key,
-            {"name": key, "category": calc.category, "total": 0.0, "count": 0,
-             "unit_price": calc.billing.unit_price, "unit": calc.billing.unit},
+            {
+                "name": key,
+                "category": calc.category,
+                "total": 0.0,
+                "count": 0,
+                "unit_price": calc.billing.unit_price,
+                "unit": calc.billing.unit,
+            },
         )
         bucket["total"] += calc.total
         bucket["count"] += 1
@@ -135,7 +142,10 @@ register(
             ArgSpec(name="uuid", help="项目 UUID", kind="positional"),
             ArgSpec(name="orphan_only", help="仅显示孤儿账单", type="flag"),
         ),
-        examples=("cpa bill.list <uuid> --json", "cpa bill.list <uuid> --orphan-only --json"),
+        examples=(
+            "cpa bill.list <uuid> --json",
+            "cpa bill.list <uuid> --orphan-only --json",
+        ),
     )
 )
 

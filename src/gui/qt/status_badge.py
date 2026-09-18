@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QCheckBox
 from ...project_status import ProjectStatus
 from ..font_manager import font_manager
 from ..theme import TEXT_PRIMARY
+from .tooltips import set_readable_tooltip
 
 
 class QtStatusBadge(QCheckBox):
@@ -19,7 +20,7 @@ class QtStatusBadge(QCheckBox):
     def __init__(self, parent=None, status=None, **_kwargs):
         super().__init__("项目已完成", parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setToolTip("勾选后项目将标记为已完成；取消勾选可继续编辑")
+        set_readable_tooltip(self, "勾选后项目将标记为已完成；取消勾选可继续编辑")
         self.setStyleSheet(
             f"QCheckBox {{ color: {TEXT_PRIMARY}; background: transparent; spacing: 7px; }}"
         )

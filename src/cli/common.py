@@ -3,6 +3,7 @@
 原则：CLI 不做任何业务计算，只把 domain 层的结果转成可序列化结构。
 公式求值、合计重算、孤儿判定一律调用现有模块，保证与 GUI 结果一致。
 """
+
 from __future__ import annotations
 
 import os
@@ -24,7 +25,7 @@ def op_map() -> dict:
     """
     try:
         raw = load_app().get("symbol_mapping")
-    except Exception:
+    except Exception:  # noqa: BLE001 - 配置损坏不应让 calc 不可用，回退默认映射
         raw = None
     return normalize_symbol_mapping(raw or DEFAULT_SYMBOL_MAPPING)
 

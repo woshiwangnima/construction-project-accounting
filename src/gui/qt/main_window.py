@@ -28,6 +28,7 @@ from ..theme import (
     SUCCESS_FG,
     TEXT_PRIMARY,
     TEXT_SECONDARY,
+    apply_tooltip_palette,
     build_qss,
     font_px,
 )
@@ -180,7 +181,10 @@ class MainWindow(QMainWindow):
     def _apply_refresh(self) -> None:
         app = QApplication.instance()
         if app is not None:
+            # setStyleSheet() 会重新 polish 平台样式并可能覆盖 ToolTip palette，
+            # 因此调色板必须最后应用，不能只在 build_qss() 内提前设置。
             app.setStyleSheet(build_qss())
+            apply_tooltip_palette(app)
         self.setFont(font_manager.get("body"))
         if hasattr(self, "sidebar") and hasattr(self, "content"):
             self.sidebar._apply_fonts()

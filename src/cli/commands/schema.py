@@ -3,6 +3,7 @@
 这是"让其他程序方便调用"的核心：调用方先读 schema 发现能力与参数，
 不必依赖人工维护的文档。schema 由 registry 遍历生成，不会与实现漂移。
 """
+
 from __future__ import annotations
 
 import argparse

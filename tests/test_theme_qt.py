@@ -1,6 +1,7 @@
 import unittest
 
 from src.gui import theme
+from src.gui.qt.view_common import SEGMENT_QSS
 from src.gui.theme import FontSpec, build_qss
 
 
@@ -44,6 +45,12 @@ class ThemeQtTests(unittest.TestCase):
         self.assertNotEqual(theme.TOOLTIP_BG, theme.TOOLTIP_FG)
         self.assertIn(f"background-color: {theme.TOOLTIP_BG}", qss)
         self.assertIn(f"color: {theme.TOOLTIP_FG}", qss)
+
+    def test_segment_local_qss_keeps_global_tooltip_colors(self):
+        """嵌套分段容器的局部 QSS 不得冲掉全局 Tooltip 对比度。"""
+        self.assertIn(theme.TOOLTIP_QSS, SEGMENT_QSS)
+        self.assertIn(f"background-color: {theme.TOOLTIP_BG}", SEGMENT_QSS)
+        self.assertIn(f"color: {theme.TOOLTIP_FG}", SEGMENT_QSS)
 
     def test_font_spec_from_tuple(self):
         spec = FontSpec.from_tuple(theme.FONT_BODY)

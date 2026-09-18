@@ -1,4 +1,5 @@
 """`project` 命令组：列表、详情、导出、导入。"""
+
 from __future__ import annotations
 
 import argparse
@@ -36,7 +37,9 @@ def _project_export(args: argparse.Namespace) -> dict:
     try:
         output.parent.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        raise ExportFailed(f"无法创建输出目录: {output.parent}", details={"reason": str(exc)}) from exc
+        raise ExportFailed(
+            f"无法创建输出目录: {output.parent}", details={"reason": str(exc)}
+        ) from exc
 
     if output.exists() and not args.overwrite:
         raise ExportFailed(
@@ -59,7 +62,9 @@ def _project_export(args: argparse.Namespace) -> dict:
 def _project_import(args: argparse.Namespace) -> dict:
     source = Path(args.input).expanduser()
     if not source.is_file():
-        raise InvalidArgument(f"导入文件不存在: {source}", details={"path": str(source)})
+        raise InvalidArgument(
+            f"导入文件不存在: {source}", details={"path": str(source)}
+        )
     project = project_manager.import_project(str(source))
     if project is None:
         raise InvalidArgument(
@@ -91,7 +96,10 @@ register(
             ArgSpec(name="uuid", help="项目 UUID", kind="positional"),
             ArgSpec(name="summary_only", help="仅输出摘要，不含账单明细", type="flag"),
         ),
-        examples=("cpa project.show <uuid> --json", "cpa project.show <uuid> --summary-only --json"),
+        examples=(
+            "cpa project.show <uuid> --json",
+            "cpa project.show <uuid> --summary-only --json",
+        ),
     )
 )
 

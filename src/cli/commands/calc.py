@@ -1,4 +1,5 @@
 """`calc` 命令：算式求值，不读写任何项目文件。"""
+
 from __future__ import annotations
 
 import argparse
@@ -17,7 +18,9 @@ def _calc(args: argparse.Namespace) -> dict:
         value = evaluate_decimal(canonical)
         result = float(value)
     except Exception as exc:
-        raise FormulaError(f"算式无法求值: {expression}", details={"reason": str(exc)}) from exc
+        raise FormulaError(
+            f"算式无法求值: {expression}", details={"reason": str(exc)}
+        ) from exc
 
     return {
         "input": expression,

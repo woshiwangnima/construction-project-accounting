@@ -7,6 +7,7 @@
 1. 静态：扫描 src/cli/** 源码，禁止出现 GUI 相关 import。
 2. 运行时：在子进程中真正跑一条命令，断言 PySide6 未进入 sys.modules。
 """
+
 import json
 import os
 import subprocess
@@ -70,6 +71,7 @@ class TestCliDoesNotImportQt(unittest.TestCase):
                 env=env,
                 cwd=str(REPO_ROOT),
                 timeout=120,
+                check=False,
             )
         self.assertEqual(proc.returncode, 0, proc.stderr)
         payload = json.loads(proc.stdout.strip().splitlines()[-1])

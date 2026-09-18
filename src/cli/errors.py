@@ -3,6 +3,7 @@
 错误码是给调用方（脚本 / 其他程序 / AI）用的稳定契约，不要随意改动字符串值；
 新增错误时只追加，不复用已有码。
 """
+
 from __future__ import annotations
 
 # 退出码约定（与 argparse 保持一致：2 保留给参数错误）
@@ -16,7 +17,9 @@ class CliError(Exception):
 
     code = "ERROR"
 
-    def __init__(self, message: str, code: str | None = None, details: dict | None = None):
+    def __init__(
+        self, message: str, code: str | None = None, details: dict | None = None
+    ):
         super().__init__(message)
         self.message = message
         if code:

@@ -67,6 +67,7 @@ from .icons import (
 from .icons import (
     icon as ui_icon,
 )
+from .tooltips import set_readable_tooltip
 
 sm = sm_module.shortcut_manager
 
@@ -91,6 +92,7 @@ class ProjectRow(QWidget):
         layout.addWidget(self._indicator)
         self._name_lbl = QLabel(name)
         self._name_lbl.setTextInteractionFlags(Qt.NoTextInteraction)
+        set_readable_tooltip(self._name_lbl, "")
         self._status_lbl = QLabel("")
         layout.addWidget(self._name_lbl, 1)
         layout.addWidget(self._status_lbl)
@@ -147,7 +149,7 @@ class ProjectRow(QWidget):
 
     def set_name(self, name: str) -> None:
         if self._name_lbl.toolTip():
-            self._name_lbl.setToolTip(name)
+            set_readable_tooltip(self._name_lbl, name)
             self._name_lbl.setText(name[:1] if name else "?")
         else:
             self._name_lbl.setText(name)
@@ -157,7 +159,7 @@ class ProjectRow(QWidget):
         if compact:
             name = self._name_lbl.toolTip() or self._name_lbl.text().strip()
             self._name_lbl.setText(name[:1] if name else "?")
-            self._name_lbl.setToolTip(name)
+            set_readable_tooltip(self._name_lbl, name)
             self._name_lbl.setAlignment(Qt.AlignCenter)
             self._layout.setContentsMargins(0, 8, 0, 8)
             self._layout.setSpacing(0)
@@ -165,7 +167,7 @@ class ProjectRow(QWidget):
             self._status_lbl.hide()
         else:
             self._name_lbl.setText(self._name_lbl.toolTip() or self._name_lbl.text())
-            self._name_lbl.setToolTip("")
+            set_readable_tooltip(self._name_lbl, "")
             self._name_lbl.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
             self._layout.setContentsMargins(10, 8, 10, 8)
             self._layout.setSpacing(10)
@@ -234,14 +236,14 @@ class QtSidebar(QWidget):
             f"QPushButton:pressed {{ background: {SIDEBAR_HOVER}; }}"
         )
         new_btn.clicked.connect(self._new_project)
-        new_btn.setToolTip("创建新的记账项目")
+        set_readable_tooltip(new_btn, "创建新的记账项目")
         self._new_btn = new_btn
         top_layout.addWidget(new_btn, 1)
 
         collapse_btn = QToolButton()
         collapse_btn.setIcon(ui_icon(ICON_COLLAPSE))
         collapse_btn.setIconSize(QSize(16, 16))
-        collapse_btn.setToolTip("收起/展开侧边栏（Ctrl+B）")
+        set_readable_tooltip(collapse_btn, "收起/展开侧边栏（Ctrl+B）")
         collapse_btn.setAutoRaise(True)
         collapse_btn.setStyleSheet(
             f"QToolButton {{ border-radius: 8px; padding: 6px; background: transparent; }}"
@@ -296,7 +298,7 @@ class QtSidebar(QWidget):
         self.list_widget.currentItemChanged.connect(self._on_current_item_changed)
         layout.addWidget(self.list_widget, 1)
 
-        settings_btn = QPushButton("软件系统设置")
+        settings_btn = QPushButton("设置")
         settings_btn.setIcon(ui_icon(ICON_SETTINGS))
         settings_btn.setIconSize(QSize(16, 16))
         settings_btn.setStyleSheet(
@@ -306,7 +308,7 @@ class QtSidebar(QWidget):
             f"QPushButton:hover {{ background: {BTN_SECONDARY_HOVER}; color: {TEXT_PRIMARY}; }}"
         )
         settings_btn.clicked.connect(self._open_settings)
-        settings_btn.setToolTip("修改软件配置与字号")
+        set_readable_tooltip(settings_btn, "修改软件配置与字号")
         self._settings_btn = settings_btn
         layout.addWidget(settings_btn)
 
@@ -328,10 +330,11 @@ class QtSidebar(QWidget):
         )
         self._top_layout.setSpacing(6 if compact else 8)
         self._new_btn.setText("") if compact else self._new_btn.setText("新建项目")
-        self._new_btn.setToolTip("新建项目")
+        set_readable_tooltip(self._new_btn, "新建项目")
         self._collapse_btn.setIcon(ui_icon(ICON_EXPAND if compact else ICON_COLLAPSE))
-        self._collapse_btn.setToolTip(
-            "展开侧栏（Ctrl+B）" if compact else "收起侧栏（Ctrl+B）"
+        set_readable_tooltip(
+            self._collapse_btn,
+            "展开侧栏（Ctrl+B）" if compact else "收起侧栏（Ctrl+B）",
         )
 
         self._io_row.setVisible(not compact)
@@ -339,7 +342,7 @@ class QtSidebar(QWidget):
         self._settings_btn.setText("") if compact else self._settings_btn.setText(
             "设置"
         )
-        self._settings_btn.setToolTip("设置")
+        set_readable_tooltip(self._settings_btn, "设置")
         for row in self._item_widgets.values():
             row.set_compact(compact)
 

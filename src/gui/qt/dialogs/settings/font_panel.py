@@ -1,28 +1,61 @@
 """字体设置面板：各角色字体族 / 字号 / 样式 / 颜色 + 预览。"""
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QHBoxLayout, QLabel, QSpinBox, QVBoxLayout,
+    QCheckBox,
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QSpinBox,
+    QVBoxLayout,
 )
 
 from ....font_manager import (
-    font_manager, ROLE_GROUPS, ROLE_KEYS, ROLE_DISPLAY_NAMES,
+    ROLE_DISPLAY_NAMES,
+    ROLE_GROUPS,
+    ROLE_KEYS,
+    font_manager,
 )
 from ....theme import font_px
+from ...tooltips import set_readable_tooltip
 from .base import (
-    BasePanel, ColorField, normalize_hex_color, separator,
+    BasePanel,
+    ColorField,
+    normalize_hex_color,
+    separator,
 )
 
 _PREVIEW_TEXT = "预览 Ab 123"
 _DEFAULT_FAMILY = "Microsoft YaHei UI"
 
+
+def _safe_size(value, fallback: int = 14) -> int:
+    try:
+        return max(1, int(value))
+    except (TypeError, ValueError):
+        return fallback
+
+
 # 常用字体白名单：真实 Windows 有数百种字体，全部塞进 14 个下拉框会
 # 导致面板构建数秒、点击切换卡死。仅列出主流中英文字体，够用且快。
 _PREFERRED_FAMILIES = (
-    "Microsoft YaHei UI", "Microsoft YaHei", "SimHei", "SimSun",
-    "KaiTi", "FangSong", "DengXian", "NSimSun",
-    "Segoe UI", "Arial", "Calibri", "Tahoma", "Times New Roman",
-    "Consolas", "Courier New", "Microsoft JhengHei",
+    "Microsoft YaHei UI",
+    "Microsoft YaHei",
+    "SimHei",
+    "SimSun",
+    "KaiTi",
+    "FangSong",
+    "DengXian",
+    "NSimSun",
+    "Segoe UI",
+    "Arial",
+    "Calibri",
+    "Tahoma",
+    "Times New Roman",
+    "Consolas",
+    "Courier New",
+    "Microsoft JhengHei",
 )
 
 
@@ -31,16 +64,16 @@ class FontPanel(BasePanel):
         return "字体设置"
 
     def hint_text(self) -> str:
-        return ("字号按「默认字号 × 倍率」生效，会随基础设置里的默认字号等比缩放；"
-                "此处可调字体族、字号与样式，设置写入 user_config.json。")
+        return (
+            "字号按「默认字号 × 倍率」生效，会随基础设置里的默认字号等比缩放；"
+            "此处可调字体族、字号与样式，设置写入 user_config.json。"
+        )
 
     def build(self, layout: QVBoxLayout) -> None:
         # 只枚举白名单字体 + 用户当前使用的字体，避免几百个字体 × 14 下拉框
         # 导致构建卡顿（真实 Windows 字体库很大）。
         all_families = QFontDatabase.families()
-        self._families = [
-            f for f in _PREFERRED_FAMILIES if f in all_families
-        ]
+        self._families = [f for f in _PREFERRED_FAMILIES if f in all_families]
         settings = font_manager.get_all_settings()
         for _role, cfg in settings.items():
             family = cfg.get("family") or _DEFAULT_FAMILY
@@ -53,7 +86,9 @@ class FontPanel(BasePanel):
         for group_name, role_keys in ROLE_GROUPS:
             layout.addWidget(separator())
             group = QLabel(group_name)
-            group.setStyleSheet(f"font-size: {font_px('subheading')}px; font-weight: bold;")
+            group.setStyleSheet(
+                f"font-size: {font_px('subheading')}px; font-weight: bold;"
+            )
             layout.addWidget(group)
             for role in role_keys:
                 if role not in ROLE_KEYS:
@@ -82,7 +117,7 @@ class FontPanel(BasePanel):
         base = max(1, font_manager.get_default_font_size())
         size_spin.setRange(max(8, round(base * 0.5)), round(base * 3.0))
         size_spin.setSuffix(" px")
-        size_spin.setToolTip("该角色的字号，随「默认字号」等比缩放")
+        set_readable_tooltip(size_spin, "该角色的字号，随「默认字号」等比缩放")
         family_row.addWidget(size_spin)
 
         color_field = ColorField("#000000", on_change=lambda *_: self._on_change(role))
@@ -91,12 +126,19 @@ class FontPanel(BasePanel):
 
         style_row = QHBoxLayout()
         style_row.setSpacing(4)
-        for key, text in (("bold", "B"), ("italic", "I"),
-                          ("underline", "U"), ("overstrike", "S")):
+        for key, text in (
+            ("bold", "B"),
+            ("italic", "I"),
+            ("underline", "U"),
+            ("overstrike", "S"),
+        ):
             cb = QCheckBox(text)
             cb.setStyleSheet(
-                "font-weight: bold;" if key == "bold" else
-                "font-style: italic;" if key == "italic" else ""
+                "font-weight: bold;"
+                if key == "bold"
+                else "font-style: italic;"
+                if key == "italic"
+                else ""
             )
             cb.toggled.connect(lambda *_, r=role: self._on_change(r))
             style_row.addWidget(cb)
@@ -108,7 +150,7 @@ class FontPanel(BasePanel):
         # 高度跟着字号走：写死 28px 时切到「大数字(总金额)」那种 2 倍角色，
         # 预览字会被裁掉一半。用 minHeight 让长字自己撑开。
         preview.setMinimumHeight(round(font_px("body") * 1.8))
-        preview.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        preview.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(preview)
 
         rv["family"] = combo
@@ -145,13 +187,14 @@ class FontPanel(BasePanel):
 
     def _apply_preview(self, role: str, cfg: dict) -> None:
         rv = self._rows[role]
-        font = QFont(cfg["family"] or _DEFAULT_FAMILY, max(1, int(cfg.get("size", 14))))
+        size = _safe_size(cfg.get("size", 14))
+        font = QFont(cfg["family"] or _DEFAULT_FAMILY, size)
         font.setWeight(QFont.Weight.Bold if cfg.get("bold") else QFont.Weight.Normal)
         font.setItalic(bool(cfg.get("italic")))
         font.setUnderline(bool(cfg.get("underline")))
         font.setStrikeOut(bool(cfg.get("overstrike")))
         rv["preview"].setFont(font)
-        rv["preview"].setMinimumHeight(max(28, round(int(cfg.get("size", 14)) * 1.7)))
+        rv["preview"].setMinimumHeight(max(28, round(size * 1.7)))
         color = normalize_hex_color(cfg.get("color"), "#000000")
         rv["preview"].setStyleSheet(f"color: {color};")
 
@@ -165,7 +208,7 @@ class FontPanel(BasePanel):
             if family not in self._families:
                 family = _DEFAULT_FAMILY
             rv["family"].setCurrentText(family)
-            rv["size"].setValue(int(cfg.get("size", 14)))
+            rv["size"].setValue(_safe_size(cfg.get("size", 14)))
             rv["bold"].setChecked(bool(cfg.get("bold")))
             rv["italic"].setChecked(bool(cfg.get("italic")))
             rv["underline"].setChecked(bool(cfg.get("underline")))

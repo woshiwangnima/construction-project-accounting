@@ -1,4 +1,5 @@
 """`backup` 命令组：存档列表与检视。"""
+
 from __future__ import annotations
 
 import argparse
@@ -35,7 +36,9 @@ def _backup_list(args: argparse.Namespace) -> dict:
     try:
         backups = list_backups_for(args.uuid)
     except Exception as exc:
-        raise InvalidArgument(f"无法读取备份: {exc}", details={"uuid": args.uuid}) from exc
+        raise InvalidArgument(
+            f"无法读取备份: {exc}", details={"uuid": args.uuid}
+        ) from exc
 
     items = [_backup_to_dict(info) for info in backups]
     if args.valid_only:

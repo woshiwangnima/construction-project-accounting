@@ -9,6 +9,7 @@
 避免"人看的"和"程序看的"两套逻辑漂移。错误同样走 JSON（而不是只写
 stderr 的纯文本），否则调用方必须解析两种格式。
 """
+
 from __future__ import annotations
 
 import json
@@ -76,7 +77,9 @@ def run_command(func, args, as_json: bool) -> int:
         else:
             sys.stderr.write(f"错误 [{exc.code}]: {exc.message}\n")
         return EXIT_ERROR
-    except Exception as exc:  # 兜底：绝不让调用方拿到半截 JSON 或裸 traceback
+    except Exception as exc:  # noqa: BLE001
+        # 兜底：这里是进程与调用方的边界，任何意外异常都必须转成契约内的
+        # JSON 错误，绝不让调用方拿到半截 JSON 或裸 traceback。
         wrapped = CliError(f"{type(exc).__name__}: {exc}")
         if as_json:
             emit_json(error_payload(wrapped), sys.stdout)

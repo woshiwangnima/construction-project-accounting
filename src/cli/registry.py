@@ -6,6 +6,7 @@
 不允许手写第二份命令清单——手写文档会随代码腐烂，且没有任何测试
 能发现文档与实现不一致（参见 AGENTS.md 里字号表两次各写一份的教训）。
 """
+
 from __future__ import annotations
 
 import argparse
@@ -104,7 +105,9 @@ def build_parser(prog: str = "cpa") -> argparse.ArgumentParser:
         prog=prog,
         description="施工项目记账程序 命令行接口（不启动 GUI）",
     )
-    parser.add_argument("--json", action="store_true", help="以 JSON 输出（程序调用请始终使用）")
+    parser.add_argument(
+        "--json", action="store_true", help="以 JSON 输出（程序调用请始终使用）"
+    )
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
 
     for spec in all_commands():
@@ -127,8 +130,15 @@ def build_schema(prog: str = "cpa") -> dict:
         "program": prog,
         "responseContract": {
             "success": {"ok": True, "data": "<any>"},
-            "failure": {"ok": False, "error": {"code": "<string>", "message": "<string>"}},
-            "exitCodes": {"0": "成功", "1": "业务错误（响应体仍是 JSON）", "2": "参数错误"},
+            "failure": {
+                "ok": False,
+                "error": {"code": "<string>", "message": "<string>"},
+            },
+            "exitCodes": {
+                "0": "成功",
+                "1": "业务错误（响应体仍是 JSON）",
+                "2": "参数错误",
+            },
         },
         "commands": [spec.to_schema() for spec in all_commands()],
     }

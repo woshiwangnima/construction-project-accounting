@@ -5,6 +5,7 @@
 也不得 import src.gui.**。这样 CLI 才能在无显示器环境、CI、以及被
 其他程序当作子进程调用时正常工作。
 """
+
 from __future__ import annotations
 
 from . import commands  # noqa: F401  触发命令注册

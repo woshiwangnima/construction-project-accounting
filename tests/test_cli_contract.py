@@ -7,6 +7,7 @@
 - 退出码约定
 - 关键业务口径（单价乘法、孤儿回退 frozen_total）与 GUI 一致
 """
+
 import argparse
 import io
 import json
@@ -123,7 +124,15 @@ class TestBusinessParity(unittest.TestCase):
         from src.cli.common import op_map
 
         bills = [{"id": "b1", "trade_item_id": "ti1", "content": "2+1", "note": ""}]
-        items = [{"id": "ti1", "name": "砌墙", "has_unit": True, "unit_price": 12.5, "unit": "m2"}]
+        items = [
+            {
+                "id": "ti1",
+                "name": "砌墙",
+                "has_unit": True,
+                "unit_price": 12.5,
+                "unit": "m2",
+            }
+        ]
         _calcs, total, errors = summarize_bill_calculations(bills, items, op_map())
         self.assertAlmostEqual(total, 37.5, places=2)
         self.assertEqual(errors, 0)
@@ -132,8 +141,15 @@ class TestBusinessParity(unittest.TestCase):
         from src.bill_recompute import summarize_bill_calculations
         from src.cli.common import op_map
 
-        bills = [{"id": "b1", "trade_item_id": "ghost", "content": "5*2",
-                  "note": "", "frozen_total": 99.0}]
+        bills = [
+            {
+                "id": "b1",
+                "trade_item_id": "ghost",
+                "content": "5*2",
+                "note": "",
+                "frozen_total": 99.0,
+            }
+        ]
         calcs, total, _errors = summarize_bill_calculations(bills, [], op_map())
         self.assertTrue(calcs[0].orphan)
         self.assertAlmostEqual(total, 99.0, places=2)
@@ -158,12 +174,11 @@ class TestBillListFiltering(unittest.TestCase):
             project_uuid = "u1"
             name = "t"
             status = "editing"
+            trade_items = ()
 
             @property
-            def bills(self):
+            def bills(self) -> list:
                 return []
-
-            trade_items = []
 
         with patch.object(bill_module, "require_project", return_value=_Project()):
             from src.bill_recompute import BillCalculation
@@ -174,17 +189,38 @@ class TestBillListFiltering(unittest.TestCase):
                 {"id": "b2", "trade_item_id": "ghost", "content": "5*2"},
             ]
             calcs = [
-                BillCalculation(total=37.5, canonical="2+1", formula_value=None,
-                                formula_error=False, trade_item=None,
-                                billing=Billing(), category="", name="砌墙", orphan=False),
-                BillCalculation(total=99.0, canonical="5*2", formula_value=None,
-                                formula_error=False, trade_item=None,
-                                billing=Billing(), category="", name="", orphan=True),
+                BillCalculation(
+                    total=37.5,
+                    canonical="2+1",
+                    formula_value=None,
+                    formula_error=False,
+                    trade_item=None,
+                    billing=Billing(),
+                    category="",
+                    name="砌墙",
+                    orphan=False,
+                ),
+                BillCalculation(
+                    total=99.0,
+                    canonical="5*2",
+                    formula_value=None,
+                    formula_error=False,
+                    trade_item=None,
+                    billing=Billing(),
+                    category="",
+                    name="",
+                    orphan=True,
+                ),
             ]
-            with patch.object(bill_module, "_bill_rows", return_value=rows), \
-                 patch.object(bill_module, "_trade_item_rows", return_value=[]), \
-                 patch.object(bill_module, "summarize_bill_calculations",
-                              return_value=(calcs, 136.5, 0)):
+            with (
+                patch.object(bill_module, "_bill_rows", return_value=rows),
+                patch.object(bill_module, "_trade_item_rows", return_value=[]),
+                patch.object(
+                    bill_module,
+                    "summarize_bill_calculations",
+                    return_value=(calcs, 136.5, 0),
+                ),
+            ):
                 result = bill_module._bill_list(_args(uuid="u1", orphan_only=True))
 
         self.assertEqual(result["count"], 1)

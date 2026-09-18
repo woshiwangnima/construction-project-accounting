@@ -68,6 +68,7 @@ from .icons import (
 )
 from .save_bridge import ProjectSaveBridge
 from .status_badge import QtStatusBadge
+from .tooltips import set_readable_tooltip
 from .view_common import (
     SEGMENT_QSS,
     _build_metric_row,
@@ -233,7 +234,7 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
             btn = QPushButton(text)
             btn.setIcon(ui_icon(icon_name, TEXT_SECONDARY))
             btn.setIconSize(QSize(16, 16))
-            btn.setToolTip(tip)
+            set_readable_tooltip(btn, tip)
             btn.setCheckable(True)
             btn.setProperty("navigation", True)
             btn.clicked.connect(lambda _=False, v=value: self._switch_tab(v))
@@ -265,7 +266,7 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
             m_btn.setIconSize(QSize(15, 15))
             m_btn.setCheckable(True)
             m_btn.setProperty("viewMode", True)
-            m_btn.setToolTip(m_tip)
+            set_readable_tooltip(m_btn, m_tip)
             m_btn.clicked.connect(lambda _=False, v=m_val: self._switch_bill_mode(v))
             self._mode_group.addButton(m_btn)
             self._mode_buttons[m_val] = m_btn

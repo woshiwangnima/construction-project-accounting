@@ -7,7 +7,14 @@ from qtawesome import icon as qta_icon
 
 from ...config_loader import load_app
 from ..font_manager import font_manager
-from ..theme import CARD_BG, CARD_BORDER, SEGMENT_BG, TEXT_SECONDARY, font_px
+from ..theme import (
+    CARD_BG,
+    CARD_BORDER,
+    SEGMENT_BG,
+    TEXT_SECONDARY,
+    TOOLTIP_QSS,
+    font_px,
+)
 
 CARD_QSS = (
     f"background: {CARD_BG}; border: 1px solid {CARD_BORDER};"
@@ -16,6 +23,7 @@ CARD_QSS = (
 # 分段控件只提供轻微的区域归属感；选中层级由按钮自身表达。
 SEGMENT_QSS = (
     f"background: {SEGMENT_BG}; border: none; border-radius: 8px; padding: 2px;"
+    f"{TOOLTIP_QSS}"
 )
 
 
