@@ -72,13 +72,28 @@ class ReleaseScriptTests(unittest.TestCase):
         self.assertIn("main.py", start_text)
         self.assertIn("pip check", build_text)
         self.assertIn("call \"%ROOT%scripts\\ziprelease.bat\"", build_text)
-        self.assertIn('--add-data "%ROOT%config;config"', build_text)
-        self.assertIn('--add-data "%ROOT%assets;assets"', build_text)
         self.assertIn('set "PYINSTALLER_EXIT=%ERRORLEVEL%"', build_text)
         self.assertIn("if errorlevel 1", build_text)
         self.assertNotIn('rmdir /s /q "%ROOT%dist"', build_text)
         self.assertNotIn("del /q *.spec", build_text)
         self.assertIn("endlocal & exit /b %EXIT_CODE%", zip_batch_text)
+
+        # 打包参数由 packaging/ConstructionAccounting.spec 承载，build.bat 必须指向它
+        self.assertIn("packaging\\ConstructionAccounting.spec", build_text)
+
+    def test_packaging_spec_bundles_config_assets_and_trims_qt(self):
+        spec_text = (ROOT / "packaging" / "ConstructionAccounting.spec").read_text(encoding="utf-8")
+
+        # 资源必须随包分发，否则 release 校验会失败
+        self.assertIn("'config'", spec_text)
+        self.assertIn("'assets'", spec_text)
+        # 语音/图标等依赖仍需显式收集
+        self.assertIn("pyttsx3", spec_text)
+        self.assertIn("qtawesome", spec_text)
+        self.assertIn("qfluentwidgets", spec_text)
+        # 体积控制：Qt6 原生 DLL 需要二进制层过滤（excludes 只挡得住 Python 绑定）
+        self.assertIn("BIN_EXCLUDE_KEYWORDS", spec_text)
+        self.assertIn("a.binaries", spec_text)
 
 
 if __name__ == "__main__":

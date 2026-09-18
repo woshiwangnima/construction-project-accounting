@@ -92,7 +92,8 @@ if exist "%WORK_DIR%\." (
 )
 
 echo [2/5] Building with PyInstaller (onedir)...
-"%PYTHON%" -m PyInstaller --noconfirm --clean --onedir --windowed --name "ConstructionAccounting" --icon "%ROOT%assets\icon.ico" --add-data "%ROOT%config;config" --add-data "%ROOT%assets;assets" --hidden-import pyttsx3 --hidden-import comtypes --hidden-import comtypes.gen --hidden-import pythoncom --hidden-import pywintypes --hidden-import qtawesome --hidden-import qfluentwidgets --distpath "%DIST_DIR%" --workpath "%WORK_DIR%" --specpath "%WORK_DIR%\spec" "%ROOT%main.py"
+rem 打包参数集中在 packaging\ConstructionAccounting.spec（build\ 每次会被清空，不能放那里）。
+"%PYTHON%" -m PyInstaller --noconfirm --clean --distpath "%DIST_DIR%" --workpath "%WORK_DIR%" "%ROOT%packaging\ConstructionAccounting.spec"
 set "PYINSTALLER_EXIT=%ERRORLEVEL%"
 if not "%PYINSTALLER_EXIT%"=="0" (
     echo [ERROR] PyInstaller build failed.

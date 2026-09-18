@@ -133,9 +133,12 @@ logs/
 migration_backups/
 *.bak
 *.spec
+# 打包配置是源码，需入库（PyInstaller 生成的临时 spec 仍在 build/ 下，已被忽略）
+!packaging/**/*.spec
 
 # Opencode
 .opencode/
 
 # Local agent management files (do not commit)
 .agent/
+.workbuddy/
