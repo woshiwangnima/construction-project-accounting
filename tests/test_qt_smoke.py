@@ -417,6 +417,24 @@ class ColumnLayoutTests(QtSmokeBase):
 
 
 class SavePersistenceTests(QtSmokeBase):
+    def test_close_is_rejected_until_pending_data_is_saved(self):
+        from PySide6.QtGui import QCloseEvent
+
+        event = QCloseEvent()
+        with patch.object(self.content, "shutdown", return_value=False), patch(
+            "src.gui.qt.main_window.QMessageBox.warning"
+        ) as warning:
+            self.window.closeEvent(event)
+        self.assertFalse(event.isAccepted())
+        self.assertFalse(self.window._closed)
+        warning.assert_called_once()
+        self.content._copy_bills([0])
+        self.content._paste_bills([])
+        self.assertTrue(self.content.flush_project_save(5))
+        self.window.closeEvent(event)
+        self.assertTrue(event.isAccepted())
+        self.assertEqual(len(get_project(PROJECT_UUID).bills), 4)
+
     def test_flush_persists_edited_project_to_disk(self):
         self.content._copy_bills([0])
         self.content._paste_bills([])

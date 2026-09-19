@@ -20,22 +20,27 @@ class ProjectSaveBridge(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._lock = threading.Lock()
-        self._pending: tuple[str, dict] | None = None
+        self._pending: dict[str, object] = {}
+        self._failed: dict[str, object] = {}
+        self._inflight: tuple[str, object] | None = None
         self._running = False
         self._closed = False
         self._idle = threading.Event()
         self._idle.set()
 
-    def close(self, timeout: float = 2.0) -> None:
-        """关闭保存桥：丢弃未写入的排队任务并等 worker 退出。
+    def close(self, timeout: float = 2.0) -> bool:
+        """保存完成才关闭；超时或失败时保留快照，允许再次编辑和重试。
 
         必须在宿主 QObject 销毁前调用；否则后台线程可能在 C++ 对象
         已删除后 emit 信号，抛 RuntimeError 并打断 drain 循环。
         """
+        if not self.flush(timeout):
+            return False
         with self._lock:
+            if self._running or self._pending or self._failed:
+                return False
             self._closed = True
-            self._pending = None
-        self._idle.wait(max(float(timeout), 0.0))
+        return True
 
     def schedule(self, uuid: str, project_data) -> None:
         if not uuid or not project_data:
@@ -46,16 +51,27 @@ class ProjectSaveBridge(QObject):
             snapshot = (project_data.to_dict()
                         if hasattr(project_data, "to_dict")
                         else dict(project_data))
+        if hasattr(snapshot, "to_dict"):
+            snapshot = snapshot.to_dict()
         with self._lock:
             if self._closed:
                 return
-            self._pending = (uuid, snapshot)
+            self._pending[uuid] = snapshot
+            self._failed.pop(uuid, None)
             self._idle.clear()
             if self._running:
                 return
             self._running = True
-            self._emit("saving", "")
+        self._emit("saving", "")
         threading.Thread(target=self._drain, name="project-save", daemon=True).start()
+
+    def pending_snapshot(self, uuid: str):
+        """Read the latest unsaved data when switching back to a project."""
+        with self._lock:
+            snapshot = self._pending.get(uuid, self._failed.get(uuid))
+            if snapshot is None and self._inflight and self._inflight[0] == uuid:
+                snapshot = self._inflight[1]
+            return copy.deepcopy(snapshot)
 
     def _emit(self, state: str, stamp: str) -> None:
         """安全 emit：宿主已删除时静默降级为日志，不打断 worker。"""
@@ -67,24 +83,47 @@ class ProjectSaveBridge(QObject):
     def _drain(self) -> None:
         while True:
             with self._lock:
-                pending = self._pending
-                self._pending = None
-                if pending is None:
+                if not self._pending:
                     self._running = False
+                    # Signal delivery must finish before close() can destroy us.
+                    state = "failed" if self._failed else "saved"
+                    from .feedback import now_stamp
+                    self._emit(state, now_stamp() if state == "saved" else "")
                     self._idle.set()
                     return
-            uuid, snapshot = pending
+                uuid = next(iter(self._pending))
+                snapshot = self._pending.pop(uuid)
+                self._inflight = (uuid, snapshot)
             try:
                 update_project(uuid, snapshot)
-                from .feedback import now_stamp
-                self._emit("saved", now_stamp())
             except Exception as exc:  # pragma: no cover - defensive worker boundary
+                with self._lock:
+                    if uuid not in self._pending:
+                        self._failed[uuid] = snapshot
                 logger.warning("项目后台保存失败 uuid=%s: %s", uuid[:16], exc, exc_info=True)
                 try:
                     self.save_error.emit(str(exc))
                 except RuntimeError:
                     pass
                 self._emit("failed", "")
+            finally:
+                with self._lock:
+                    self._inflight = None
 
     def flush(self, timeout: float = 2.0) -> bool:
-        return self._idle.wait(max(float(timeout), 0.0))
+        """重试此前失败的快照；只有全部成功落盘才返回 True。"""
+        start_worker = False
+        with self._lock:
+            self._pending.update(self._failed)
+            self._failed.clear()
+            if self._pending and not self._running:
+                self._running = True
+                self._idle.clear()
+                start_worker = True
+        if start_worker:
+            self._emit("saving", "")
+            threading.Thread(target=self._drain, name="project-save", daemon=True).start()
+        if not self._idle.wait(max(float(timeout), 0.0)):
+            return False
+        with self._lock:
+            return not (self._running or self._pending or self._failed)

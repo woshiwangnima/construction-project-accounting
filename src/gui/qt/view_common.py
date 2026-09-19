@@ -45,7 +45,8 @@ def _metric_card_height() -> int:
     """
     font = QFont()
     font.setPixelSize(_amount_px())
-    return QFontMetrics(font).height() + 44
+    # 保留大数字完整行高，同时压缩上下空白，让表格更早进入视线。
+    return QFontMetrics(font).height() + 30
 
 
 def _make_metric_card(
@@ -71,8 +72,8 @@ def _make_metric_card(
     )
     card.setFixedHeight(_metric_card_height())
     outer = QHBoxLayout(card)
-    outer.setContentsMargins(10, 6, 10, 6)
-    outer.setSpacing(10)
+    outer.setContentsMargins(8, 4, 8, 4)
+    outer.setSpacing(8)
 
     icon = QLabel()
     icon.setStyleSheet("border: none; background: transparent;")
@@ -106,7 +107,7 @@ def _make_metric_card(
 def _build_metric_row(specs) -> tuple[QHBoxLayout, dict[str, QLabel]]:
     """按规格批量构建一行指标卡片，返回 (布局, {key: 数值Label})。"""
     row = QHBoxLayout()
-    row.setSpacing(24)
+    row.setSpacing(12)
     labels: dict[str, QLabel] = {}
     for key, icon, icon_color, title, role, color, obj_name in specs:
         card, value = _make_metric_card(icon, icon_color, title, role, color, obj_name)

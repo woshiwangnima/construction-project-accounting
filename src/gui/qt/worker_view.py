@@ -3,6 +3,7 @@
 只通过 self 访问宿主状态；模块级依赖均为叶子模块，避免循环导入。
 """
 import copy
+from ...project_service import remove_trades, save_trade
 
 from .icons import (
     ICON_ERASER, ICON_FOLDER_PLUS, ICON_UNDO, icon as ui_icon,
@@ -35,7 +36,7 @@ class WorkerViewMixin:
         if not self.project_data:
             return
         p = self.project_data
-        items = p.get("trade_items", []) or []
+        items = p.trade_items
         cats = _project_category_names(p)
         category_maps = _category_maps(p)
         counts: dict[str, int] = {}
@@ -92,7 +93,7 @@ class WorkerViewMixin:
             return []
         category_maps = _category_maps(self.project_data)
         return [
-            ti for ti in self.project_data.get("trade_items", []) or []
+            ti for ti in self.project_data.trade_items
             if _trade_item_category_name(ti, self.project_data, category_maps)
             == self._selected_category
         ]
@@ -102,7 +103,7 @@ class WorkerViewMixin:
             return []
         category_maps = _category_maps(self.project_data)
         return [
-            i for i, ti in enumerate(self.project_data.get("trade_items", []) or [])
+            i for i, ti in enumerate(self.project_data.trade_items)
             if _trade_item_category_name(ti, self.project_data, category_maps)
             == self._selected_category
         ]
@@ -118,7 +119,7 @@ class WorkerViewMixin:
     def _sort_workers(self, column: str, order: str = "") -> None:
         if not self._editable or not self.project_data:
             return
-        items = self.project_data.get("trade_items", [])
+        items = self.project_data.trade_items
         if column == "单价":
             descending = self._worker_price_sort_descending
             price_positions = [
@@ -169,7 +170,7 @@ class WorkerViewMixin:
         target = idx + direction
         if target < 0 or target >= len(cat_indices):
             return
-        items = self.project_data.get("trade_items", [])
+        items = self.project_data.trade_items
         pos_a, pos_b = cat_indices[idx], cat_indices[target]
         moved_id = items[pos_a].get("id")
         items[pos_a], items[pos_b] = items[pos_b], items[pos_a]
@@ -185,14 +186,14 @@ class WorkerViewMixin:
             return
         moved_id = cat_items[src].get("id")
         visible_ids = [item.get("id", "") for item in cat_items]
-        items = self.project_data.get("trade_items", []) or []
+        items = self.project_data.trade_items
         new_items = reorder_subset_by_ids(
             items, visible_ids, src, target,
             id_getter=lambda item: item.get("id", ""),
         )
         if new_items == items:
             return
-        self.project_data["trade_items"] = new_items
+        self.project_data.replace_trade_items(new_items)
         self._save_bridge.schedule(self.current_uuid, self.project_data)
         self._render_workers()
         self._select_worker_by_id(moved_id)
@@ -210,11 +211,11 @@ class WorkerViewMixin:
         cat_indices = self._get_cat_indices()
         if idx < 0 or idx >= len(cat_indices):
             return
-        items = self.project_data.get("trade_items", [])
+        items = self.project_data.trade_items
         item = items[cat_indices[idx]]
         tid = item.get("id", "")
         affected_bills = [
-            b for b in self.project_data.get("bills", []) or []
+            b for b in self.project_data.bills
             if b.get("trade_item_id") == tid
         ]
         warn_msg = f"删除「{item.get('name', '')}」？"
@@ -225,24 +226,7 @@ class WorkerViewMixin:
             )
         if not self._confirm_delete("确认", warn_msg):
             return
-        ti_billing = read_billing(item)
-        for b in affected_bills:
-            b["frozen_snapshot"] = {
-                "name": item.get("name", ""),
-                "category": item.get("category", ""),
-                "has_unit": ti_billing.has_unit,
-                "unit_price": ti_billing.unit_price,
-                "unit": ti_billing.unit,
-            }
-            b["frozen_total"] = recompute_bill_total(
-                {**b.to_dict(), "trade_item_id": tid} if hasattr(b, "to_dict")
-                else {**b, "trade_item_id": tid},
-                items,
-                self._op_map,
-            )
-            b["trade_item_id"] = ""
-            b["_needs_attention"] = True
-        del items[cat_indices[idx]]
+        remove_trades(self.project_data, {tid}, self._op_map)
         self._save_bridge.schedule(self.current_uuid, self.project_data)
         self._render_workers()
         self._render_bills()
@@ -253,7 +237,7 @@ class WorkerViewMixin:
         cat_indices = self._get_cat_indices()
         if idx < 0 or idx >= len(cat_indices):
             return
-        items = self.project_data.get("trade_items", []) or []
+        items = self.project_data.trade_items
         ti = items[cat_indices[idx]]
         billing = read_billing(ti)
         payload = {
@@ -276,8 +260,8 @@ class WorkerViewMixin:
             self._error_box("粘贴失败", f"剪贴板数据异常：{e}")
             return
         payload = entry["payload"]
-        items = self.project_data.get("trade_items", [])
-        cat_order = self.project_data.get("category_order", []) or []
+        items = self.project_data.trade_items
+        cat_order = self.project_data.category_names
         cat_indices = self._get_cat_indices()
 
         idx = rows[0] if rows else None
@@ -292,9 +276,10 @@ class WorkerViewMixin:
                 new_ti["id"] = target["id"]
                 new_ti["category"] = target["category"]
                 new_ti["category_id"] = target.get("category_id", "")
-                items[global_idx] = new_ti
+                save_trade(self.project_data, new_ti)
                 self._save_bridge.schedule(self.current_uuid, self.project_data)
                 self._render_workers()
+                self._render_bills()
                 self.toast.emit(f"已替换工作「{new_ti['name']}」")
             return
 
@@ -304,10 +289,10 @@ class WorkerViewMixin:
             cat = cat_order[0] if cat_order else payload.get("category", "")
         payload["category"] = cat
         new_ti = paste_trade_item(payload, items, cat_order)
-        items.append(new_ti)
+        save_trade(self.project_data, new_ti)
         if unique_category_after_paste(new_ti["category"], cat_order):
             cat_order.append(new_ti["category"])
-            self.project_data["category_order"] = cat_order
+            self.project_data.replace_categories(cat_order)
         self._save_bridge.schedule(self.current_uuid, self.project_data)
         self._render_workers()
         self.toast.emit(f"已粘贴工作「{new_ti['name']}」（Ctrl+V）")
@@ -330,7 +315,7 @@ class WorkerViewMixin:
         cat_indices = self._get_cat_indices()
         if idx < 0 or idx >= len(cat_indices):
             return
-        items = self.project_data.get("trade_items", []) or []
+        items = self.project_data.trade_items
         ti = items[cat_indices[idx]]
         cats = _project_category_names(self.project_data)
         from .dialogs import EditTradeItemDialog
@@ -342,6 +327,7 @@ class WorkerViewMixin:
     def _on_trade_item_saved(self, updated: dict) -> None:
         if not self.project_data or not self.current_uuid:
             return
+        save_trade(self.project_data, updated)
         self._save_bridge.schedule(self.current_uuid, self.project_data)
         self._render_workers()
         self._render_bills()
@@ -367,10 +353,10 @@ class WorkerViewMixin:
             self._error_box("提示", "请输入名称")
             return
         p = self.project_data
-        co = p.get("category_order", []) or []
+        co = p.category_names
         if name not in co:
             co.append(name)
-            p["category_order"] = co
+            p.replace_categories(co)
         self._save_bridge.schedule(self.current_uuid, self.project_data)
         self._selected_category = name
         self._render_workers()
@@ -387,28 +373,11 @@ class WorkerViewMixin:
         if new_name == name:
             return
         p = self.project_data
-        co = p.category_order if hasattr(p, "category_order") else p.get("category_order", []) or []
-        updated = False
-        for cat in co:
-            if _category_name(cat) == name:
-                if hasattr(cat, "name"):
-                    cat.name = new_name
-                elif isinstance(cat, dict):
-                    cat["name"] = new_name
-                else:
-                    co[co.index(cat)] = new_name
-                updated = True
-                break
-        if not updated:
+        try:
+            p.rename_category(name, new_name)
+        except ValueError as exc:
+            self._error_box(self.windowTitle(), str(exc))
             return
-        for ti in p.get("trade_items", []) or []:
-            if isinstance(ti, dict):
-                if ti.get("category") == name:
-                    ti["category"] = new_name
-            elif hasattr(ti, "category") and ti.category == name:
-                ti.category = new_name
-        if hasattr(p, "_sync_trade_item_category_ids"):
-            p._sync_trade_item_category_ids()
         self._save_bridge.schedule(self.current_uuid, self.project_data)
         self._selected_category = new_name
         self._render_workers()
@@ -417,7 +386,7 @@ class WorkerViewMixin:
         """在 category_order 中上移（-1）/下移（+1）一位，保持选中。"""
         if not self._editable or not self.project_data:
             return
-        co = list(self.project_data.get("category_order", []) or [])
+        co = list(self.project_data.category_names)
         if name not in co:
             return
         idx = co.index(name)
@@ -425,7 +394,7 @@ class WorkerViewMixin:
         if target < 0 or target >= len(co):
             return
         co[idx], co[target] = co[target], co[idx]
-        self.project_data["category_order"] = co
+        self.project_data.replace_categories(co)
         self._save_bridge.schedule(self.current_uuid, self.project_data)
         self._render_workers()
     def _delete_category(self, name: str) -> None:
@@ -433,7 +402,7 @@ class WorkerViewMixin:
         if not self._editable or not self.project_data:
             return
         p = self.project_data
-        items = p.get("trade_items", []) or []
+        items = p.trade_items
         category_maps = _category_maps(p)
         deleting = [
             ti for ti in items
@@ -441,7 +410,7 @@ class WorkerViewMixin:
         ]
         deleting_ids = {ti.get("id", "") for ti in deleting}
         affected_bills = [
-            b for b in p.get("bills", []) or []
+            b for b in p.bills
             if b.get("trade_item_id") in deleting_ids
         ]
         warn_msg = f"删除分类「{name}」？"
@@ -455,34 +424,9 @@ class WorkerViewMixin:
         if not self._confirm_delete("确认", warn_msg):
             return
 
-        if deleting:
-            for ti in deleting:
-                tid = ti.get("id", "")
-                ti_billing = read_billing(ti)
-                for b in p.get("bills", []) or []:
-                    if b.get("trade_item_id") == tid:
-                        b["frozen_snapshot"] = {
-                            "name": ti.get("name", ""),
-                            "category": _trade_item_category_name(ti, p, category_maps),
-                            "has_unit": ti_billing.has_unit,
-                            "unit_price": ti_billing.unit_price,
-                            "unit": ti_billing.unit,
-                        }
-                        b["frozen_total"] = recompute_bill_total(
-                            {**b.to_dict(), "trade_item_id": tid} if hasattr(b, "to_dict")
-                            else {**b, "trade_item_id": tid},
-                            items,
-                            self._op_map,
-                        )
-                        b["trade_item_id"] = ""
-                        b["_needs_attention"] = True
-
-        p["trade_items"] = [
-            ti for ti in items
-            if _trade_item_category_name(ti, p, category_maps) != name
-        ]
-        co = p.get("category_order", []) or []
-        p["category_order"] = [c for c in co if _category_name(c) != name]
+        remove_trades(p, deleting_ids, self._op_map)
+        co = p.category_names
+        p.replace_categories([c for c in co if _category_name(c) != name])
         self._save_bridge.schedule(self.current_uuid, self.project_data)
         if self._selected_category == name:
             self._selected_category = None
@@ -522,10 +466,10 @@ class WorkerViewMixin:
         if not self._editable or not self.project_data:
             return
         p = self.project_data
-        items = p.get("trade_items", []) or []
+        items = p.trade_items
         deleting_ids = {ti.get("id", "") for ti in items}
         affected_bills = [
-            b for b in p.get("bills", []) or []
+            b for b in p.bills
             if b.get("trade_item_id") in deleting_ids
         ]
         warn_msg = "确定清空所有分类及其工作数据？此操作不可撤销。"
@@ -538,30 +482,9 @@ class WorkerViewMixin:
         if not self._confirm_delete("确认清空", warn_msg):
             return
 
-        if items:
-            category_maps = _category_maps(p)
-            for ti in items:
-                tid = ti.get("id", "")
-                ti_billing = read_billing(ti)
-                for b in p.get("bills", []) or []:
-                    if b.get("trade_item_id") == tid:
-                        b["frozen_snapshot"] = {
-                            "name": ti.get("name", ""),
-                            "category": _trade_item_category_name(ti, p, category_maps),
-                            "has_unit": ti_billing.has_unit,
-                            "unit_price": ti_billing.unit_price,
-                            "unit": ti_billing.unit,
-                        }
-                        b["frozen_total"] = recompute_bill_total(
-                            {**b.to_dict(), "trade_item_id": tid} if hasattr(b, "to_dict")
-                            else {**b, "trade_item_id": tid},
-                            items,
-                            self._op_map,
-                        )
-                        b["trade_item_id"] = ""
-                        b["_needs_attention"] = True
-        p["category_order"] = []
-        p["trade_items"] = []
+        remove_trades(p, deleting_ids, self._op_map)
+        p.replace_categories([])
+        p.replace_trade_items([])
         self._save_bridge.schedule(self.current_uuid, p)
         self._selected_category = None
         self._render_workers()

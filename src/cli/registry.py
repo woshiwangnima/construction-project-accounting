@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 
@@ -22,7 +22,7 @@ class ArgSpec:
     name: str
     help: str
     kind: str = "option"  # "option" | "positional"
-    type: str = "str"  # "str" | "int" | "flag"
+    type: str = "str"  # "str" | "int" | "flag" | "tristate"
     required: bool = False
     default: Any = None
     choices: tuple[str, ...] | None = None
@@ -43,6 +43,11 @@ class ArgSpec:
             kwargs["action"] = "store_true"
             if self.default is None:
                 kwargs["default"] = False
+        elif self.type == "tristate":
+            # 三态旗标：不传 -> None，--x -> True，--no-x -> False。
+            # 用于"未传"与"显式关闭"必须区分的字段（如 --reviewed）。
+            kwargs["action"] = argparse.BooleanOptionalAction
+            kwargs["default"] = None
         elif self.type == "int":
             kwargs["type"] = int
         parser.add_argument(flag, **kwargs)
@@ -88,6 +93,9 @@ _REGISTRY: dict[str, CommandSpec] = {}
 def register(spec: CommandSpec) -> CommandSpec:
     if spec.name in _REGISTRY:
         raise ValueError(f"重复注册命令: {spec.name}")
+    if not spec.read_only:
+        from .guard import exclusive_write
+        spec = replace(spec, handler=exclusive_write(spec.handler))
     _REGISTRY[spec.name] = spec
     return spec
 

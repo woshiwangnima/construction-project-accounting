@@ -128,7 +128,6 @@ backups/
 projects/
 config/user_config.json
 config/requirements.txt
-docs/
 logs/
 migration_backups/
 *.bak

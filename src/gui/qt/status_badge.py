@@ -20,6 +20,7 @@ class QtStatusBadge(QCheckBox):
     def __init__(self, parent=None, status=None, **_kwargs):
         super().__init__("项目已完成", parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.toggled.connect(self._sync_text)
         set_readable_tooltip(self, "勾选后项目将标记为已完成；取消勾选可继续编辑")
         self.setStyleSheet(
             f"QCheckBox {{ color: {TEXT_PRIMARY}; background: transparent; spacing: 7px; }}"
@@ -36,6 +37,11 @@ class QtStatusBadge(QCheckBox):
             self.setChecked(status == ProjectStatus.DONE)
         finally:
             self.blockSignals(previous)
+        self._sync_text(self.isChecked())
+
+    def _sync_text(self, checked: bool) -> None:
+        """未完成时使用动作文案，避免未勾选的“项目已完成”产生歧义。"""
+        self.setText("项目已完成" if checked else "标记为已完成")
 
     def set_bg(self, _color: str) -> None:
         """保留旧接口；复选框不再使用状态色块。"""

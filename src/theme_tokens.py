@@ -45,9 +45,9 @@ STATUS_DONE_BG = SUCCESS_BG
 
 # ── 字体回退链（Qt QSS font-family / 其他支持列表字体的场景）─────────────────
 FONT_FALLBACK = (
-  "Microsoft YaHei UI",
-  "Microsoft YaHei",
-  "PingFang SC",
-  "Segoe UI",
-  "sans-serif",
+ "Microsoft YaHei UI",
+ "Microsoft YaHei",
+ "PingFang SC",
+ "Segoe UI",
+ "sans-serif",
 )

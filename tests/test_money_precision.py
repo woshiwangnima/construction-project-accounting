@@ -1,11 +1,16 @@
 import unittest
 from decimal import Decimal
 
-from src.bill_recompute import recompute_bill_total
+from src.bill_recompute import recompute_bill_total, summarize_bill_calculations
 from src.calculator import evaluate_decimal
 
 
 class MoneyPrecisionTests(unittest.TestCase):
+    def test_summary_adds_rounded_amounts_without_float_drift(self):
+        bills = [{"trade_item_id": "ti", "content": "0.1"} for _ in range(10)]
+        _, total, _ = summarize_bill_calculations(bills, [{"id": "ti", "has_unit": False}], {})
+        self.assertEqual(total, 1.0)
+
     def test_expression_evaluation_uses_decimal_arithmetic(self):
         self.assertEqual(evaluate_decimal("0.1+0.2"), Decimal("0.3"))
 

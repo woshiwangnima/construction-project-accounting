@@ -70,7 +70,12 @@ def _render(data: Any) -> str:
 def run_command(func, args, as_json: bool) -> int:
     """执行命令并统一落地输出与退出码。命令函数返回可序列化数据。"""
     try:
-        data = func(args)
+        from ..project_service import ValidationError
+        from .errors import InvalidArgument
+        try:
+            data = func(args)
+        except ValidationError as exc:
+            raise InvalidArgument(str(exc)) from exc
     except CliError as exc:
         if as_json:
             emit_json(error_payload(exc), sys.stdout)

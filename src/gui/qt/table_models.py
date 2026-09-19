@@ -7,7 +7,7 @@
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFont
 
-from ...bill_recompute import prepare_bill_calculations
+from ...bill_calculation_cache import BillCalculationCache
 from ...bill_review import is_bill_reviewed
 from ...billing import read_billing
 from ...calculator import MathParseError, to_canonical, to_display
@@ -23,16 +23,17 @@ from ..theme import (
     TEXT_TERTIARY,
 )
 
-# 孤儿账单行的文字色（红）+ 前缀图标（与 Tk 版一致）
+# 孤儿账单行使用明确文本前缀，避免系统把警告符号渲染成彩色 Emoji。
 ORPHAN_FG = SYSTEM_RED
-ORPHAN_PREFIX = "⚠ "
+ORPHAN_PREFIX = "异常 · "
 # 两档灰色原本是 Google Material 的 #5f6368 / #6e6e73（第三套灰阶），
 # 已收编到统一暖灰。注意别改用 TEXT_TERTIARY——它只有 2.5:1，正文读不清。
 BILL_SECONDARY_FG = TEXT_SECONDARY
 BILL_TERTIARY_FG = TEXT_MUTED
 
 # 数字列（单价/金额/公式结果）右对齐：纵向对位扫读、小数位天然对齐。
-_ALIGN_RIGHT = Qt.AlignRight | Qt.AlignVCenter
+_ALIGN_LEFT = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+_ALIGN_RIGHT = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
 
 # 悬停行叠色：把原底色（斑马纹 / 审核绿）整体加深 ~6%。
 # 不能向某个固定灰色拉近——那会把审核绿 REVIEW_BG 中和掉（实测 g-r 归零）；
@@ -119,20 +120,20 @@ def bill_row_cells(idx: int, bill: dict, calc, op_map: dict) -> dict:
         display_name = f"{ORPHAN_PREFIX}{cat} - {name}（已删除）"
 
     return {
-        "#": (str(idx + 1), TEXT_PRIMARY, Qt.AlignCenter, "body"),
+        "#": (str(idx + 1), TEXT_PRIMARY, Qt.AlignmentFlag.AlignCenter, "body"),
         "审核": (
             "☑" if reviewed else "☐",
             SYSTEM_GREEN if reviewed else BILL_TERTIARY_FG,
-            Qt.AlignCenter,
+            Qt.AlignmentFlag.AlignCenter,
             "body_bold",
         ),
         "工作内容": (
             display_name,
             ORPHAN_FG if orphan else TEXT_PRIMARY,
-            Qt.AlignCenter,
+            _ALIGN_LEFT,
             "body",
         ),
-        "公式": (qty_str, BILL_SECONDARY_FG, Qt.AlignCenter, "body"),
+        "公式": (qty_str, BILL_SECONDARY_FG, Qt.AlignmentFlag.AlignCenter, "body"),
         "公式结果": (formula_result_str, BILL_SECONDARY_FG, _ALIGN_RIGHT, "numeric"),
         "单价": (
             price_str,
@@ -141,12 +142,12 @@ def bill_row_cells(idx: int, bill: dict, calc, op_map: dict) -> dict:
             "numeric",
         ),
         "金额": (total_str, total_color, _ALIGN_RIGHT, "numeric_bold"),
-        "备注": (note, BILL_SECONDARY_FG, Qt.AlignCenter, "body"),
-        "日期": (date, BILL_SECONDARY_FG, Qt.AlignCenter, "small"),
+        "备注": (note, BILL_SECONDARY_FG, _ALIGN_LEFT, "body"),
+        "日期": (date, BILL_SECONDARY_FG, Qt.AlignmentFlag.AlignCenter, "small"),
         "修改时间": (
             bill.get("record_time", "-"),
             BILL_SECONDARY_FG,
-            Qt.AlignCenter,
+            Qt.AlignmentFlag.AlignCenter,
             "small",
         ),
     }
@@ -167,10 +168,15 @@ def worker_row_cells(item: dict) -> dict:
         billing_text = "无单价"
         billing_color = TEXT_TERTIARY
     return {
-        "名称": (name, TEXT_PRIMARY, Qt.AlignCenter, "body"),
+        "名称": (name, TEXT_PRIMARY, _ALIGN_LEFT, "body"),
         "单价": (price_text, TEXT_PRIMARY, _ALIGN_RIGHT, "numeric_bold"),
-        "单位": (unit_text, TEXT_PRIMARY, Qt.AlignCenter, "body"),
-        "计费类型": (billing_text, billing_color, Qt.AlignCenter, "body"),
+        "单位": (unit_text, TEXT_PRIMARY, Qt.AlignmentFlag.AlignCenter, "body"),
+        "计费类型": (
+            billing_text,
+            billing_color,
+            Qt.AlignmentFlag.AlignCenter,
+            "body",
+        ),
     }
 
 
@@ -207,10 +213,12 @@ class _RowTableModel(QAbstractTableModel):
 
     # ── 配置 ──
     def set_columns(self, columns: list[str], hidden_cols: list[str]) -> None:
-        self._columns = list(columns)
         self._hidden = set(hidden_cols)
-        self._cache.clear()
+        if self._columns == list(columns):
+            return
         self.beginResetModel()
+        self._columns = list(columns)
+        self._cache.clear()
         self.endResetModel()
 
     def set_editable(self, editable: bool) -> None:
@@ -223,10 +231,15 @@ class _RowTableModel(QAbstractTableModel):
     def columnCount(self, parent=QModelIndex()) -> int:
         return 0 if parent.isValid() else len(self._columns)
 
-    def headerData(self, section, orientation, role=Qt.DisplayRole):
+    def headerData(
+        self,
+        section,
+        orientation,
+        role=Qt.ItemDataRole.DisplayRole,
+    ):
         if (
-            orientation == Qt.Horizontal
-            and role == Qt.DisplayRole
+            orientation == Qt.Orientation.Horizontal
+            and role == Qt.ItemDataRole.DisplayRole
             and 0 <= section < len(self._columns)
         ):
             return self._columns[section]
@@ -234,10 +247,14 @@ class _RowTableModel(QAbstractTableModel):
 
     def flags(self, index):
         if not index.isValid():
-            return Qt.ItemIsEnabled
-        base = Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDropEnabled
+            return Qt.ItemFlag.ItemIsEnabled
+        base = (
+            Qt.ItemFlag.ItemIsEnabled
+            | Qt.ItemFlag.ItemIsSelectable
+            | Qt.ItemFlag.ItemIsDropEnabled
+        )
         if self._editable:
-            base |= Qt.ItemIsDragEnabled
+            base |= Qt.ItemFlag.ItemIsDragEnabled
         return base
 
     def mimeTypes(self):
@@ -254,10 +271,10 @@ class _RowTableModel(QAbstractTableModel):
         return data
 
     def supportedDropActions(self):
-        return Qt.MoveAction
+        return Qt.DropAction.MoveAction
 
     def dropMimeData(self, data, action, row, column, parent):
-        if action == Qt.IgnoreAction or not data.hasFormat(self.MIME_TYPE):
+        if action == Qt.DropAction.IgnoreAction or not data.hasFormat(self.MIME_TYPE):
             return False
         try:
             src_rows = [int(r) for r in data.data(self.MIME_TYPE).decode().split(",")]
@@ -270,10 +287,108 @@ class _RowTableModel(QAbstractTableModel):
         return True
 
     # ── 行数据缓存 ──
-    def _invalidate(self) -> None:
-        self._cache.clear()
-        self.beginResetModel()
-        self.endResetModel()
+    def refresh_rows(self, rows) -> None:
+        """Refresh presentation for existing rows without resetting selection.
+
+        This deliberately does not recalculate amounts: use ``set_data`` when
+        formulas or trade items change. Review toggles only need this method.
+        """
+        valid = sorted({row for row in rows if 0 <= row < len(self._rows)})
+        for row in valid:
+            self._cache.pop(row, None)
+        if not valid or not self._columns:
+            return
+        start = end = valid[0]
+        for row in valid[1:] + [None]:
+            if row == end + 1:
+                end = row
+                continue
+            self.dataChanged.emit(
+                self.index(start, 0), self.index(end, len(self._columns) - 1)
+            )
+            start = end = row
+
+    @staticmethod
+    def _row_keys(rows):
+        return [
+            ("id", str(row.get("id"))) if row.get("id") else ("object", id(row))
+            for row in rows
+        ]
+
+    def _replace_rows(self, rows, apply_values=None) -> None:
+        """Keep persistent indexes for common inserts, deletes and row moves."""
+        old_keys = self._row_keys(self._rows)
+        new_keys = self._row_keys(rows)
+
+        def apply():
+            self._rows = rows
+            self._cache.clear()
+            if apply_values is not None:
+                apply_values()
+
+        if old_keys == new_keys:
+            apply()
+            self.refresh_rows(range(len(rows)))
+            return
+        # Duplicate identifiers cannot reliably identify a moved row.
+        unique = len(set(old_keys)) == len(old_keys) and len(set(new_keys)) == len(
+            new_keys
+        )
+        first = next(
+            (
+                i
+                for i, pair in enumerate(zip(old_keys, new_keys, strict=False))
+                if pair[0] != pair[1]
+            ),
+            min(len(old_keys), len(new_keys)),
+        )
+        difference = len(new_keys) - len(old_keys)
+        if (
+            unique
+            and difference > 0
+            and old_keys[first:] == new_keys[first + difference :]
+        ):
+            self.beginInsertRows(QModelIndex(), first, first + difference - 1)
+            apply()
+            self.endInsertRows()
+        elif (
+            unique
+            and difference < 0
+            and old_keys[first - difference :] == new_keys[first:]
+        ):
+            self.beginRemoveRows(QModelIndex(), first, first - difference - 1)
+            apply()
+            self.endRemoveRows()
+        elif unique and difference == 0 and set(old_keys) == set(new_keys):
+            # A drag or an up/down action moves exactly one row. Arbitrary
+            # sorting falls back to a reset rather than guessing a move.
+            candidates = (
+                (first, new_keys.index(old_keys[first])),
+                (old_keys.index(new_keys[first]), first),
+            )
+            for source, target in candidates:
+                expected = list(old_keys)
+                expected.insert(target, expected.pop(source))
+                if expected == new_keys:
+                    destination = target + 1 if target > source else target
+                    self.beginMoveRows(
+                        QModelIndex(), source, source, QModelIndex(), destination
+                    )
+                    apply()
+                    self.endMoveRows()
+                    break
+            else:
+                self.beginResetModel()
+                apply()
+                self.endResetModel()
+                return
+        else:
+            self.beginResetModel()
+            apply()
+            self.endResetModel()
+            return
+        # Row numbers and alternating backgrounds may change after a move.
+        self.refresh_rows(range(len(rows)))
 
 
 class QtBillModel(_RowTableModel):
@@ -284,6 +399,7 @@ class QtBillModel(_RowTableModel):
         self._op_map = op_map
         self._trade_items: list = []
         self._calculations: list = []
+        self._calculation_cache = BillCalculationCache()
 
     def set_data(
         self,
@@ -292,18 +408,18 @@ class QtBillModel(_RowTableModel):
         op_map: dict | None = None,
         calculations=None,
     ) -> None:
-        self._rows = list(bills or [])
+        rows = list(bills or [])
         if op_map is not None:
             self._op_map = op_map
         if trade_items is not None:
             self._trade_items = list(trade_items or [])
-        if calculations is None or len(calculations) != len(self._rows):
-            self._calculations = prepare_bill_calculations(
-                self._rows, self._trade_items, self._op_map
+        if calculations is None or len(calculations) != len(rows):
+            values = self._calculation_cache.prepare(
+                rows, self._trade_items, self._op_map
             )
         else:
-            self._calculations = list(calculations)
-        self._invalidate()
+            values = list(calculations)
+        self._replace_rows(rows, lambda: setattr(self, "_calculations", values))
 
     def row_cells(self, row: int) -> dict:
         cells = self._cache.get(row)
@@ -319,26 +435,36 @@ class QtBillModel(_RowTableModel):
             self._cache[row] = cells
         return cells
 
-    def data(self, index, role=Qt.DisplayRole):
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid() or not (0 <= index.row() < len(self._rows)):
             return None
         col = self._columns[index.column()]
         cells = self.row_cells(index.row())
-        if role == Qt.DisplayRole or role == Qt.EditRole:
+        if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
             return cells.get(col, (None, None, None, None))[0]
-        if role == Qt.ForegroundRole:
+        if role == Qt.ItemDataRole.ForegroundRole:
             color = cells.get(col, (None, None, None, None))[1]
             return QColor(color) if color else None
-        if role == Qt.TextAlignmentRole:
-            return Qt.AlignCenter
-        if role == Qt.FontRole:
+        if role == Qt.ItemDataRole.TextAlignmentRole:
+            return cells.get(
+                col,
+                (None, None, Qt.AlignmentFlag.AlignCenter, None),
+            )[2]
+        if role == Qt.ItemDataRole.FontRole:
             font_role = cells.get(col, (None, None, None, "body"))[3]
             return _role_font(font_role)
-        if role == Qt.BackgroundRole:
+        if role == Qt.ItemDataRole.BackgroundRole:
             bg = self._row_bg(index.row(), cells["_bg"])
             return QBrush(QColor(bg)) if bg else None
-        if role == Qt.ToolTipRole and col == "公式":
-            return str(self._rows[index.row()].get("content", ""))
+        if role == Qt.ItemDataRole.ToolTipRole:
+            if col == "公式":
+                return str(self._rows[index.row()].get("content", ""))
+            if col == "审核":
+                return (
+                    "已审核，点击可取消"
+                    if is_bill_reviewed(self._rows[index.row()])
+                    else "未审核，点击可标记"
+                )
         return None
 
 
@@ -346,30 +472,32 @@ class QtWorkerModel(_RowTableModel):
     """工作类型模型。"""
 
     def set_data(self, items: list) -> None:
-        self._rows = list(items or [])
-        self._invalidate()
+        self._replace_rows(list(items or []))
 
-    def data(self, index, role=Qt.DisplayRole):
+    def row_cells(self, row: int) -> dict:
+        if row not in self._cache:
+            self._cache[row] = worker_row_cells(self._rows[row])
+        return self._cache[row]
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid() or not (0 <= index.row() < len(self._rows)):
             return None
         col = self._columns[index.column()]
-        if role == Qt.DisplayRole or role == Qt.EditRole:
-            return worker_row_cells(self._rows[index.row()]).get(
-                col, (None, None, None, None)
-            )[0]
-        if role == Qt.ForegroundRole:
-            color = worker_row_cells(self._rows[index.row()]).get(
-                col, (None, None, None, None)
-            )[1]
+        cells = self.row_cells(index.row())
+        if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
+            return cells.get(col, (None, None, None, None))[0]
+        if role == Qt.ItemDataRole.ForegroundRole:
+            color = cells.get(col, (None, None, None, None))[1]
             return QColor(color) if color else None
-        if role == Qt.TextAlignmentRole:
-            return Qt.AlignCenter
-        if role == Qt.FontRole:
-            font_role = worker_row_cells(self._rows[index.row()]).get(
-                col, (None, None, None, "body")
-            )[3]
+        if role == Qt.ItemDataRole.TextAlignmentRole:
+            return cells.get(
+                col,
+                (None, None, Qt.AlignmentFlag.AlignCenter, None),
+            )[2]
+        if role == Qt.ItemDataRole.FontRole:
+            font_role = cells.get(col, (None, None, None, "body"))[3]
             return _role_font(font_role)
-        if role == Qt.BackgroundRole:
+        if role == Qt.ItemDataRole.BackgroundRole:
             bg = ROW_STRIPE if index.row() % 2 == 1 else APP_BG
             bg = self._row_bg(index.row(), bg)
             return QBrush(QColor(bg)) if bg else None
@@ -387,15 +515,16 @@ _NUMERIC_FAMILY = "Consolas"
 
 def _role_font(role: str):
     """按字体角色返回 QFont（缓存，避免每格新建）。"""
-    font = _role_font_cache.get(role)
-    if font is None:
-        from ..font_manager import font_manager
+    from ..font_manager import font_manager
 
-        base_role = _NUMERIC_BASE_ROLES.get(role)
-        if base_role is not None:
-            font = QFont(font_manager.get(base_role))
-            font.setFamily(_NUMERIC_FAMILY)
-        else:
-            font = font_manager.get(role)
-        _role_font_cache[role] = font
-    return font
+    base_role = _NUMERIC_BASE_ROLES.get(role)
+    if base_role is None:
+        return font_manager.get(role)
+    source = font_manager.get(base_role)
+    cached = _role_font_cache.get(role)
+    if cached is None or cached[0] != source:
+        font = QFont(source)
+        font.setFamily(_NUMERIC_FAMILY)
+        cached = (QFont(source), font)
+        _role_font_cache[role] = cached
+    return cached[1]

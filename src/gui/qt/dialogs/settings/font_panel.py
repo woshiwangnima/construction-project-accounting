@@ -37,6 +37,18 @@ def _safe_size(value, fallback: int = 14) -> int:
         return fallback
 
 
+def _build_preview_font(cfg: dict) -> QFont:
+    """Build a preview font using the same pixel-size semantics as FontManager."""
+    font = QFont()
+    font.setFamily(cfg.get("family") or _DEFAULT_FAMILY)
+    font.setPixelSize(_safe_size(cfg.get("size", 14)))
+    font.setWeight(QFont.Weight.Bold if cfg.get("bold") else QFont.Weight.Normal)
+    font.setItalic(bool(cfg.get("italic")))
+    font.setUnderline(bool(cfg.get("underline")))
+    font.setStrikeOut(bool(cfg.get("overstrike")))
+    return font
+
+
 # 常用字体白名单：真实 Windows 有数百种字体，全部塞进 14 个下拉框会
 # 导致面板构建数秒、点击切换卡死。仅列出主流中英文字体，够用且快。
 _PREFERRED_FAMILIES = (
@@ -188,12 +200,7 @@ class FontPanel(BasePanel):
     def _apply_preview(self, role: str, cfg: dict) -> None:
         rv = self._rows[role]
         size = _safe_size(cfg.get("size", 14))
-        font = QFont(cfg["family"] or _DEFAULT_FAMILY, size)
-        font.setWeight(QFont.Weight.Bold if cfg.get("bold") else QFont.Weight.Normal)
-        font.setItalic(bool(cfg.get("italic")))
-        font.setUnderline(bool(cfg.get("underline")))
-        font.setStrikeOut(bool(cfg.get("overstrike")))
-        rv["preview"].setFont(font)
+        rv["preview"].setFont(_build_preview_font(cfg))
         rv["preview"].setMinimumHeight(max(28, round(size * 1.7)))
         color = normalize_hex_color(cfg.get("color"), "#000000")
         rv["preview"].setStyleSheet(f"color: {color};")
@@ -227,8 +234,8 @@ class FontPanel(BasePanel):
             cfg["multiplier"] = round(cfg["size"] / dfs, 3)
             cfg.pop("size", None)
             settings[role] = cfg
+        # save_settings() 已负责刷新；不要重复触发整棵界面的字体/QSS 重放。
         font_manager.save_settings(settings)
-        font_manager.refresh()
 
 
 def _defaults_for(role: str) -> dict:

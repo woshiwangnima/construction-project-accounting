@@ -22,20 +22,7 @@ from .billing_resolver import build_trade_item_index
 from .logger import logger
 
 
-_CENT = Decimal("0.01")
-
-
-def _as_decimal(value) -> Decimal:
-    if value is None or value == "":
-        return Decimal("0")
-    try:
-        return Decimal(str(value))
-    except (InvalidOperation, TypeError, ValueError):
-        return Decimal("0")
-
-
-def _money(value: Decimal) -> Decimal:
-    return value.quantize(_CENT, rounding=ROUND_HALF_UP)
+from .money import as_decimal as _as_decimal, round_money as _money, sum_money
 
 
 def _frozen_total(bill: dict) -> float:
@@ -167,14 +154,8 @@ def summarize_bill_calculations(
 ) -> tuple[list[BillCalculation], float, int]:
     """Return per-row calculations, total amount and formula error count."""
     calculations = prepare_bill_calculations(bills, trade_items, op_map)
-    total = sum(item.total for item in calculations)
-    error_count = sum(
-        1
-        for bill, item in zip(bills or [], calculations)
-        # Keep the existing UI contract: zero total + non-empty formula is
-        # shown as a calculation warning, including legacy/orphan records.
-        if bill.get("content", "") and item.total == 0
-    )
+    total = sum_money(item.total for item in calculations)
+    error_count = sum(item.formula_error for item in calculations)
     return calculations, total, error_count
 
 

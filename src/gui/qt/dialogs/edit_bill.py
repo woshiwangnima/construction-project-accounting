@@ -12,6 +12,8 @@
 
 from datetime import datetime
 
+from ....project_service import associate_bill, validate_formula, validate_dates
+
 from PySide6.QtCore import QDate, Qt
 from PySide6.QtWidgets import (
     QComboBox,
@@ -341,15 +343,10 @@ class EditBillDialog(QDialog):
         if not content:
             self._amount_lbl.setText("")
             return
-        try:
-            result = evaluate_canonical(to_canonical(content, self._op_map))
-        except MathParseError:
-            self._amount_lbl.setText("请输入有效算式")
-            return
-        if billing.is_per_unit:
-            total = round(result * billing.unit_price, 2)
-        else:
-            total = round(result, 2)
+        total = recompute_bill_total(
+            {"content": content, "trade_item_id": ti.get("id", "")},
+            [ti], self._op_map,
+        )
         self._amount_lbl.setText(f"￥{total:.2f}")
 
     # ── 保存 ─────────────────────────────────────────────────────────────────
@@ -364,10 +361,9 @@ class EditBillDialog(QDialog):
             QMessageBox.warning(self, "提示", "请输入计算公式")
             return
         try:
-            canonical = to_canonical(content_raw, self._op_map)
-            evaluate_canonical(canonical)
-        except MathParseError as exc:
-            QMessageBox.warning(self, "公式错误", f"无法解析公式：\n{exc}")
+            validate_formula(content_raw, self._op_map)
+        except ValueError as exc:
+            QMessageBox.warning(self, self.windowTitle(), str(exc))
             return
 
         existing = self._bill or {}
@@ -384,6 +380,12 @@ class EditBillDialog(QDialog):
         elif date_type == "起止时间":
             date_start = _date_text(self._start_edit)
             date_end = _date_text(self._end_edit)
+
+        try:
+            validate_dates(date_type, date_start, date_end)
+        except ValueError as exc:
+            QMessageBox.warning(self, self.windowTitle(), str(exc))
+            return
 
         updated: dict = {
             "content": content_raw,
@@ -406,40 +408,4 @@ class EditBillDialog(QDialog):
         self.accept()
 
     def _apply_trade_association(self, updated: dict, existing: dict, ti) -> None:
-        """按工作内容选择结果填写 trade_item_id 与 frozen_* 字段（与 Tk 一致）。"""
-        old_tid = existing.get("trade_item_id", "")
-        was_orphan = is_orphan(existing, self._trade_items)
-
-        if ti is None:
-            # 切换 / 保持为孤儿
-            updated["trade_item_id"] = ""
-            if was_orphan:
-                for key in ("frozen_snapshot", "frozen_total", "_needs_attention"):
-                    value = existing.get(key)
-                    if value is not None:
-                        updated[key] = value
-            else:
-                abandoned = resolve_trade_item(existing, self._trade_items)
-                if abandoned is not None:
-                    billing = read_billing(abandoned)
-                    updated["frozen_snapshot"] = {
-                        "name": abandoned.get("name", ""),
-                        "category": abandoned.get("category", ""),
-                        "has_unit": billing.has_unit,
-                        "unit_price": billing.unit_price,
-                        "unit": billing.unit,
-                    }
-                    updated["frozen_total"] = recompute_bill_total(
-                        {**updated, "trade_item_id": old_tid},
-                        self._trade_items,
-                        self._op_map,
-                    )
-                    updated["_needs_attention"] = True
-            return
-
-        # 关联 / 重新关联：清掉孤儿冻结数据
-        updated["trade_item_id"] = ensure_trade_item_id(ti)
-        if was_orphan:
-            updated.pop("frozen_snapshot", None)
-            updated.pop("frozen_total", None)
-            updated.pop("_needs_attention", None)
+        associate_bill(updated, existing, ti, self._trade_items, self._op_map)

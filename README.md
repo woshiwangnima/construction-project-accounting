@@ -227,6 +227,33 @@ build.bat
 .venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 ```
 
+### 开发验证与依赖升级
+
+Windows x64 的固定依赖清单为 `constraints-windows-py312.txt`，基准环境是
+CPython 3.12.12。该清单包含应用及 PyInstaller 的间接依赖；日常开发和打包建议使用：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt -c constraints-windows-py312.txt
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m compileall -q main.py src
+.\.venv\Scripts\python.exe -m unittest discover -s tests
+.\build.bat
+```
+
+`requirements.txt` 保留最低版本要求；固定清单用于复现经过验证的 Windows Python 3.12
+环境。升级 Qt、图标库或其他依赖时，应在隔离环境更新清单，执行上述验证并检查真实桌面的
+启动、缩放、编辑保存和对话框。引入新 Qt 模块时，同时检查
+`packaging/ConstructionAccounting.spec` 中的 Python 模块及 DLL 排除规则。
+
+`.github/workflows/windows.yml` 会在推送和拉取请求中执行依赖检查、编译、完整测试和
+Windows 打包检查；手动运行时可选择保留 ZIP 构建产物，不会发布 Release。
+自动测试使用临时 `CPA_DATA_DIR` 和 Qt 离屏平台，真实桌面交互仍需本地验收。
+
+旧配置加载时通过 `src/config_normalization.py` 统一补齐新增默认字段。带 `name` 的列表
+按名称匹配默认条目，保留用户顺序、显式设置、未知列和未知配置；不会重新插入用户删除的
+条目，也不会在读取时改写配置文件。配置目录切换或文件被外部修改后，缓存会自动失效。
+
 ## 使用说明
 
 ### 创建新项目

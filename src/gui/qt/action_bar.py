@@ -3,15 +3,22 @@
 无选择 / 单选 / 多选 / 只读（已完成项目）四种状态自动切换按钮可用性，
 功能与右键菜单一致（右键保留给熟手），新手无需发现右键即可操作。
 """
+
 from PySide6.QtCore import QSize, Signal
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton
 
-from ..font_manager import font_manager
+from ..theme import CARD_BG, CARD_BORDER, TEXT_SECONDARY
 from .icons import (
-    ICON_COPY, ICON_EDIT, ICON_MOVE_DOWN, ICON_MOVE_UP, ICON_PASTE,
-    ICON_TRASH, icon as ui_icon,
+    ICON_COPY,
+    ICON_EDIT,
+    ICON_MOVE_DOWN,
+    ICON_MOVE_UP,
+    ICON_PASTE,
+    ICON_TRASH,
 )
-from ..theme import CARD_BG, CARD_BORDER, DANGER_FG, TEXT_SECONDARY
+from .icons import (
+    icon as ui_icon,
+)
 
 BTN_TEXT = {
     "edit": "编辑",
@@ -35,10 +42,10 @@ BTN_ICON = {
 class ActionBar(QFrame):
     """账单表格下方的操作条。通过 set_rows() 驱动可用状态。"""
 
-    edit_requested = Signal(int)        # 行号
+    edit_requested = Signal(int)  # 行号
     up_requested = Signal(int)
     down_requested = Signal(int)
-    copy_requested = Signal(list)       # 行号列表
+    copy_requested = Signal(list)  # 行号列表
     paste_requested = Signal(list)
     delete_requested = Signal(int)
 
@@ -65,14 +72,22 @@ class ActionBar(QFrame):
         self._btn_edit = _make("edit", lambda: self._emit_single(self.edit_requested))
         self._btn_up = _make("up", lambda: self._emit_single(self.up_requested))
         self._btn_down = _make("down", lambda: self._emit_single(self.down_requested))
-        self._btn_copy = _make("copy", lambda: self.copy_requested.emit(list(self._rows)))
-        self._btn_paste = _make("paste", lambda: self.paste_requested.emit(list(self._rows)))
-        self._btn_delete = _make("delete", lambda: self._emit_single(self.delete_requested))
+        self._btn_copy = _make(
+            "copy", lambda: self.copy_requested.emit(list(self._rows))
+        )
+        self._btn_paste = _make(
+            "paste", lambda: self.paste_requested.emit(list(self._rows))
+        )
+        self._btn_delete = _make(
+            "delete", lambda: self._emit_single(self.delete_requested)
+        )
         self._btn_delete.setProperty("danger", True)
 
         layout.addStretch(1)
-        self._count_lbl = QLabel("未选中")
-        self._count_lbl.setStyleSheet(f"color: {TEXT_SECONDARY};")
+        self._count_lbl = QLabel("未选择记录")
+        self._count_lbl.setStyleSheet(
+            f"color: {TEXT_SECONDARY}; background: transparent; border: none;"
+        )
         layout.addWidget(self._count_lbl)
 
     def _emit_single(self, signal) -> None:
@@ -90,7 +105,7 @@ class ActionBar(QFrame):
         self._btn_paste.setEnabled(editable)
         self._btn_delete.setEnabled(editable and single)
         self._count_lbl.setText(
-            f"选中 {len(self._rows)} 行" if self._rows else "未选中"
+            f"已选择 {len(self._rows)} 条" if self._rows else "未选择记录"
         )
 
     def set_editable(self, editable: bool) -> None:

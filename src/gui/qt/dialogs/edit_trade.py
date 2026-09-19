@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from ....billing import Billing, read_billing, write_billing
-from ....trade_item_id import ensure_trade_item_id
+from ....project_service import update_trade_fields
 from ...font_manager import font_manager
 from ...theme import TEXT_SECONDARY
 
@@ -139,14 +139,12 @@ class EditTradeItemDialog(QDialog):
                 QMessageBox.warning(self, "提示", "请输入或选择单位")
                 return
 
-        self.item["category"] = self.cat_cb.currentText()
-        ensure_trade_item_id(self.item)
-        self.item["name"] = name
-        write_billing(self.item, Billing(
-            has_unit=is_per_unit,
-            unit_price=price,
-            unit=unit,
-        ))
+        try:
+            update_trade_fields(self.item, name=name, category=self.cat_cb.currentText(),
+                                has_unit=is_per_unit, unit_price=price, unit=unit)
+        except ValueError as exc:
+            QMessageBox.warning(self, self.windowTitle(), str(exc))
+            return
 
         if self.on_saved:
             self.on_saved(self.item)

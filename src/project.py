@@ -116,6 +116,46 @@ class Project:
     def _category_names(self) -> list[str]:
         return [c.name if isinstance(c, Category) else str(c) for c in self.category_order]
 
+    @property
+    def category_names(self) -> list[str]:
+        return self._category_names()
+
+    def ensure_category(self, name: str) -> str:
+        if not name:
+            return ""
+        for category in self.category_order:
+            if category.name == name:
+                return category.id
+        category = Category(id=generate_category_id(), name=name)
+        self.category_order.append(category)
+        return category.id
+
+    def replace_categories(self, categories) -> None:
+        self.category_order = self._coerce_category_order(categories)
+        self._sync_trade_item_category_ids()
+
+    def replace_trade_items(self, items) -> None:
+        self.trade_items = [t if isinstance(t, TradeItem) else TradeItem.from_dict(t) for t in items]
+        self._sync_trade_item_category_ids()
+
+    def replace_bills(self, bills) -> None:
+        self.bills = [b if isinstance(b, Bill) else Bill.from_dict(b) for b in bills]
+
+    def reset_field(self, key: str) -> None:
+        self.__delitem__(key)
+
+    def rename_category(self, old: str, new: str) -> None:
+        if new != old and new in self.category_names:
+            raise ValueError("分类名称已存在")
+        for category in self.category_order:
+            if category.name == old:
+                category.name = new
+                for item in self.trade_items:
+                    if item.category_id == category.id or item.category == old:
+                        item.category_id = category.id
+                        item.category = new
+                return
+
     def _category_id_by_name(self) -> dict[str, str]:
         return {c.name: c.id for c in self.category_order if isinstance(c, Category)}
 
@@ -172,15 +212,13 @@ class Project:
 
     def __setitem__(self, key: str, value) -> None:
         if key == "category_order":
-            self.category_order = self._coerce_category_order(value)
-            self._sync_trade_item_category_ids()
+            self.replace_categories(value)
             return
         if key == "trade_items":
-            self.trade_items = [t if isinstance(t, TradeItem) else TradeItem.from_dict(t) for t in value]
-            self._sync_trade_item_category_ids()
+            self.replace_trade_items(value)
             return
         if key == "bills":
-            self.bills = [b if isinstance(b, Bill) else Bill.from_dict(b) for b in value]
+            self.replace_bills(value)
             return
         setattr(self, key, value)
 

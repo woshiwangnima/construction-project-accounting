@@ -1,6 +1,6 @@
 """`project` 写入命令：创建、删除、改名、改状态。
 
-并发安全：所有写入先经 `guard.ensure_gui_not_running()`，
+并发安全：命令注册表持锁执行完整写入流程，
 再调用 project_manager 的既有 API（内部自带 _project_write_lock 与备份策略），
 绝不自行写 JSON 文件。
 """
@@ -13,7 +13,6 @@ from ... import project_manager
 from ...project_status import ProjectStatus
 from ..common import project_summary, require_project
 from ..errors import InvalidArgument
-from ..guard import ensure_gui_not_running
 from ..registry import ArgSpec, CommandSpec, register
 
 _STATUS_CHOICES = ("editing", "done")
@@ -44,7 +43,6 @@ def _parse_status(value: str) -> tuple[str, str]:
 
 
 def _project_create(args: argparse.Namespace) -> dict:
-    ensure_gui_not_running()
     name = (args.name or "").strip()
     if not name:
         raise InvalidArgument("项目名称不能为空")
@@ -58,7 +56,6 @@ def _project_create(args: argparse.Namespace) -> dict:
 
 
 def _project_delete(args: argparse.Namespace) -> dict:
-    ensure_gui_not_running()
     project = require_project(args.uuid)
     if not args.yes:
         raise InvalidArgument(
@@ -74,7 +71,6 @@ def _project_delete(args: argparse.Namespace) -> dict:
 
 
 def _project_rename(args: argparse.Namespace) -> dict:
-    ensure_gui_not_running()
     project = require_project(args.uuid)
     name = (args.name or "").strip()
     if not name:
@@ -90,7 +86,6 @@ def _project_rename(args: argparse.Namespace) -> dict:
 
 
 def _project_status(args: argparse.Namespace) -> dict:
-    ensure_gui_not_running()
     project = require_project(args.uuid)
     status_value, display = _parse_status(args.status)
 
@@ -111,7 +106,6 @@ def _project_status(args: argparse.Namespace) -> dict:
 
 
 def _project_set_description(args: argparse.Namespace) -> dict:
-    ensure_gui_not_running()
     project = require_project(args.uuid)
     updated = project
     updated.description = args.description or ""

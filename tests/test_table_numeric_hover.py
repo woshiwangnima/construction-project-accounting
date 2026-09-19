@@ -1,6 +1,6 @@
-"""表格数据居中/数字等宽字体 + 模型层整行悬停底色。
+"""表格语义对齐/数字等宽字体 + 模型层整行悬停底色。
 
-- 所有数据列统一水平、垂直居中；
+- 文本列左对齐、数字列右对齐、分类和状态列居中；
 - 数字列用等宽数字字体（Consolas，￥/中文缺字形自动回退系统字体）；
 - 模型 ``set_hover_row`` 后 BackgroundRole 在原底色（斑马纹 / 审核绿）
   上向暖灰叠色，与审核底色共存，而不是盖一层实色。
@@ -8,13 +8,15 @@
 
 import os
 import unittest
+from typing import cast
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QBrush, QFont
+from PySide6.QtGui import QBrush, QFont, QFontMetrics
 from PySide6.QtWidgets import QApplication
 
+from src.gui.qt.table import QtBaseTable, cap_utility_column_widths
 from src.gui.qt.table_models import (
     _NUMERIC_FAMILY,
     QtBillModel,
@@ -88,32 +90,97 @@ def _bg_hex(model, row: int, col_name: str) -> str:
     return brush.color().name()
 
 
-class NumericColumnTests(unittest.TestCase):
-    """所有数据列居中，数字列继续使用等宽字体。"""
+class ResponsiveRowHeightTests(unittest.TestCase):
+    def test_row_height_grows_with_large_font(self):
+        table = QtBaseTable()
+        font = QFont(table.font())
+        font.setPixelSize(24)
+        table.setFont(font)
 
-    def test_bill_all_columns_centered(self):
+        expected = QFontMetrics(font).height() + 16
+        self.assertGreaterEqual(table._default_row_height(), expected)
+        self.assertEqual(
+            table.verticalHeader().defaultSectionSize(),
+            table._default_row_height(),
+        )
+        table.deleteLater()
+
+
+class ColumnWidthTests(unittest.TestCase):
+    def test_utility_columns_are_capped_and_surplus_is_preserved(self):
+        original = {
+            "#": 140,
+            "审核": 220,
+            "工作内容": 300,
+            "备注": 240,
+            "操作": 180,
+        }
+        visible = list(original)
+        result = cap_utility_column_widths(
+            original,
+            visible,
+            {"工作内容": 2.0, "备注": 1.0},
+        )
+
+        self.assertEqual(result["#"], 64)
+        self.assertEqual(result["审核"], 88)
+        self.assertEqual(result["操作"], 120)
+        self.assertEqual(sum(result.values()), sum(original.values()))
+        self.assertGreater(result["工作内容"] - 300, result["备注"] - 240)
+
+    def test_orphan_bill_uses_text_prefix_instead_of_emoji(self):
+        model = _make_bill_model([{"trade_item_id": "missing", "content": "10"}])
+        text = _cell(model, 0, "工作内容", Qt.ItemDataRole.DisplayRole)
+
+        self.assertTrue(str(text).startswith("异常 · "))
+        self.assertNotIn("⚠", str(text))
+
+
+class NumericColumnTests(unittest.TestCase):
+    """文本左对齐、数字右对齐，分类状态居中，数字继续使用等宽字体。"""
+
+    def test_bill_columns_use_semantic_alignment(self):
         model = _make_bill_model()
+        expected = {
+            "工作内容": Qt.AlignmentFlag.AlignLeft,
+            "备注": Qt.AlignmentFlag.AlignLeft,
+            "公式结果": Qt.AlignmentFlag.AlignRight,
+            "单价": Qt.AlignmentFlag.AlignRight,
+            "金额": Qt.AlignmentFlag.AlignRight,
+        }
         for name in _BILL_COLUMNS[:-1]:
-            align = _cell(model, 0, name, Qt.ItemDataRole.TextAlignmentRole)
+            align = cast(
+                Qt.AlignmentFlag,
+                _cell(model, 0, name, Qt.ItemDataRole.TextAlignmentRole),
+            )
             self.assertIsInstance(align, Qt.AlignmentFlag)
-            self.assertTrue(align & Qt.AlignmentFlag.AlignHCenter, f"{name} 应水平居中")
+            horizontal = expected.get(name, Qt.AlignmentFlag.AlignHCenter)
+            self.assertTrue(align & horizontal, f"{name} 水平对齐不符合列语义")
             self.assertTrue(align & Qt.AlignmentFlag.AlignVCenter, f"{name} 应垂直居中")
 
     def test_bill_numeric_columns_use_monospace_font(self):
         model = _make_bill_model()
         for name in ("公式结果", "单价", "金额"):
-            font = _cell(model, 0, name, Qt.ItemDataRole.FontRole)
+            font = cast(QFont, _cell(model, 0, name, Qt.ItemDataRole.FontRole))
             self.assertIsInstance(font, QFont)
             self.assertEqual(font.family(), _NUMERIC_FAMILY, f"{name} 应用等宽数字字体")
 
-    def test_worker_columns_centered_and_price_monospace(self):
+    def test_worker_columns_use_semantic_alignment_and_price_monospace(self):
         model = _make_worker_model()
+        expected = {
+            "名称": Qt.AlignmentFlag.AlignLeft,
+            "单价": Qt.AlignmentFlag.AlignRight,
+        }
         for name in _WORKER_COLUMNS[:-1]:
-            align = _cell(model, 0, name, Qt.ItemDataRole.TextAlignmentRole)
+            align = cast(
+                Qt.AlignmentFlag,
+                _cell(model, 0, name, Qt.ItemDataRole.TextAlignmentRole),
+            )
             self.assertIsInstance(align, Qt.AlignmentFlag)
-            self.assertTrue(align & Qt.AlignmentFlag.AlignHCenter, f"{name} 应水平居中")
+            horizontal = expected.get(name, Qt.AlignmentFlag.AlignHCenter)
+            self.assertTrue(align & horizontal, f"{name} 水平对齐不符合列语义")
             self.assertTrue(align & Qt.AlignmentFlag.AlignVCenter, f"{name} 应垂直居中")
-        font = _cell(model, 0, "单价", Qt.ItemDataRole.FontRole)
+        font = cast(QFont, _cell(model, 0, "单价", Qt.ItemDataRole.FontRole))
         self.assertIsInstance(font, QFont)
         self.assertEqual(font.family(), _NUMERIC_FAMILY)
 
@@ -164,6 +231,8 @@ class HoverRowTintTests(unittest.TestCase):
         table.bind_model(model)
         table._set_hover_row(0)
         self.assertEqual(model._hover_row, 0)
+        self.assertIsNotNone(table._action_delegate)
+        assert table._action_delegate is not None
         self.assertEqual(table._action_delegate._hover_row, 0)
         table._set_hover_row(-1)
         self.assertEqual(model._hover_row, -1)

@@ -58,7 +58,7 @@ def main() -> None:
     instance_lock = SingleInstanceLock()
     if not instance_lock.acquire():
         app = QApplication.instance() or QApplication(sys.argv)
-        QMessageBox.warning(None, "程序已运行", "施工项目记账程序已经在运行中。")
+        QMessageBox.warning(None, "数据正在使用", "桌面程序或写入命令正在使用数据，请稍后重试。")
         return
     app = QApplication(sys.argv)
     app.setApplicationName("施工项目记账程序")

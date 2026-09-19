@@ -6,6 +6,17 @@ from src.trade_item import TradeItem
 
 
 class BillCalculationTests(unittest.TestCase):
+    def test_zero_amount_is_not_a_formula_error(self):
+        bills = [
+            {"trade_item_id": "ti-1", "content": "1-1"},
+            {"trade_item_id": "ti-1", "content": "bad"},
+            {"content": "1-1", "frozen_total": 0},
+        ]
+        calculations, total, errors = summarize_bill_calculations(bills, self.trade_items, {})
+        self.assertEqual(total, 0)
+        self.assertEqual(errors, 1)
+        self.assertTrue(calculations[2].orphan)
+
     def setUp(self):
         self.trade_items = [
             {

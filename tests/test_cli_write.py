@@ -166,6 +166,32 @@ class TestBillWriteCommands(IsolatedDataDirTestCase):
         self.assertEqual(code, EXIT_OK)
         self.assertTrue(payload["data"]["reviewed"])
 
+    def test_reviewed_is_tristate(self):
+        """--reviewed / --no-reviewed / 不传 必须可区分。
+
+        回归：--reviewed 曾是普通 store_true 旗标，默认 False，
+        导致无法取消审核（只能设 True）。
+        """
+        uuid = self.create_project()
+        bill_id = self.add_bill(uuid)
+
+        # 设为已审核
+        _c, on = run_cli(["bill.update", uuid, bill_id, "--reviewed", "--json"])
+        self.assertTrue(on["data"]["reviewed"])
+
+        # 取消审核（修复前做不到）
+        c_off, off = run_cli(["bill.update", uuid, bill_id, "--no-reviewed", "--json"])
+        self.assertEqual(c_off, EXIT_OK, off)
+        self.assertFalse(off["data"]["reviewed"])
+        self.assertTrue(off["data"]["changed"])
+
+        # 不传则不改动（content 与现状相同，避免引入无关改动）
+        _c, untouched = run_cli(
+            ["bill.update", uuid, bill_id, "--content", "3*4", "--json"]
+        )
+        self.assertFalse(untouched["data"]["reviewed"])
+        self.assertFalse(untouched["data"]["changed"])
+
     def test_remove_bill(self):
         uuid = self.create_project()
         bill_id = self.add_bill(uuid)
@@ -203,6 +229,34 @@ class TestBillWriteCommands(IsolatedDataDirTestCase):
 
 
 class TestWriteGuards(IsolatedDataDirTestCase):
+    def test_lock_blocks_another_process_for_entire_write(self):
+        import subprocess
+        import sys
+        from src.cli.guard import exclusive_write
+
+        probe = (
+            "from src.single_instance import SingleInstanceLock; "
+            "lock = SingleInstanceLock(); acquired = lock.acquire(); "
+            "lock.release(); raise SystemExit(0 if acquired else 3)"
+        )
+
+        @exclusive_write
+        def write():
+            result = subprocess.run([sys.executable, "-c", probe], timeout=10)
+            self.assertEqual(result.returncode, 3)
+
+        write()
+        result = subprocess.run([sys.executable, "-c", probe], timeout=10)
+        self.assertEqual(result.returncode, 0)
+
+    def test_zero_formula_has_consistent_error_count(self):
+        uuid = self.create_project()
+        self.add_bill(uuid, "1-1")
+        for command in ("bill.list", "bill.summary"):
+            code, payload = run_cli([command, uuid, "--json"])
+            self.assertEqual(code, EXIT_OK, payload)
+            self.assertEqual(payload["data"]["formula_error_count"], 0)
+
     def test_write_rejected_while_gui_lock_held(self):
         """模拟 GUI 运行：写入应被拒绝，只读仍可用。"""
         from src.single_instance import SingleInstanceLock
@@ -230,26 +284,40 @@ class TestWriteGuards(IsolatedDataDirTestCase):
         code, payload = run_cli(["project.create", "释放后可写", "--json"])
         self.assertEqual(code, EXIT_OK, payload)
 
-    def test_read_only_commands_never_require_the_guard(self):
-        """只读命令不得因为 GUI 在运行而失败（它们不调用 guard）。"""
-        from src.cli.registry import all_commands
+    def test_registered_write_holds_lock_until_handler_returns(self):
+        from src.cli.registry import get_command
+        from src.cli.guard import exclusive_write
+        from src.single_instance import SingleInstanceLock
 
-        guarded = []
-        for spec in all_commands():
-            source = ""
+        for fail in (False, True):
+            def handler(args):
+                contender = SingleInstanceLock()
+                try:
+                    self.assertFalse(contender.acquire())
+                finally:
+                    contender.release()
+                if fail:
+                    raise ValueError("failure")
+                return "ok"
+
+            spec = get_command("project.create")
+            self.assertTrue(hasattr(spec.handler, "__wrapped__"))
+            guarded = exclusive_write(handler)
+            if fail:
+                with self.assertRaises(ValueError):
+                    guarded(None)
+            else:
+                self.assertEqual(guarded(None), "ok")
+            released = SingleInstanceLock()
             try:
-                import inspect
+                self.assertTrue(released.acquire())
+            finally:
+                released.release()
 
-                source = inspect.getsource(spec.handler)
-            except (OSError, TypeError):  # pragma: no cover
-                continue
-            if "ensure_gui_not_running" in source:
-                guarded.append(spec.name)
-                self.assertFalse(
-                    spec.read_only,
-                    f"{spec.name} 标为只读却调用了写入护栏",
-                )
-        self.assertTrue(guarded, "没有任何命令调用写入护栏，测试可能失效")
+    def test_all_writes_are_guarded_and_reads_are_unwrapped(self):
+        from src.cli.registry import all_commands
+        for spec in all_commands():
+            self.assertEqual(hasattr(spec.handler, "__wrapped__"), not spec.read_only)
 
 
 if __name__ == "__main__":

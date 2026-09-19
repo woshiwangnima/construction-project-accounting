@@ -3,10 +3,12 @@
 覆盖关键语义：改单价会**实时重算**已有账单金额（GUI 既有行为），
 以及由此产生的可见影响回报（affected_bills / total_delta）。
 """
+
 import unittest
 
-from src.cli.errors import EXIT_ERROR, EXIT_OK
 from cli_test_helpers import IsolatedDataDirTestCase, run_cli
+
+from src.cli.errors import EXIT_ERROR, EXIT_OK
 
 
 class TestTradeList(IsolatedDataDirTestCase):
@@ -23,7 +25,9 @@ class TestTradeList(IsolatedDataDirTestCase):
 
     def test_filter_by_name(self):
         uuid = self.create_project()
-        code, payload = run_cli(["trade.list", uuid, "--name-contains", "砌墙", "--json"])
+        code, payload = run_cli(
+            ["trade.list", uuid, "--name-contains", "砌墙", "--json"]
+        )
         self.assertEqual(code, EXIT_OK)
         self.assertEqual(payload["data"]["count"], 1)
 
@@ -32,8 +36,17 @@ class TestTradeAdd(IsolatedDataDirTestCase):
     def test_add_per_unit_trade(self):
         uuid = self.create_project()
         code, payload = run_cli(
-            ["trade.add", uuid, "--name", "找平", "--unit-price", "25",
-             "--unit", "m2", "--json"]
+            [
+                "trade.add",
+                uuid,
+                "--name",
+                "找平",
+                "--unit-price",
+                "25",
+                "--unit",
+                "m2",
+                "--json",
+            ]
         )
         self.assertEqual(code, EXIT_OK, payload)
         data = payload["data"]
@@ -76,7 +89,7 @@ class TestTradeAdd(IsolatedDataDirTestCase):
 
     def test_add_rejects_blank_name(self):
         uuid = self.create_project()
-        code, payload = run_cli(
+        code, _payload = run_cli(
             ["trade.add", uuid, "--name", "  ", "--unit-price", "10", "--json"]
         )
         self.assertEqual(code, EXIT_ERROR)
@@ -84,8 +97,17 @@ class TestTradeAdd(IsolatedDataDirTestCase):
     def test_add_creates_category_when_missing(self):
         uuid = self.create_project()
         code, payload = run_cli(
-            ["trade.add", uuid, "--name", "刷漆", "--unit-price", "18",
-             "--category", "油漆工程", "--json"]
+            [
+                "trade.add",
+                uuid,
+                "--name",
+                "刷漆",
+                "--unit-price",
+                "18",
+                "--category",
+                "油漆工程",
+                "--json",
+            ]
         )
         self.assertEqual(code, EXIT_OK, payload)
         self.assertEqual(payload["data"]["category"], "油漆工程")
@@ -110,8 +132,8 @@ class TestTradeUpdate(IsolatedDataDirTestCase):
     def test_price_change_recalculates_existing_bills(self):
         """改价会实时改变已有账单金额 —— GUI 既有语义，CLI 必须一致。"""
         uuid = self.create_project()
-        self.add_bill(uuid, "2+1")   # 3 * 45 = 135
-        self.add_bill(uuid, "1*1")   # 1 * 45 = 45
+        self.add_bill(uuid, "2+1")  # 3 * 45 = 135
+        self.add_bill(uuid, "1*1")  # 1 * 45 = 45
 
         code, payload = run_cli(
             ["trade.update", uuid, "ti_wall", "--unit-price", "50", "--json"]
@@ -188,7 +210,7 @@ class TestTradeUpdate(IsolatedDataDirTestCase):
         uuid = self.create_project()
         run_cli(["trade.update", uuid, "ti_wall", "--unit-price", "77", "--json"])
         _c, payload = run_cli(["trade.list", uuid, "--json"])
-        wall = [t for t in payload["data"]["trade_items"] if t["id"] == "ti_wall"][0]
+        wall = next(t for t in payload["data"]["trade_items"] if t["id"] == "ti_wall")
         self.assertAlmostEqual(wall["unit_price"], 77.0, places=2)
 
 

@@ -1,12 +1,14 @@
 """`bill` 写入命令：添加、修改、删除账单。
 
-并发安全：写入前经 guard.ensure_gui_not_running()，之后统一通过
+并发安全：命令注册表持锁执行完整写入流程，统一通过
 project_manager.update_project 落盘（内部自带写锁 + 备份策略）。
 """
 
 from __future__ import annotations
 
 import argparse
+import copy
+from ...project_service import save_bill, remove_bill, require_editable, validate_dates
 from datetime import datetime
 
 from ...bill import Bill
@@ -16,7 +18,6 @@ from ...trade_item_id import compute_bill_id
 from .. import common
 from ..common import op_map, require_project
 from ..errors import InvalidArgument, ProjectNotFound
-from ..guard import ensure_gui_not_running
 from ..registry import ArgSpec, CommandSpec, register
 
 _DATE_TYPES = ("无时间", "单个时间", "起止时间")
@@ -34,21 +35,7 @@ def _trade_item_index(project) -> dict:
 
 def _validate_date_args(args: argparse.Namespace) -> dict:
     date_type = args.work_date_type or "无时间"
-    if date_type not in _DATE_TYPES:
-        raise InvalidArgument(
-            f"未知日期类型: {date_type}", details={"allowed": list(_DATE_TYPES)}
-        )
-    start = args.date_start or ""
-    end = args.date_end or ""
-    if date_type == "无时间" and (start or end):
-        raise InvalidArgument("日期类型为「无时间」时不应传 --date-start/--date-end")
-    if date_type == "单个时间" and not start:
-        raise InvalidArgument("日期类型为「单个时间」时需要 --date-start")
-    if date_type == "起止时间" and not (start and end):
-        raise InvalidArgument(
-            "日期类型为「起止时间」时需要同时传 --date-start 与 --date-end"
-        )
-    return {"type": date_type, "start": start, "end": end}
+    return validate_dates(date_type, args.date_start or "", args.date_end or "")
 
 
 def _find_bill(project, bill_id: str) -> Bill:
@@ -89,7 +76,6 @@ def _bill_view(project, bill: Bill) -> dict:
 
 
 def _bill_add(args: argparse.Namespace) -> dict:
-    ensure_gui_not_running()
     project = require_project(args.uuid)
     # 与 GUI 一致的冻结规则：ProjectStatus.is_editable（已完成项目不可改）
     if not ProjectStatus.from_value(project.status).is_editable:
@@ -146,7 +132,7 @@ def _bill_add(args: argparse.Namespace) -> dict:
         work_date_end=dates["end"],
         record_time=record_time,
     )
-    project.bills.append(bill)
+    bill = save_bill(project, bill, op_map())
     common.project_manager.update_project(args.uuid, project)
 
     refreshed = require_project(args.uuid)
@@ -189,9 +175,8 @@ def _apply_bill_edits(bill: Bill, args: argparse.Namespace) -> bool:
 
 
 def _bill_update(args: argparse.Namespace) -> dict:
-    ensure_gui_not_running()
     project = require_project(args.uuid)
-    bill = _find_bill(project, args.bill_id)
+    bill = copy.deepcopy(_find_bill(project, args.bill_id))
 
     if not _apply_bill_edits(bill, args):
         result = _bill_view(project, bill)
@@ -199,6 +184,7 @@ def _bill_update(args: argparse.Namespace) -> dict:
         result["changed"] = False
         return result
 
+    save_bill(project, bill, op_map())
     common.project_manager.update_project(args.uuid, project)
     refreshed = require_project(args.uuid)
     result = _bill_view(refreshed, _find_bill(refreshed, args.bill_id))
@@ -208,12 +194,11 @@ def _bill_update(args: argparse.Namespace) -> dict:
 
 
 def _bill_remove(args: argparse.Namespace) -> dict:
-    ensure_gui_not_running()
     project = require_project(args.uuid)
     bill = _find_bill(project, args.bill_id)
     removed = _bill_view(project, bill)
 
-    project.bills = [b for b in project.bills if getattr(b, "id", "") != args.bill_id]
+    remove_bill(project, args.bill_id)
     common.project_manager.update_project(args.uuid, project)
 
     return {
@@ -265,7 +250,12 @@ register(
             ArgSpec(name="work_date_type", help="新的日期类型"),
             ArgSpec(name="date_start", help="新的开始日期"),
             ArgSpec(name="date_end", help="新的结束日期"),
-            ArgSpec(name="reviewed", help="标记为已审核", type="flag"),
+            # 三态：不传 = 不改；--reviewed = 已审核；--no-reviewed = 取消审核
+            ArgSpec(
+                name="reviewed",
+                help="标记为已审核（--no-reviewed 取消审核）",
+                type="tristate",
+            ),
         ),
         examples=("cpa bill.update <uuid> <bill-id> --content '5*5' --json",),
     )

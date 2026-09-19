@@ -3,22 +3,49 @@
 替代 Tk ListViewBase/RowActionButtons：QTableView + 列宽权重持久化 +
 拖拽行排序 + 右键菜单（复制/粘贴/上移/下移/删除）+ 排序指示。
 """
-from PySide6.QtCore import QRect, QSize, QTimer, Qt, Signal
+
+from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QCursor, QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import (
-    QAbstractItemView, QHeaderView, QMenu, QStyle, QStyledItemDelegate,
-    QTableView, QToolTip,
+    QAbstractItemView,
+    QMenu,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
+    QTableView,
+    QToolTip,
 )
 
-from ...logger import logger
-from ..font_manager import font_manager
+from ..common.column_layout import (
+    ColumnSpec,
+    capture_column_weights,
+    compute_column_pixels,
+)
 from ..theme import (
-    APP_BG, DANGER, DANGER_HOVER, HIGHLIGHT_BG, ROW_HOVER, TEXT_PRIMARY,
+    APP_BG,
+    DANGER,
+    DANGER_HOVER,
+    HIGHLIGHT_BG,
+    ROW_HOVER,
+    SYSTEM_GREEN,
+    TEXT_PRIMARY,
     TEXT_SECONDARY,
 )
-from ..common.column_layout import ColumnSpec, capture_column_weights, compute_column_pixels
+from .icons import (
+    ICON_CHECK_SQUARE,
+    ICON_COPY,
+    ICON_MOVE_DOWN,
+    ICON_MOVE_UP,
+    ICON_PASTE,
+    ICON_SQUARE,
+    ICON_TRASH,
+)
+from .icons import (
+    icon as ui_icon,
+)
 
 ROW_ACTION_COLUMN = "操作"
+REVIEW_COLUMN = "审核"
 
 # 「操作」列要容纳 ↑ / ↓ / ✕ 三个按钮 + 内边距，权重再大也不该压到这个宽度以下。
 _ACTION_COL_MIN_WIDTH = 112
@@ -43,10 +70,52 @@ _COLUMN_MIN_WIDTHS = {
 }
 _DEFAULT_COLUMN_MIN_WIDTH = 56
 
+# 只承载短状态或行级操作的列保持紧凑，把宽屏剩余空间留给工作内容、公式和备注。
+_UTILITY_COLUMN_MAX_WIDTHS = {
+    "#": 64,
+    REVIEW_COLUMN: 88,
+    ROW_ACTION_COLUMN: 120,
+}
+
 
 def column_min_width(name: str) -> int:
     """返回列的最小像素宽度，未登记的列使用默认值。"""
     return _COLUMN_MIN_WIDTHS.get(name, _DEFAULT_COLUMN_MIN_WIDTH)
+
+
+def cap_utility_column_widths(
+    pixels: dict[str, int],
+    visible: list[str],
+    weights: dict[str, float],
+) -> dict[str, int]:
+    """限制短功能列宽度，并把节省空间按权重分配给数据列。"""
+    result = dict(pixels)
+    surplus = 0
+    for name, maximum in _UTILITY_COLUMN_MAX_WIDTHS.items():
+        if name not in visible or name not in result:
+            continue
+        width = result[name]
+        if width > maximum:
+            surplus += width - maximum
+            result[name] = maximum
+
+    receivers = [name for name in visible if name not in _UTILITY_COLUMN_MAX_WIDTHS]
+    if surplus <= 0 or not receivers:
+        return result
+
+    positive = {name: max(float(weights.get(name, 0)), 0.0) for name in receivers}
+    total_weight = sum(positive.values())
+    if total_weight <= 0:
+        positive = dict.fromkeys(receivers, 1.0)
+        total_weight = float(len(receivers))
+
+    allocated = 0
+    for name in receivers[:-1]:
+        addition = round(surplus * positive[name] / total_weight)
+        result[name] = result.get(name, 0) + addition
+        allocated += addition
+    result[receivers[-1]] = result.get(receivers[-1], 0) + surplus - allocated
+    return result
 
 
 class RowActionDelegate(QStyledItemDelegate):
@@ -59,7 +128,6 @@ class RowActionDelegate(QStyledItemDelegate):
 
     action_triggered = Signal(int, str)
 
-    GLYPHS = ("\u2191", "\u2193", "\u2715")
     ACTIONS = ("up", "down", "delete")
     LABELS = ("上移", "下移", "删除")
     BTN_W = 30
@@ -70,6 +138,20 @@ class RowActionDelegate(QStyledItemDelegate):
         self._enabled = True
         self._hover = None  # (row, action)
         self._hover_row = -1  # 鼠标所在行；-1 表示鼠标不在表内
+        self._icons = {
+            "up": (
+                ui_icon(ICON_MOVE_UP, TEXT_SECONDARY),
+                ui_icon(ICON_MOVE_UP, TEXT_PRIMARY),
+            ),
+            "down": (
+                ui_icon(ICON_MOVE_DOWN, TEXT_SECONDARY),
+                ui_icon(ICON_MOVE_DOWN, TEXT_PRIMARY),
+            ),
+            "delete": (
+                ui_icon(ICON_TRASH, DANGER),
+                ui_icon(ICON_TRASH, DANGER_HOVER),
+            ),
+        }
 
     def set_enabled(self, enabled: bool) -> None:
         self._enabled = enabled
@@ -100,45 +182,51 @@ class RowActionDelegate(QStyledItemDelegate):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         # 与普通单元格保持同一套底色规则：选中 > 斑马纹/审核底色 > 悬停 > 表底。
         # 否则自定义绘制会让「操作」列变成一块突兀的白条。
-        selected = bool(option.state & QStyle.State_Selected)
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
         row_hovered = index.row() == self._hover_row
         if selected:
             painter.fillRect(option.rect, QColor(HIGHLIGHT_BG))
         else:
-            brush = index.data(Qt.BackgroundRole)
-            if isinstance(brush, QBrush):
-                painter.fillRect(option.rect, brush)
-            elif isinstance(brush, QColor):
+            brush = index.data(Qt.ItemDataRole.BackgroundRole)
+            if isinstance(brush, (QBrush, QColor)):
                 painter.fillRect(option.rect, brush)
             elif row_hovered:
                 painter.fillRect(option.rect, QColor(ROW_HOVER))
             else:
-                base = (option.widget.palette().base()
-                        if hasattr(option.widget, "palette") else QColor(APP_BG))
+                base = (
+                    option.widget.palette().base()
+                    if hasattr(option.widget, "palette")
+                    else QColor(APP_BG)
+                )
                 painter.fillRect(option.rect, base)
         # 只有鼠标所在行才画出按钮：其余行保持空白，表格看起来干净得多。
         if self._enabled and row_hovered:
-            for i, (glyph, action) in enumerate(zip(self.GLYPHS, self.ACTIONS)):
+            for i, action in enumerate(self.ACTIONS):
                 r = self._button_rect(option.rect, i)
                 hovered = self._hover == (index.row(), action)
                 if hovered:
                     painter.setBrush(QColor(HIGHLIGHT_BG))
-                    painter.setPen(Qt.NoPen)
+                    painter.setPen(Qt.PenStyle.NoPen)
                     painter.drawRoundedRect(r, 6, 6)
-                if action == "delete":
-                    color = DANGER_HOVER if hovered else DANGER
-                else:
-                    color = TEXT_PRIMARY if hovered else TEXT_SECONDARY
-                painter.setPen(QColor(color))
-                painter.setFont(font_manager.get("small"))
-                painter.drawText(r, Qt.AlignCenter, glyph)
+                icon = self._icons[action][1 if hovered else 0]
+                icon_rect = QRect(
+                    r.x() + 7,
+                    r.y() + 7,
+                    r.width() - 14,
+                    r.height() - 14,
+                )
+                icon.paint(
+                    painter,
+                    icon_rect,
+                    Qt.AlignmentFlag.AlignCenter,
+                )
         painter.restore()
 
     def sizeHint(self, option, index):
         size = option.rect.size()
         if not size.isEmpty():
             return size
-        fallback = index.data(Qt.SizeHintRole)
+        fallback = index.data(Qt.ItemDataRole.SizeHintRole)
         return fallback if fallback is not None else QSize(self.BTN_W, self.BTN_W)
 
     def editorEvent(self, event, model, option, index) -> bool:
@@ -160,14 +248,55 @@ class RowActionDelegate(QStyledItemDelegate):
             for i, action in enumerate(self.ACTIONS):
                 if self._button_rect(option.rect, i).contains(event.pos()):
                     self._hover = (index.row(), action)
-                    QToolTip.showText(event.globalPos(), self.LABELS[i],
-                                      option.widget)
+                    QToolTip.showText(event.globalPos(), self.LABELS[i], option.widget)
                     break
             if old != self._hover:
                 index.model().dataChanged.emit(index, index)
                 if self._hover is None:
                     QToolTip.hideText()
         return False
+
+
+class ReviewStateDelegate(QStyledItemDelegate):
+    """Render review state with project icons instead of platform-dependent glyphs."""
+
+    ICON_SIZE_MIN = 18
+    ICON_SIZE_MAX = 24
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._checked = ui_icon(ICON_CHECK_SQUARE, SYSTEM_GREEN)
+        self._unchecked = ui_icon(ICON_SQUARE, TEXT_SECONDARY)
+
+    def paint(self, painter, option, index) -> None:
+        display = index.data(Qt.ItemDataRole.DisplayRole)
+        reviewed = display == "☑"
+
+        # 让标准 delegate 先绘制选中、悬停和审核行背景，但清空文字，
+        # 再居中绘制统一矢量图标，避免系统字体把复选框渲染成方块。
+        icon_option = QStyleOptionViewItem(option)
+        self.initStyleOption(icon_option, index)
+        icon_option.text = ""
+        super().paint(painter, icon_option, index)
+
+        preferred = max(self.ICON_SIZE_MIN, option.fontMetrics.height())
+        size = min(
+            preferred,
+            self.ICON_SIZE_MAX,
+            option.rect.width() - 8,
+            option.rect.height() - 8,
+        )
+        icon_rect = QRect(
+            option.rect.center().x() - size // 2,
+            option.rect.center().y() - size // 2,
+            size,
+            size,
+        )
+        (self._checked if reviewed else self._unchecked).paint(
+            painter,
+            icon_rect,
+            Qt.AlignmentFlag.AlignCenter,
+        )
 
 
 class QtBaseTable(QTableView):
@@ -199,7 +328,11 @@ class QtBaseTable(QTableView):
         self.viewport().setMouseTracking(True)
         self._action_col = ROW_ACTION_COLUMN
         self._action_delegate = None
+        self._action_delegate_column = None
+        self._review_delegate = ReviewStateDelegate(self)
+        self._review_delegate_column = None
         self._content_mins: dict[str, int] = {}
+        self._measurement_keys: dict[str, tuple] = {}
         self._weights: dict[str, float] = {}
         self._hidden: list[str] = []
         self._editable = True
@@ -208,18 +341,18 @@ class QtBaseTable(QTableView):
         self._resize_timer.timeout.connect(self._emit_column_weights)
         self._layout_pending = True
 
-        self.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.setShowGrid(False)
         self.setAlternatingRowColors(False)
-        self.setDragDropMode(QAbstractItemView.InternalMove)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self.setDragEnabled(True)
         self.setAcceptDrops(True)
         self.setDropIndicatorShown(True)
-        self.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.setFocusPolicy(Qt.StrongFocus)
+        self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.verticalHeader().setVisible(False)
-        self.verticalHeader().setDefaultSectionSize(38)
+        self.verticalHeader().setDefaultSectionSize(self._default_row_height())
         self.horizontalHeader().setHighlightSections(False)
         self.horizontalHeader().setSortIndicatorShown(True)
         self.horizontalHeader().setSectionsClickable(True)
@@ -231,14 +364,31 @@ class QtBaseTable(QTableView):
         self.clicked.connect(self._on_clicked)
         self.doubleClicked.connect(self._on_double_clicked)
 
+    def _default_row_height(self) -> int:
+        """Return a font-aware row height with enough room for action icons."""
+        text_height = QFontMetrics(self.font()).height() + 16
+        action_height = RowActionDelegate.BTN_W + 8
+        return max(38, text_height, action_height)
+
     # ── 配置 ──
 
     def bind_model(self, model) -> None:
         self.setModel(model)
         model.rows_moved.connect(self.rows_moved)
+        for signal in (
+            model.rowsInserted,
+            model.rowsRemoved,
+            model.rowsMoved,
+            model.modelReset,
+        ):
+            signal.connect(lambda *_: self._sync_hover_row())
         self._action_delegate = RowActionDelegate(self)
         self._action_delegate.action_triggered.connect(self._on_delegate_action)
+        self._rebind_column_delegates()
+
+    def _rebind_column_delegates(self) -> None:
         self._rebind_action_delegate()
+        self._rebind_review_delegate()
 
     def _rebind_action_delegate(self) -> None:
         """把行内操作 delegate 绑到「操作」列的真实下标。
@@ -251,9 +401,25 @@ class QtBaseTable(QTableView):
         if model is None or self._action_delegate is None:
             return
         columns = getattr(model, "_columns", None) or []
+        if self._action_delegate_column is not None:
+            self.setItemDelegateForColumn(self._action_delegate_column, None)
+            self._action_delegate_column = None
         if self._action_col in columns:
+            self._action_delegate_column = columns.index(self._action_col)
             self.setItemDelegateForColumn(
-                columns.index(self._action_col), self._action_delegate
+                self._action_delegate_column, self._action_delegate
+            )
+
+    def _rebind_review_delegate(self) -> None:
+        model = self.model()
+        if model is None:
+            return
+        columns = getattr(model, "_columns", None) or []
+        if REVIEW_COLUMN in columns:
+            self._review_delegate_column = columns.index(REVIEW_COLUMN)
+            self.setItemDelegateForColumn(
+                self._review_delegate_column,
+                self._review_delegate,
             )
 
     def set_columns(self, columns: list[str], hidden: list[str] | None = None) -> None:
@@ -261,10 +427,13 @@ class QtBaseTable(QTableView):
         model = self.model()
         if model is None:
             return
+        changed = model._columns != list(columns)
         model.set_columns(list(columns), list(hidden or []))
-        # 项目切换后旧的实测值不再适用，清空避免拿上一份数据撑列宽。
-        self._content_mins = {}
-        self._rebind_action_delegate()
+        if changed:
+            self._content_mins = {}
+            self._measurement_keys = {}
+            self._layout_pending = True
+            self._rebind_column_delegates()
 
     # ── 内容自适应列宽 ──
 
@@ -291,28 +460,43 @@ class QtBaseTable(QTableView):
             return
         metrics = QFontMetrics(self.font())
         row_count = model.rowCount()
-        step = max(1, row_count // self.CONTENT_SAMPLE_ROWS)
+        step = max(
+            1, (row_count + self.CONTENT_SAMPLE_ROWS - 1) // self.CONTENT_SAMPLE_ROWS
+        )
         measured: dict[str, int] = {}
+        measurement_keys = {}
         for col_idx, name in enumerate(columns):
             if name == self._action_col:
                 continue
             # 单元格实际用的是 model 的 FontRole，与视图自身字体未必相同，
             # 必须按单元格字体测量，否则算出的宽度对不上真实绘制。
             cell_font = self._cell_font(model, col_idx, row_count)
+            samples = tuple(
+                str(
+                    model.data(model.index(row, col_idx), Qt.ItemDataRole.DisplayRole)
+                    or ""
+                )
+                for row in range(0, row_count, step)
+            )
+            key = ((cell_font or self.font()).key(), samples)
+            measurement_keys[name] = key
+            if self._measurement_keys.get(name) == key and name in self._content_mins:
+                measured[name] = self._content_mins[name]
+                continue
             cell_metrics = QFontMetrics(cell_font) if cell_font is not None else metrics
             widest = cell_metrics.horizontalAdvance(name)
-            for row in range(0, row_count, step):
-                text = model.data(model.index(row, col_idx), Qt.DisplayRole)
+            for text in samples:
                 if text:
-                    widest = max(widest, cell_metrics.horizontalAdvance(str(text)))
+                    widest = max(widest, cell_metrics.horizontalAdvance(text))
             measured[name] = widest + self._CELL_PADDING
         self._content_mins = measured
+        self._measurement_keys = measurement_keys
 
     @staticmethod
     def _cell_font(model, col_idx: int, row_count: int):
         """取该列单元格实际使用的 QFont（样本行里第一个非空 FontRole）。"""
         for row in range(min(row_count, 8)):
-            font = model.data(model.index(row, col_idx), Qt.FontRole)
+            font = model.data(model.index(row, col_idx), Qt.ItemDataRole.FontRole)
             if isinstance(font, QFont):
                 return font
         return None
@@ -330,15 +514,18 @@ class QtBaseTable(QTableView):
             if self._action_delegate is not None:
                 self._action_delegate.set_enabled(editable)
 
-    def set_column_weights(self, weights: dict, hidden: list[str] | None = None) -> None:
+    def set_column_weights(
+        self, weights: dict, hidden: list[str] | None = None
+    ) -> None:
         """应用列权重布局；隐藏列不显示（「操作」列固定显示）。"""
         model = self.model()
         if model is None:
             return
+        new_hidden = [name for name in (hidden or []) if name != self._action_col]
+        if self._weights == dict(weights) and self._hidden == new_hidden:
+            return
         self._weights = dict(weights)
-        self._hidden = list(hidden or [])
-        if self._action_col is not None and self._action_col in self._hidden:
-            self._hidden.remove(self._action_col)
+        self._hidden = new_hidden
         self._layout_pending = True
         self._apply_layout()
 
@@ -358,13 +545,18 @@ class QtBaseTable(QTableView):
         specs = [ColumnSpec(key=c, min_width=self._content_min(c)) for c in visible]
         weights = {k: v for k, v in self._weights.items() if k in set(visible)}
         pixels = compute_column_pixels(specs, weights, total)
+        pixels = cap_utility_column_widths(pixels, visible, weights)
 
         header = self.horizontalHeader()
-        for col, name in enumerate(columns):
-            width = pixels.get(name)
-            if width is None:
-                continue  # 隐藏列保持原宽度
-            header.resizeSection(col, max(int(width), 1))
+        was_blocked = header.blockSignals(True)
+        try:
+            for col, name in enumerate(columns):
+                width = pixels.get(name)
+                if width is None:
+                    continue  # 隐藏列保持原宽度
+                header.resizeSection(col, max(int(width), 1))
+        finally:
+            header.blockSignals(was_blocked)
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -373,7 +565,18 @@ class QtBaseTable(QTableView):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        if self._layout_pending:
+        self._layout_pending = True
+        self._apply_layout()
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.FontChange and hasattr(
+            self, "_measurement_keys"
+        ):
+            self.verticalHeader().setDefaultSectionSize(self._default_row_height())
+            self._measurement_keys.clear()
+            self.measure_content_mins()
+            self._layout_pending = True
             self._apply_layout()
 
     # ── 行悬停追踪（驱动「操作」列按钮的显隐） ──
@@ -443,8 +646,12 @@ class QtBaseTable(QTableView):
         order = "asc"
         indicator = self.horizontalHeader().sortIndicatorSection()
         if indicator == logical_index:
-            order = ("desc" if self.horizontalHeader().sortIndicatorOrder()
-                     == Qt.AscendingOrder else "asc")
+            order = (
+                "desc"
+                if self.horizontalHeader().sortIndicatorOrder()
+                == Qt.SortOrder.AscendingOrder
+                else "asc"
+            )
         self.sort_requested.emit(name, order)
 
     def set_sort_indicator(self, column_name: str, order: str) -> None:
@@ -456,7 +663,11 @@ class QtBaseTable(QTableView):
         except ValueError:
             return
         self.horizontalHeader().setSortIndicator(
-            col, Qt.AscendingOrder if order == "asc" else Qt.DescendingOrder)
+            col,
+            Qt.SortOrder.AscendingOrder
+            if order == "asc"
+            else Qt.SortOrder.DescendingOrder,
+        )
 
     def _on_clicked(self, index) -> None:
         if index.isValid() and self.model() is not None:
@@ -479,15 +690,28 @@ class QtBaseTable(QTableView):
         index = self.indexAt(event.pos())
         if not index.isValid():
             return
-        rows = sorted({i.row() for i in self.selectedIndexes()
-                       if i.row() >= 0}) or [index.row()]
+        rows = sorted({i.row() for i in self.selectedIndexes() if i.row() >= 0}) or [
+            index.row()
+        ]
         menu = QMenu(self)
         if self._editable:
-            menu.addAction("\u2191 上移", lambda: self.action_triggered.emit(rows[0], "up"))
-            menu.addAction("\u2193 下移", lambda: self.action_triggered.emit(rows[0], "down"))
+            menu.addAction(
+                ui_icon(ICON_MOVE_UP),
+                "上移",
+                lambda: self.action_triggered.emit(rows[0], "up"),
+            )
+            menu.addAction(
+                ui_icon(ICON_MOVE_DOWN),
+                "下移",
+                lambda: self.action_triggered.emit(rows[0], "down"),
+            )
             menu.addSeparator()
-        menu.addAction("复制", lambda: self.copy_requested.emit(rows))
-        menu.addAction("粘贴", lambda: self.paste_requested.emit(rows))
+        menu.addAction(
+            ui_icon(ICON_COPY), "复制", lambda: self.copy_requested.emit(rows)
+        )
+        menu.addAction(
+            ui_icon(ICON_PASTE), "粘贴", lambda: self.paste_requested.emit(rows)
+        )
         self._extend_menu(menu, rows)
         menu.exec(event.globalPos())
 

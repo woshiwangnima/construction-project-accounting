@@ -3,6 +3,8 @@
 只通过 self 访问宿主状态；模块级依赖均为叶子模块，避免循环导入。
 """
 import copy
+from ...bill import Bill
+from ...project_service import save_bill, remove_bill
 
 from .icons import ICON_COLUMNS, ICON_IMAGE, ICON_PLUS, icon as ui_icon
 from PySide6.QtCore import Qt, QTimer
@@ -34,17 +36,16 @@ class BillViewMixin:
         if not self.project_data or not self.current_uuid:
             return
         self.project_data["bill_display_mode"] = mode
-        if "bill_visible_columns" in self.project_data:
-            del self.project_data["bill_visible_columns"]
+        self.project_data.reset_field("bill_visible_columns")
         self._save_bridge.schedule(self.current_uuid, self.project_data)
         self._render_bills()
     def _render_bills(self) -> None:
         if not self.project_data:
             return
         p = self.project_data
-        bills = p.get("bills", []) or []
-        trade_items = p.get("trade_items", []) or []
-        calculations, total, err_cnt = summarize_bill_calculations(
+        bills = p.bills
+        trade_items = p.trade_items
+        calculations, total, err_cnt = self._bill_calculations.summarize(
             bills, trade_items, self._op_map
         )
         columns, weights, hidden = resolve_bill_columns(p, self._app_config)
@@ -79,26 +80,26 @@ class BillViewMixin:
     def _toggle_bill_review(self, row: int) -> None:
         if not self.project_data:
             return
-        bills = self.project_data.get("bills", []) or []
+        bills = self.project_data.bills
         if row == -1:
             if not self._editable:
                 return
             apply_bulk_review(bills)
             self._save_bridge.schedule(self.current_uuid, self.project_data)
-            self._render_bills()
+            self._bills_table.refresh_rows(range(len(bills)))
             return
         if row < 0 or row >= len(bills):
             return
         set_bill_reviewed(bills[row], not is_bill_reviewed(bills[row]))
         self._save_bridge.schedule(self.current_uuid, self.project_data)
-        self._render_bills()
+        self._bills_table.refresh_rows([row])
     def _sort_bills(self, column: str, order: str = "") -> None:
         if not self._editable or not self.project_data or column != "修改时间":
             return
         descending = self._bill_sort_descending
-        bills = self.project_data.get("bills", []) or []
+        bills = self.project_data.bills
         bills.sort(key=lambda b: b.get("record_time", ""), reverse=descending)
-        self.project_data["bills"] = bills
+        self.project_data.replace_bills(bills)
         self._save_bridge.schedule(self.current_uuid, self.project_data)
         self._bill_sort_descending = not descending
         self._bills_table.set_sort_indicator(
@@ -115,7 +116,7 @@ class BillViewMixin:
     def _move_bill(self, idx: int, direction: int) -> None:
         if not self._editable or not self.project_data:
             return
-        bills = self.project_data.get("bills", []) or []
+        bills = self.project_data.bills
         target = idx + direction
         if idx < 0 or target < 0 or target >= len(bills):
             return
@@ -127,7 +128,7 @@ class BillViewMixin:
     def _on_bills_rows_moved(self, rows: list, target: int) -> None:
         if not self._editable or not self.project_data:
             return
-        bills = self.project_data.get("bills", []) or []
+        bills = self.project_data.bills
         src = rows[0]
         if src < 0 or src >= len(bills):
             return
@@ -137,25 +138,25 @@ class BillViewMixin:
         if to == src:
             return
         moved_id = bills[src].get("id")
-        self.project_data["bills"] = move_item(bills, src, to)
+        self.project_data.replace_bills(move_item(bills, src, to))
         self._save_bridge.schedule(self.current_uuid, self.project_data)
         self._render_bills()
         self._select_bill_by_id(moved_id)
     def _delete_bill(self, idx: int) -> None:
         if not self._editable or not self.project_data:
             return
-        bills = self.project_data.get("bills", []) or []
+        bills = self.project_data.bills
         if idx < 0 or idx >= len(bills):
             return
         if not self._confirm_delete("确认", f"删除第 {idx + 1} 条记录？"):
             return
-        bills.pop(idx)
+        remove_bill(self.project_data, bills[idx].id)
         self._save_bridge.schedule(self.current_uuid, self.project_data)
         self._render_bills()
     def _select_bill_by_id(self, bill_id: str | None) -> None:
         if not bill_id:
             return
-        bills = self.project_data.get("bills", []) or []
+        bills = self.project_data.bills
         for i, bill in enumerate(bills):
             if bill.get("id") == bill_id:
                 self._bills_table.selectRow(i)
@@ -164,11 +165,11 @@ class BillViewMixin:
         if not self.project_data:
             return
         idx = rows[0] if rows else 0
-        bills = self.project_data.get("bills", []) or []
+        bills = self.project_data.bills
         if idx < 0 or idx >= len(bills):
             return
         bill = bills[idx]
-        items = self.project_data.get("trade_items", []) or []
+        items = self.project_data.trade_items
         cat, name = resolve_label(bill, items)
         if not name:
             snap = bill.get("frozen_snapshot")
@@ -197,10 +198,10 @@ class BillViewMixin:
             self._error_box("粘贴失败", f"剪贴板数据异常：{e}")
             return
         payload = entry["payload"]
-        items = self.project_data.get("trade_items", []) or []
+        items = self.project_data.trade_items
         new_bill = paste_bill(payload, items)
-        bills = self.project_data.setdefault("bills", [])
-        bills.append(new_bill)
+        bills = self.project_data.bills
+        bills.append(Bill.from_dict(new_bill))
         self._save_bridge.schedule(self.current_uuid, self.project_data)
         self._render_bills()
         if new_bill.get("trade_item_id"):
@@ -262,7 +263,7 @@ class BillViewMixin:
     def _edit_bill(self, row: int) -> None:
         if not self.project_data:
             return
-        bills = self.project_data.get("bills", []) or []
+        bills = self.project_data.bills
         if row < 0 or row >= len(bills):
             return
         from .dialogs import EditBillDialog
@@ -274,19 +275,10 @@ class BillViewMixin:
     def _on_bill_saved(self, updated: dict) -> None:
         if not self.project_data or not self.current_uuid:
             return
-        from ...project_manager import ensure_bill_id
-        bills = self.project_data.get("bills", []) or []
-        bill_id = updated.get("id")
-        if bill_id:
-            for i, b in enumerate(bills):
-                if b.get("id") == bill_id:
-                    bills[i] = updated
-                    break
-            else:
-                bills.append(updated)
-        else:
-            ensure_bill_id(updated)
-            bills.append(updated)
-        self.project_data["bills"] = bills
+        try:
+            save_bill(self.project_data, updated, self._op_map)
+        except ValueError as exc:
+            self._error_box(self.windowTitle(), str(exc))
+            return
         self._save_bridge.schedule(self.current_uuid, self.project_data)
         self._render_bills()

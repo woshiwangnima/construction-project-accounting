@@ -30,6 +30,8 @@ from PySide6.QtWidgets import (
 from ...config_loader import load_app
 from ...logger import logger
 from ...project_manager import get_project
+from ...project import Project
+from ...bill_calculation_cache import BillCalculationCache
 from ...project_status import ProjectStatus
 from ..clipboard import AppClipboard
 from ..font_manager import font_manager
@@ -117,7 +119,8 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
     def __init__(self, on_name_change=None, on_status_change=None, on_new_project=None):
         super().__init__()
         self.current_uuid = None
-        self.project_data = None
+        self.project_data: Project | None = None
+        self._bill_calculations = BillCalculationCache()
         self._tab = "bills"
         self._on_name_change = on_name_change
         self._on_status_change = on_status_change
@@ -169,6 +172,22 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
         layout.setSpacing(6)
 
         # 头部：项目名（22px 大标题）+ 状态 pill + 唯一主按钮「记一笔」
+        self._build_header(layout)
+        self._stack = QStackedWidget(self)
+        self._build_welcome_page()
+        self._build_bills_page()
+        self._build_workers_page()
+        layout.addWidget(self._stack, 1)
+
+        # 底部提示条（可关闭，关闭后不再显示）
+        from .onboarding import TipBar
+
+        self._tip_bar = TipBar(self)
+        layout.addWidget(self._tip_bar)
+
+    # ── 状态切换 ────────────────────────────────────────────────────────────
+
+    def _build_header(self, layout) -> None:
         header = QHBoxLayout()
         header.setSpacing(10)
         self._header_name_lbl = QLabel("")
@@ -275,7 +294,7 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
         layout.addLayout(tabs)
 
         # 内容栈：welcome / bills / workers
-        self._stack = QStackedWidget(self)
+    def _build_welcome_page(self) -> None:
         self._welcome_page = QWidget()
         wl = QVBoxLayout(self._welcome_page)
         w_card = QFrame()
@@ -322,6 +341,7 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
         self._stack.addWidget(self._welcome_page)
 
         # ── 账单页 ──
+    def _build_bills_page(self) -> None:
         self._bills_page = QWidget()
         bl = QVBoxLayout(self._bills_page)
         bl.setContentsMargins(0, 0, 0, 0)
@@ -374,6 +394,7 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
         self._stack.addWidget(self._bills_page)
 
         # ── 工作类型页：分类主-从窗格（左侧分类列表 + 右侧工种表）──
+    def _build_workers_page(self) -> None:
         self._workers_page = QWidget()
         wl2 = QVBoxLayout(self._workers_page)
         wl2.setContentsMargins(0, 0, 0, 0)
@@ -451,15 +472,6 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
         wl2.addWidget(self._category_splitter, 1)
         self._stack.addWidget(self._workers_page)
 
-        layout.addWidget(self._stack, 1)
-
-        # 底部提示条（可关闭，关闭后不再显示）
-        from .onboarding import TipBar
-
-        self._tip_bar = TipBar(self)
-        layout.addWidget(self._tip_bar)
-
-    # ── 状态切换 ────────────────────────────────────────────────────────────
 
     def _toggle_status(self, checked: bool | None = None) -> None:
         if not self.project_data:
@@ -552,10 +564,12 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
         self._tab_buttons["workers"].setChecked(False)
 
     def load_project(self, uuid: str) -> None:
-        project = get_project(uuid)
+        snapshot = self._save_bridge.pending_snapshot(uuid)
+        project = Project.from_dict(snapshot) if snapshot is not None else get_project(uuid)
         if project is None:
             logger.warning("[content] 项目不存在: %s", uuid)
             return
+        self._bill_calculations.clear()
         self.current_uuid = uuid
         self.project_data = project
         self._app_config = load_app()
@@ -662,9 +676,9 @@ class QtContentArea(BillViewMixin, WorkerViewMixin, QWidget):
     def flush_project_save(self, timeout: float = 2.0) -> bool:
         return self._save_bridge.flush(timeout)
 
-    def shutdown(self) -> None:
+    def shutdown(self) -> bool:
         """停止后台任务（窗口关闭时由 MainWindow 调用，须先于对象销毁）。"""
-        self._save_bridge.close()
+        return self._save_bridge.close()
 
     def _show_toast(self, text: str, level: str = "success") -> None:
         from .feedback import show_toast

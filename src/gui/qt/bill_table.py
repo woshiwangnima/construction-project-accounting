@@ -32,6 +32,10 @@ class QtBillTable(QtBaseTable):
         self._layout_pending = True
         self._apply_layout()
 
+    def refresh_rows(self, rows) -> None:
+        """Repaint review/date/note changes without rebuilding the table."""
+        self._model.refresh_rows(rows)
+
     # ── 右键菜单扩展：审核切换 ──
 
     def _extend_menu(self, menu: QMenu, rows: list[int]) -> None:

@@ -8,6 +8,8 @@
 from __future__ import annotations
 
 import argparse
+from decimal import Decimal
+from ...money import as_decimal
 
 from ...bill_recompute import summarize_bill_calculations
 from ..common import op_map, require_project
@@ -45,13 +47,13 @@ def _bill_list(args: argparse.Namespace) -> dict:
     )
 
     items = []
-    shown_total = 0.0
+    shown_total = Decimal("0")
     shown_error_count = 0
     for row, calc in zip(rows, calculations, strict=False):
         if args.orphan_only and not calc.orphan:
             continue
-        shown_total += calc.total
-        if row.get("content", "") and calc.total == 0:
+        shown_total += Decimal(str(calc.total))
+        if calc.formula_error:
             shown_error_count += 1
         item = {
             "id": row.get("id", ""),
@@ -77,9 +79,9 @@ def _bill_list(args: argparse.Namespace) -> dict:
         "uuid": project.project_uuid,
         "name": project.name,
         "count": len(items),
-        "total": shown_total,
+        "total": float(shown_total),
         "project_total": project_total,
-        # 保留 GUI 的既有口径：非空公式且合计为 0 即视为计算告警
+        # 与 GUI 共用公式解析错误标记；零金额本身不是错误。
         "formula_error_count": shown_error_count,
         "bills": items,
     }
@@ -92,29 +94,29 @@ def _bill_summary(args: argparse.Namespace) -> dict:
         rows, _trade_item_rows(project), op_map()
     )
 
-    by_category: dict[str, float] = {}
+    by_category: dict[str, Decimal] = {}
     by_trade_item: dict[str, dict] = {}
-    orphan_total = 0.0
+    orphan_total = Decimal("0")
     orphan_count = 0
 
     for calc in calculations:
-        by_category[calc.category] = by_category.get(calc.category, 0.0) + calc.total
+        by_category[calc.category] = by_category.get(calc.category, Decimal("0")) + as_decimal(calc.total)
         key = calc.name or "（未命名）"
         bucket = by_trade_item.setdefault(
             key,
             {
                 "name": key,
                 "category": calc.category,
-                "total": 0.0,
+                "total": Decimal("0"),
                 "count": 0,
                 "unit_price": calc.billing.unit_price,
                 "unit": calc.billing.unit,
             },
         )
-        bucket["total"] += calc.total
+        bucket["total"] += as_decimal(calc.total)
         bucket["count"] += 1
         if calc.orphan:
-            orphan_total += calc.total
+            orphan_total += as_decimal(calc.total)
             orphan_count += 1
 
     return {
@@ -125,11 +127,12 @@ def _bill_summary(args: argparse.Namespace) -> dict:
         "total": total,
         "formula_error_count": error_count,
         "orphan_count": orphan_count,
-        "orphan_total": orphan_total,
+        "orphan_total": float(orphan_total),
         "by_category": [
-            {"category": key, "total": value} for key, value in by_category.items()
+            {"category": key, "total": float(value)} for key, value in by_category.items()
         ],
-        "by_trade_item": sorted(by_trade_item.values(), key=lambda r: -r["total"]),
+        "by_trade_item": [{**r, "total": float(r["total"])}
+                          for r in sorted(by_trade_item.values(), key=lambda r: -r["total"])],
     }
 
 

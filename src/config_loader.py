@@ -3,6 +3,7 @@ import os
 import copy
 from pathlib import Path
 
+from .config_normalization import merge_defaults, merge_named_rows
 from .logger import logger
 from .paths import get_config_dir, get_resource_config_dir
 from .utils import atomic_write_json
@@ -142,30 +143,32 @@ def load_json(filename: str) -> dict:
 
 
 def _repair_column_flags(rows: list, defaults: list) -> list:
-    """按列名补齐旧配置里缺失的显隐标记。
-
-    ``default_bill_column_widths_data`` 是列表，``_deep_merge`` 对列表是整体替换
-    而不是逐行合并，所以老版本写下的行会一直缺 ``show_in_audit``；
-    而 ``resolve_bill_columns`` 在标记缺失时按"显示"处理，「查账模式」于是
-    与「显示全部」完全没有区别。这里按列名回填默认值（用户已有值优先）。
-    """
-    base = {
-        d["name"]: d
-        for d in defaults
-        if isinstance(d, dict) and "name" in d
-    }
-    repaired = []
-    for row in rows:
-        if not isinstance(row, dict) or row.get("name") not in base:
-            repaired.append(row)
-            continue
-        merged = copy.deepcopy(base[row["name"]])
-        merged.update(row)
-        repaired.append(merged)
-    return repaired
+    """Compatibility wrapper; all named configuration lists now use this rule."""
+    return merge_named_rows(defaults, rows)
 
 
 _app_cache: dict | None = None
+_app_cache_key: tuple | None = None
+
+
+def _app_source_key() -> tuple:
+    """Track directory switches, external edits and bundled fallback changes."""
+    configured_path = Path(_safe_path("app_config.json"))
+    source_path = configured_path
+    if not source_path.is_file():
+        resource_path = get_resource_config_dir() / "app_config.json"
+        if resource_path.is_file():
+            source_path = resource_path
+    try:
+        stat = source_path.stat()
+        revision = (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino)
+    except OSError:
+        revision = None
+    return (
+        os.path.normcase(str(configured_path.absolute())),
+        os.path.normcase(str(source_path.absolute())),
+        revision,
+    )
 
 
 def load_app():
@@ -173,30 +176,22 @@ def load_app():
 
     这样既保证所有默认键都存在，又保留用户自定义值；
     调用 save_app() 时不会丢失 _DEFAULT_CONFIGS 里的字段。
-    结果缓存；save_app() 会使缓存失效。
+    按名称补齐列表条目的新增字段；不改变用户顺序、显式值或未知配置。
+    结果缓存；保存、切换配置目录或外部修改配置文件会使缓存失效。
     """
-    global _app_cache
-    if _app_cache is None:
-        defaults = copy.deepcopy(_DEFAULT_CONFIGS.get("app_config.json", {}))
+    global _app_cache, _app_cache_key
+    source_key = _app_source_key()
+    if _app_cache is None or _app_cache_key != source_key:
+        defaults = _DEFAULT_CONFIGS.get("app_config.json", {})
         file_data = load_json("app_config.json")
-        merged = _deep_merge(defaults, file_data)
-        merged["default_bill_column_widths_data"] = _repair_column_flags(
-            merged.get("default_bill_column_widths_data", []),
-            defaults.get("default_bill_column_widths_data", []),
-        )
-        _app_cache = merged
+        _app_cache = _deep_merge(defaults, file_data)
+        _app_cache_key = source_key
     return copy.deepcopy(_app_cache)
 
 
 def _deep_merge(base: dict, overlay: dict) -> dict:
-    """递归合并两个 dict：overlay 的值覆盖 base，嵌套 dict 递归合并。"""
-    result = copy.deepcopy(base)
-    for key, val in overlay.items():
-        if key in result and isinstance(result[key], dict) and isinstance(val, dict):
-            result[key] = _deep_merge(result[key], val)
-        else:
-            result[key] = val
-    return result
+    """递归补齐默认值，包括按名称匹配的列表条目。"""
+    return merge_defaults(base, overlay)
 
 
 def load_user():
@@ -210,7 +205,8 @@ def save_user(data: dict):
 
 
 def save_app(data: dict):
-    global _app_cache
+    global _app_cache, _app_cache_key
     _app_cache = None
+    _app_cache_key = None
     path = _safe_path("app_config.json")
     atomic_write_json(path, data)

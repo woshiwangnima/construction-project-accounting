@@ -4,10 +4,14 @@ P2 范围：窗口几何持久化（JSON window_sizes.main）、QSplitter 侧栏
 全局 QSS + 字体、快捷键绑定、更新检查（发现结果仅记日志，P4 接对话框）。
 """
 
+from typing import cast
+
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
+    QMessageBox,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -77,7 +81,7 @@ class MainWindow(QMainWindow):
         central = QWidget()
         main_layout = QVBoxLayout(central)
         main_layout.setContentsMargins(0, 0, 0, 0)
-        self._splitter = QSplitter(Qt.Horizontal, central)
+        self._splitter = QSplitter(Qt.Orientation.Horizontal, central)
         main_layout.addWidget(self._splitter)
         self.setCentralWidget(central)
 
@@ -143,7 +147,7 @@ class MainWindow(QMainWindow):
         bar = self.statusBar()
         bar.setSizeGripEnabled(False)
         bar.setStyleSheet(self._status_qss(TEXT_SECONDARY))
-        bar.showMessage("就绪 · 账单数据实时自动保存已开启")
+        bar.showMessage("自动保存已开启")
         try:
             self.content._save_bridge.save_state.connect(self._on_save_state)
         except Exception as exc:
@@ -180,12 +184,12 @@ class MainWindow(QMainWindow):
 
     def _apply_refresh(self) -> None:
         app = QApplication.instance()
-        if app is not None:
+        if isinstance(app, QApplication):
             # setStyleSheet() 会重新 polish 平台样式并可能覆盖 ToolTip palette，
             # 因此调色板必须最后应用，不能只在 build_qss() 内提前设置。
             app.setStyleSheet(build_qss())
             apply_tooltip_palette(app)
-        self.setFont(font_manager.get("body"))
+        self.setFont(cast(QFont, font_manager.get("body")))
         if hasattr(self, "sidebar") and hasattr(self, "content"):
             self.sidebar._apply_fonts()
             self.content._apply_fonts()
@@ -333,9 +337,7 @@ class MainWindow(QMainWindow):
                     self._update_check_running = False
                     self._update_checker = None
                     if checker.result:
-                        logger.info(
-                            "[updater] 发现新版本: %s", checker.result.latest_version
-                        )
+                        logger.info("[updater] 发现新版本: %s", checker.result.version)
                 else:
                     self._update_poll_after_id = QTimer(self)
                     self._update_poll_after_id.setSingleShot(True)
@@ -355,9 +357,24 @@ class MainWindow(QMainWindow):
 
     # ── 关闭 ────────────────────────────────────────────────────────────────
 
-    def _on_close(self) -> None:
+    def _on_close(self) -> bool:
         if self._closed:
-            return
+            return True
+        content = getattr(self, "content", None)
+        if content is not None:
+            try:
+                saved = content.shutdown()
+            except Exception as exc:
+                logger.warning("关闭前保存项目失败: %s", exc, exc_info=True)
+                saved = False
+            if not saved:
+                QMessageBox.warning(
+                    self,
+                    "项目尚未保存",
+                    "仍有项目未成功保存，窗口暂不关闭。\n"
+                    "请检查磁盘空间和目录权限，稍后再次关闭以重试保存。",
+                )
+                return False
         self._closed = True
         for timer_attr in (
             "_save_after_id",
@@ -373,17 +390,6 @@ class MainWindow(QMainWindow):
                 setattr(self, timer_attr, None)
         self._update_check_running = False
         self._update_checker = None
-
-        content = getattr(self, "content", None)
-        if content is not None:
-            try:
-                content.flush_project_save()
-            except Exception as exc:
-                logger.warning("关闭前刷新项目保存队列失败: %s", exc)
-            try:
-                content.shutdown()
-            except Exception as exc:
-                logger.warning("关闭内容区后台任务失败: %s", exc)
 
         try:
             self._save_window_geometry()
@@ -402,7 +408,10 @@ class MainWindow(QMainWindow):
                 VoiceEngine._instance.shutdown()
         except Exception as exc:
             logger.debug("关闭语音引擎时忽略异常: %s", exc)
+        return True
 
     def closeEvent(self, event) -> None:
-        self._on_close()
-        event.accept()
+        if self._on_close():
+            event.accept()
+        else:
+            event.ignore()

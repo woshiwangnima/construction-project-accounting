@@ -6,20 +6,26 @@
 这里用真实的 delegate.paint 渲染到 QImage 再查像素，
 而不是断言"某个私有字段被设成了 True"——后者在绘制逻辑改动后会假绿。
 """
+
 import os
 import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QRect, Qt
+from PySide6.QtCore import QRect
 from PySide6.QtGui import QColor, QImage, QPainter, QStandardItemModel
-from PySide6.QtWidgets import QApplication, QStyle, QStyleOptionViewItem
+from PySide6.QtWidgets import (
+    QApplication,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
+)
 
-from src.gui.qt.table import RowActionDelegate
-from src.gui.theme import DANGER, TEXT_SECONDARY
+from src.gui.qt.table import ReviewStateDelegate, RowActionDelegate
+from src.gui.theme import DANGER, SYSTEM_GREEN, TEXT_SECONDARY
 
-_ARROW = QColor(TEXT_SECONDARY)   # ↑ / ↓
-_CROSS = QColor(DANGER)           # ✕
+_ARROW = QColor(TEXT_SECONDARY)
+_CROSS = QColor(DANGER)
 
 _APP = None
 
@@ -29,16 +35,20 @@ def setUpModule() -> None:
     _APP = QApplication.instance() or QApplication([])
 
 
-def _render(delegate: RowActionDelegate, model, row: int,
-            size=(160, 40)) -> QImage:
+def _render(
+    delegate: QStyledItemDelegate,
+    model,
+    row: int,
+    size=(160, 40),
+) -> QImage:
     """把某一行渲染进 QImage，返回图像供像素检查。"""
-    img = QImage(size[0], size[1], QImage.Format_ARGB32)
+    img = QImage(size[0], size[1], QImage.Format.Format_ARGB32)
     img.fill(QColor("#ffffff"))
     painter = QPainter(img)
     try:
         option = QStyleOptionViewItem()
         option.rect = QRect(0, 0, size[0], size[1])
-        option.state = QStyle.State_Enabled | QStyle.State_Active
+        option.state = QStyle.StateFlag.State_Enabled | QStyle.StateFlag.State_Active
         delegate.paint(painter, option, model.index(row, 0))
     finally:
         painter.end()
@@ -51,11 +61,27 @@ def _count_matching(img: QImage, target: QColor, tol: int = 24) -> int:
     for y in range(img.height()):
         for x in range(img.width()):
             c = img.pixelColor(x, y)
-            if (abs(c.red() - target.red()) <= tol
-                    and abs(c.green() - target.green()) <= tol
-                    and abs(c.blue() - target.blue()) <= tol):
+            if (
+                abs(c.red() - target.red()) <= tol
+                and abs(c.green() - target.green()) <= tol
+                and abs(c.blue() - target.blue()) <= tol
+            ):
                 hits += 1
     return hits
+
+
+class ReviewStateDelegateTests(unittest.TestCase):
+    def test_checked_and_unchecked_states_use_project_icons(self):
+        model = QStandardItemModel(2, 1)
+        model.setData(model.index(0, 0), "☑")
+        model.setData(model.index(1, 0), "☐")
+        delegate = ReviewStateDelegate()
+
+        checked = _render(delegate, model, 0)
+        unchecked = _render(delegate, model, 1)
+
+        self.assertGreater(_count_matching(checked, QColor(SYSTEM_GREEN)), 0)
+        self.assertGreater(_count_matching(unchecked, QColor(TEXT_SECONDARY)), 0)
 
 
 class RowActionDelegateVisibilityTests(unittest.TestCase):
@@ -74,20 +100,34 @@ class RowActionDelegateVisibilityTests(unittest.TestCase):
     def test_buttons_are_drawn_only_on_the_hovered_row(self):
         self.delegate.set_hover_row(1)
 
-        self.assertGreater(_count_matching(_render(self.delegate, self.model, 1), _ARROW), 0)
-        self.assertGreater(_count_matching(_render(self.delegate, self.model, 1), _CROSS), 0)
+        self.assertGreater(
+            _count_matching(_render(self.delegate, self.model, 1), _ARROW), 0
+        )
+        self.assertGreater(
+            _count_matching(_render(self.delegate, self.model, 1), _CROSS), 0
+        )
         # 同一时刻其它行必须是空的
-        self.assertEqual(_count_matching(_render(self.delegate, self.model, 0), _ARROW), 0)
-        self.assertEqual(_count_matching(_render(self.delegate, self.model, 2), _ARROW), 0)
+        self.assertEqual(
+            _count_matching(_render(self.delegate, self.model, 0), _ARROW), 0
+        )
+        self.assertEqual(
+            _count_matching(_render(self.delegate, self.model, 2), _ARROW), 0
+        )
 
     def test_moving_to_another_row_moves_the_buttons(self):
         self.delegate.set_hover_row(0)
-        self.assertGreater(_count_matching(_render(self.delegate, self.model, 0), _ARROW), 0)
+        self.assertGreater(
+            _count_matching(_render(self.delegate, self.model, 0), _ARROW), 0
+        )
 
         self.delegate.set_hover_row(2)
 
-        self.assertEqual(_count_matching(_render(self.delegate, self.model, 0), _ARROW), 0)
-        self.assertGreater(_count_matching(_render(self.delegate, self.model, 2), _ARROW), 0)
+        self.assertEqual(
+            _count_matching(_render(self.delegate, self.model, 0), _ARROW), 0
+        )
+        self.assertGreater(
+            _count_matching(_render(self.delegate, self.model, 2), _ARROW), 0
+        )
 
     def test_readonly_table_never_draws_buttons(self):
         self.delegate.set_hover_row(1)
@@ -103,7 +143,9 @@ class RowActionDelegateVisibilityTests(unittest.TestCase):
         self.delegate.set_hover_row(99)
 
         for row in range(3):
-            self.assertEqual(_count_matching(_render(self.delegate, self.model, row), _ARROW), 0)
+            self.assertEqual(
+                _count_matching(_render(self.delegate, self.model, row), _ARROW), 0
+            )
 
 
 class RowActionDelegateHoverStateTests(unittest.TestCase):

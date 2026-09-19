@@ -7,6 +7,7 @@
 位于 `get_data_dir()`，若不重定向，测试会去碰用户真实的 `.app.lock`——
 用户开着桌面程序时，所有写入测试都会被正确地拒绝而集体失败。
 """
+
 from __future__ import annotations
 
 import contextlib

@@ -9,20 +9,22 @@
 第 3 类不接任何配置，用户在设置里改「默认字号」时纹丝不动；字体设置面板
 里的字号输入框也是哑炮（提交 72、实际出来 24）。这个文件把约束钉住。
 """
+
 import os
 import pathlib
 import re
 import unittest
+from typing import cast
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtGui import QFont
+from PySide6.QtWidgets import QApplication
 
-from src.gui import font_manager as fm  # noqa: E402
-from src.gui import theme  # noqa: E402
-from src.gui.font_manager import (  # noqa: E402
-    ROLE_KEYS, FontManager, font_manager,
-)
+from src.gui import font_manager as fm
+from src.gui import theme
+from src.gui.font_manager import ROLE_KEYS, FontManager, font_manager
+from src.gui.qt.dialogs.settings.font_panel import _build_preview_font
 
 _APP = QApplication.instance() or QApplication([])
 
@@ -44,7 +46,7 @@ def _scan(pattern: re.Pattern) -> list:
                 continue
             if "``" in line:  # docstring 里的写法示例，不是真代码
                 continue
-            hits.append("%s:%d" % (path.relative_to(GUI_ROOT), lineno))
+            hits.append(f"{path.relative_to(GUI_ROOT)}:{lineno}")
     return hits
 
 
@@ -60,12 +62,29 @@ class FontSingleSourceTests(unittest.TestCase):
         两种大小的正文。
         """
         font_manager.init_qt()
+        # 其他测试可能改过临时配置；比较前按当前配置重建字体缓存。
+        font_manager.refresh()
         for role in ROLE_KEYS:
             self.assertEqual(
-                font_manager.get(role).pixelSize(),
+                cast(QFont, font_manager.get(role)).pixelSize(),
                 theme.font_px(role),
-                "%s 的两条通道字号不一致" % role,
+                f"{role} 的两条通道字号不一致",
             )
+
+    def test_settings_preview_uses_pixel_size(self):
+        """字体面板预览必须与实际控件一样使用 px，而不是 QFont 的 pt。"""
+        preview = _build_preview_font(
+            {
+                "family": "Microsoft YaHei UI",
+                "size": 18,
+                "bold": True,
+                "italic": False,
+                "underline": False,
+                "overstrike": False,
+            }
+        )
+        self.assertEqual(preview.pixelSize(), 18)
+        self.assertEqual(preview.pointSize(), -1)
 
     def test_role_multiplier_override_wins(self):
         """字体面板写回的 multiplier 必须真正生效（曾经被直接丢弃）。"""
@@ -75,9 +94,7 @@ class FontSingleSourceTests(unittest.TestCase):
 
     def test_legacy_size_override_is_honoured(self):
         """旧配置里遗留的 size 也要兑现，而不是像以前那样当作不存在。"""
-        self.assertEqual(
-            FontManager._resolve_multiplier("body", {"size": 21}, 14), 1.5
-        )
+        self.assertEqual(FontManager._resolve_multiplier("body", {"size": 21}, 14), 1.5)
 
     def test_multiplier_is_clamped(self):
         """倍率收进 0.5–3.0：更低读不清，更高会撑爆表格列宽。"""
@@ -94,18 +111,19 @@ class FontSingleSourceTests(unittest.TestCase):
         取两个相邻基准，输出的字号集合不能有交集；有交集就说明某处
         写死了 px，改默认字号时它不会动。
         """
+
         def sizes(base):
             return set(re.findall(r"font-size:\s*(\d+)px", theme.build_qss(base)))
 
         fixed = sizes(14) & sizes(15)
-        self.assertEqual(fixed, set(), "QSS 中存在不随默认字号变化的字号: %s" % fixed)
+        self.assertEqual(fixed, set(), f"QSS 中存在不随默认字号变化的字号: {fixed}")
 
     def test_no_hardcoded_font_size_in_gui(self):
         """GUI 源码里不许再出现 `font-size: Npx` 字面量。
 
         那种写法脱离配置。要字号请用 theme.font_px(role)。
         """
-        offenders = [h for h in _scan(HARDCODED_PX)]
+        offenders = list(_scan(HARDCODED_PX))
         self.assertEqual(offenders, [], "存在硬编码字号: " + ", ".join(offenders))
 
     def test_font_px_is_interpolated(self):
