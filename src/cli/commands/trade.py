@@ -156,9 +156,12 @@ def _trade_update(args: argparse.Namespace) -> dict:
     before = _trade_view(item, project)
 
     update_trade_fields(
-        item, name=args.name if args.name is not None else item.name,
+        item,
+        name=args.name if args.name is not None else item.name,
         category=args.category if args.category is not None else item.category,
-        has_unit=False if args.no_unit else (True if args.unit_price is not None else item.has_unit),
+        has_unit=False
+        if args.no_unit
+        else (True if args.unit_price is not None else item.has_unit),
         unit_price=args.unit_price if args.unit_price is not None else item.unit_price,
         unit=args.unit if args.unit is not None else item.unit,
     )

@@ -1,10 +1,11 @@
 """Shared project mutations; no GUI, CLI or persistence dependencies."""
+
 from copy import deepcopy
 from datetime import date
 
 from .bill import Bill
-from .billing import Billing, read_billing, write_billing
 from .bill_recompute import calculate_bill, prepare_bill_calculations
+from .billing import Billing, read_billing, write_billing
 from .calculator import MathParseError, evaluate_decimal, to_canonical
 from .money import validate_price
 from .project import Project
@@ -39,9 +40,11 @@ def update_trade_fields(item, *, name, category, has_unit, unit_price, unit) -> 
     if not name:
         raise ValidationError("工作类型名称不能为空")
     try:
-        billing = Billing(has_unit=has_unit,
-                          unit_price=validate_price(unit_price) if has_unit else 0,
-                          unit=(unit or "").strip())
+        billing = Billing(
+            has_unit=has_unit,
+            unit_price=validate_price(unit_price) if has_unit else 0,
+            unit=(unit or "").strip(),
+        )
     except ValueError as exc:
         raise ValidationError(str(exc)) from exc
     item["name"] = name
@@ -61,9 +64,14 @@ def save_trade(project: Project, data) -> TradeItem:
     # its category ID before persistence.
     if hasattr(data, "category"):
         payload["category"] = data.category
-    update_trade_fields(payload, name=payload.get("name"), category=payload.get("category", ""),
-                        has_unit=payload.get("has_unit", True),
-                        unit_price=payload.get("unit_price", 1), unit=payload.get("unit", ""))
+    update_trade_fields(
+        payload,
+        name=payload.get("name"),
+        category=payload.get("category", ""),
+        has_unit=payload.get("has_unit", True),
+        unit_price=payload.get("unit_price", 1),
+        unit=payload.get("unit", ""),
+    )
     candidate = TradeItem.from_dict(payload)
     candidate.category_id = project.ensure_category(candidate.category)
     for index, item in enumerate(project.trade_items):
@@ -78,7 +86,8 @@ def save_trade(project: Project, data) -> TradeItem:
 def freeze_bill(bill, item, total: float) -> None:
     billing = read_billing(item)
     bill["frozen_snapshot"] = {
-        "name": item.get("name", ""), "category": item.get("category", ""),
+        "name": item.get("name", ""),
+        "category": item.get("category", ""),
         **billing.to_dict(),
     }
     bill["frozen_total"] = total
@@ -94,17 +103,24 @@ def remove_trades(project: Project, ids: set[str], op_map: dict) -> None:
     for bill, calc in zip(project.bills, calculations, strict=True):
         if bill.trade_item_id in ids and calc.trade_item is not None:
             freeze_bill(bill, calc.trade_item, calc.total)
-    project.replace_trade_items([item for item in project.trade_items if item.id not in ids])
+    project.replace_trade_items(
+        [item for item in project.trade_items if item.id not in ids]
+    )
 
 
-def associate_bill(updated: dict, existing, item, trade_items: list, op_map: dict) -> None:
+def associate_bill(
+    updated: dict, existing, item, trade_items: list, op_map: dict
+) -> None:
     if item is not None:
         updated["trade_item_id"] = ensure_trade_item_id(item)
         for key in ("frozen_snapshot", "frozen_total", "_needs_attention"):
             updated.pop(key, None)
         return
-    calc = calculate_bill({**updated, "trade_item_id": existing.get("trade_item_id", "")},
-                          trade_items, op_map)
+    calc = calculate_bill(
+        {**updated, "trade_item_id": existing.get("trade_item_id", "")},
+        trade_items,
+        op_map,
+    )
     updated["trade_item_id"] = ""
     if calc.trade_item is not None:
         freeze_bill(updated, calc.trade_item, calc.total)
@@ -117,15 +133,25 @@ def associate_bill(updated: dict, existing, item, trade_items: list, op_map: dic
 def save_bill(project: Project, data, op_map: dict) -> Bill:
     payload = data.to_dict() if hasattr(data, "to_dict") else dict(data)
     payload["content"] = validate_formula(payload.get("content", ""), op_map)
-    validate_dates(payload.get("work_date_type", "无时间"), payload.get("work_date_start", ""),
-                   payload.get("work_date_end", ""))
+    validate_dates(
+        payload.get("work_date_type", "无时间"),
+        payload.get("work_date_start", ""),
+        payload.get("work_date_end", ""),
+    )
     identifier = payload.get("id")
-    existing = next((b for b in project.bills if b.id == identifier), None) if identifier else None
+    existing = (
+        next((b for b in project.bills if b.id == identifier), None)
+        if identifier
+        else None
+    )
     if existing is None:
         require_editable(project)
     if not identifier:
-        payload["id"] = compute_bill_id(payload.get("trade_item_id", ""), payload["content"],
-                                        payload.get("record_time", ""))
+        payload["id"] = compute_bill_id(
+            payload.get("trade_item_id", ""),
+            payload["content"],
+            payload.get("record_time", ""),
+        )
         if any(b.id == payload["id"] for b in project.bills):
             raise ValidationError("已存在相同内容与时间的账单（ID 冲突）")
     bill = Bill.from_dict(payload)
